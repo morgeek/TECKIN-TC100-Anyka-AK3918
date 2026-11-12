@@ -33,6 +33,7 @@
 #define REG 64			/* regularisation, per tap: the energy of a far end of rms 8 */
 #define ETHR 1024		/* far end active when the mean square of the window is above this (rms 32, -60 dBFS) */
 #define EFMAX 12000		/* longest freeze by the error test, 1.5 s (then slow adaptation) */
+#define GMAX (1 << 22)		/* largest step factor: keeps one update of a weight below 2^29 */
 #define PYMIN 2500		/* the echo estimate counts when its mean square is above this (rms 50) */
 
 struct aec {
@@ -42,8 +43,10 @@ struct aec {
 	int16_t ring[RING];
 	uint32_t wp, rp;			/* samples in the ring / index of the reference for the next microphone sample */
 	int32_t w[AEC_TAPS_MAX];
-	int64_t energy;				/* sum of the squares of the window x[0..taps-1] = ring[rp-k] */
-	int live, resync, hold, dt, learn, n64, efrun;
+	int64_t energy;				/* sum of the squares of the window ring[rp-taps .. rp-1] (before the sample at rp is added) */
+	int64_t en_blk;				/* the energy the step normalisation r was computed with */
+	int32_t r;				/* NLMS step normalisation, mu / energy, Q8 of the Q28 weight scale: one division per block */
+	int live, resync, hold, dt, learn, n64, efrun, blk, tgl;
 	int32_t fp, l1;				/* peak follower of the reference, L1 norm of the weights (Q8) */
 	int32_t pm, pe, py;			/* smoothed powers: microphone, error, echo estimate */
 	int32_t sg, sgt;			/* suppressor gain and its target, Q12 */
@@ -72,7 +75,7 @@ void aec_reset(struct aec *a)
 {
 	memset(a->ring, 0, sizeof a->ring);
 	memset(a->w, 0, sizeof a->w);
-	a->wp = a->rp = 0; a->energy = 0;
+	a->wp = a->rp = 0; a->energy = 0; a->en_blk = 0; a->r = 0; a->blk = 0; a->tgl = 0;
 	a->live = 0; a->resync = 1; a->hold = a->dt = a->learn = a->n64 = a->efrun = 0;
 	a->fp = 0; a->l1 = 128; a->pm = a->pe = a->py = 0;
 	a->sg = a->sgt = UNITY;
@@ -146,7 +149,7 @@ static void window_energy(struct aec *a)
 	int k;
 
 	a->energy = 0;
-	for (k = 0; k < a->taps; k++) {
+	for (k = 1; k <= a->taps; k++) {		/* rp itself is added by aec_process */
 		int x = a->ring[(a->rp - (uint32_t)k) & RMASK];
 
 		a->energy += (int64_t)x * x;
@@ -170,28 +173,28 @@ static void shift_weights(struct aec *a, int diff)
 
 void aec_align(struct aec *a, int queued, int unread)
 {
-	int64_t q, delay, target;
+	int64_t q, delay;
+	uint32_t target;
 
 	if (queued < 0) { a->live = 0; return; }
 	if (!a->live) { a->live = 1; a->resync = 1; }
 	q = a->ratio == Q24 ? queued : ((int64_t)queued << 24) / a->ratio;
 	delay = q + (unread < 0 ? 0 : unread) + a->d0;
 	if (delay > MAXDELAY) delay = MAXDELAY;
-	target = (int64_t)a->wp - delay;
-	if (target < 0) target = 0;
+	target = a->wp - (uint32_t)delay;		/* wp and rp wrap at 2^32: only differences are used */
 	if (a->resync) {
-		a->rp = (uint32_t)target;
+		a->rp = target;
 		window_energy(a);
 		a->resync = 0;
 		return;
 	}
 	{
-		int64_t diff = target - (int64_t)a->rp;
+		int32_t diff = (int32_t)(target - a->rp);
 
 		if (diff > TOL || diff < -TOL) {
 			if (diff > RING / 2 || diff < -RING / 2) diff = diff > 0 ? RING / 2 : -RING / 2;
 			shift_weights(a, (int)diff);
-			a->rp = (uint32_t)((int64_t)a->rp + diff);
+			a->rp += (uint32_t)diff;
 			window_energy(a);
 			a->realigns++;
 		}
@@ -209,10 +212,11 @@ int aec_process(struct aec *a, int m)
 	int64_t acc;
 
 	if (!a->live && a->hold <= 0 && a->sg >= UNITY) return m;
-	while (a->wp <= a->rp) push(a, 0);		/* nothing queued: the far end is silent */
+	while ((int32_t)(a->wp - a->rp) <= 0) push(a, 0);	/* nothing queued: the far end is silent */
 	x0 = a->ring[a->rp & RMASK];
 	xo = a->ring[(a->rp - (uint32_t)n) & RMASK];
 	a->energy += (int64_t)x0 * x0 - (int64_t)xo * xo;
+	if (a->energy < 0) a->energy = 0;
 	if (a->energy > (int64_t)ETHR * n) a->hold = HANG;
 	else if (a->hold > 0) a->hold--;
 	active = a->hold > 0;
@@ -228,7 +232,6 @@ int aec_process(struct aec *a, int m)
 		for (k = 0; k < n; k++) acc += (int64_t)a->w[k] * xw[-k];
 		y = clip16(acc >> 28);
 		e = clip16((int64_t)m - y);
-
 		a->pe += (int32_t)((((int64_t)e * e) - a->pe) >> 6);
 		a->py += (int32_t)((((int64_t)y * y) - a->py) >> 6);
 
@@ -239,12 +242,17 @@ int aec_process(struct aec *a, int m)
 			if (ax > a->fp) a->fp = ax; else a->fp -= (a->fp >> 8) + (a->fp > 0);
 		}
 		if (++a->n64 >= 64) {
-			int64_t s = 0;
+			int64_t sum = 0;
 
 			a->n64 = 0;
-			for (k = 0; k < n; k++) s += a->w[k] < 0 ? -(int64_t)a->w[k] : a->w[k];
-			s >>= 20;
-			a->l1 = s > 4096 ? 4096 : (int32_t)s;
+			for (k = 0; k < n; k++) {
+				int32_t wk = a->w[k];
+
+				if (wk > WMAX) wk = a->w[k] = WMAX; else if (wk < -WMAX) wk = a->w[k] = -WMAX;
+				sum += wk < 0 ? -(int64_t)wk : wk;
+			}
+			sum >>= 20;
+			a->l1 = sum > 4096 ? 4096 : (int32_t)sum;
 			/* divergence: the error is well above the microphone while the filter should be helping */
 			if (a->learn > 2000 && a->pm > 20000 && a->pe > 2 * (int64_t)a->pm) {
 				memset(a->w, 0, sizeof a->w);
@@ -263,25 +271,39 @@ int aec_process(struct aec *a, int m)
 		}
 		if (a->dt > 0) a->dt--;
 		else if (a->energy > (int64_t)ETHR * n) {
-			int64_t en = a->energy + (int64_t)REG * n, g = ((int64_t)e * MU << 21) / en;
-
-			if (a->efrun >= EFMAX) g >>= 4;
-
 			if (a->learn < LEARN) a->learn++;
-			for (k = 0; k < n; k++) {
-				int64_t v = a->w[k] + ((g * xw[-k]) >> 8);
+			/* the step normalisation (one 64-bit division) once per 16 samples, again at once when the energy doubles
+			 * (a burst starts); the update itself runs on every second sample with twice the step */
+			if (--a->blk <= 0 || a->energy > 2 * a->en_blk) {
+				int64_t rr;
 
-				a->w[k] = (int32_t)(v > WMAX ? WMAX : v < -WMAX ? -WMAX : v);
+				a->en_blk = a->energy + (int64_t)REG * n;
+				rr = (((int64_t)MU << 29)) / a->en_blk;		/* MU Q15 << 21 (Q28 weights, Q-8 shift) << 8 */
+				a->r = (int32_t)(rr > 0x3fffffff ? 0x3fffffff : rr);
+				a->blk = 16;
+			}
+			if ((a->tgl ^= 1)) {
+				int64_t g = ((int64_t)e * a->r) >> 7;		/* twice mu e / energy, scaled for the shift below */
+
+				if (a->efrun >= EFMAX) g >>= 4;
+				if (g > GMAX) g = GMAX; else if (g < -GMAX) g = -GMAX;
+				{
+					const int32_t g32 = (int32_t)g;
+
+					for (k = 0; k < n; k++) a->w[k] += (int32_t)(((int64_t)g32 * xw[-k]) >> 8);
+				}
 			}
 		}
 
-		/* suppressor target: from the error to echo estimate power ratio (x256) */
-		a->sgt = UNITY;
-		if (a->supp && a->dt <= 0 && a->py > PYMIN) {
-			int64_t q = ((int64_t)a->pe << 8) / ((int64_t)a->py + 1);
+		/* suppressor target: from the error to echo estimate power ratio (x256), every 8th sample */
+		if (!(a->n64 & 7)) {
+			a->sgt = UNITY;
+			if (a->supp && a->dt <= 0 && a->py > PYMIN) {
+				int64_t q = ((int64_t)a->pe << 8) / ((int64_t)a->py + 1);
 
-			if (q <= 32) a->sgt = UNITY / 8;
-			else if (q < 128) a->sgt = UNITY / 8 + (int32_t)((UNITY - UNITY / 8) * (q - 32) / 96);
+				if (q <= 32) a->sgt = UNITY / 8;
+				else if (q < 128) a->sgt = UNITY / 8 + (int32_t)((UNITY - UNITY / 8) * (q - 32) / 96);
+			}
 		}
 	} else {
 		e = m;

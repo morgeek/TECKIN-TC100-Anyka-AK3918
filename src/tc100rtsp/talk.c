@@ -38,7 +38,8 @@
 #define TALK_READY	"/tmp/speaker-hold.ready"
 #define TALK_PLAYDEV	"/dev/snd/pcmC0D0p"
 #define TALK_PEND	6000		/* samples waiting for the amplifier (0.75 s) */
-#define TALK_PREFILL	320		/* samples of silence in front of a session: 40 ms of jitter buffer */
+#define TALK_PREFILL	1024		/* samples of silence in front of a session: 128 ms, so that an underrun (and the codec power-up
+					 * of the recovery, tens of ms of busy wait in the driver) is rare */
 #define TALK_IDLE_US	2000000ULL	/* the player is closed this long after the last packet */
 #define TALK_TAKE_US	3000000ULL	/* another client may take over after this much silence */
 #define TALK_BACKLOG	12000		/* bytes (0.75 s) waiting in the pipe: drop what comes */
@@ -53,6 +54,7 @@ static uint64_t last_us, start_us, close_us, blocked_until;
 static unsigned long pkts, dropped, sessions;
 static struct aec *aec_p;		/* the echo canceller (talk_set_aec), NULL: aplay and the microphone duck */
 static int bfd = -1;			/* the playback device while a session plays through apb (hold mode) */
+static int hold_off;			/* the device failed in this session: aplay for the rest of it */
 static int ready, started, npend;	/* hold mode: the script holds the speaker / a sample was written / samples waiting */
 static int16_t pend[TALK_PEND];
 
@@ -67,6 +69,32 @@ static int16_t alaw_dec(unsigned char a)
 	else if (seg == 1) t += 0x108;
 	else { t += 0x108; t <<= seg - 1; }
 	return (int16_t)((a & 0x80) ? t : -t);
+}
+
+/* a speaker-play.sh -hold script runs (its command line, /proc/<pid>/cmdline) */
+static int hold_running(void)
+{
+	DIR *d = opendir("/proc");
+	struct dirent *e;
+	int found = 0;
+
+	if (!d) return 1;
+	while (!found && (e = readdir(d))) {
+		char p[64], c[256];
+		int fd, n, i;
+
+		if (e->d_name[0] < '0' || e->d_name[0] > '9') continue;
+		snprintf(p, sizeof p, "/proc/%.20s/cmdline", e->d_name);
+		if ((fd = open(p, O_RDONLY)) < 0) continue;
+		n = (int)read(fd, c, sizeof c - 1);
+		close(fd);
+		if (n <= 0) continue;
+		c[n] = 0;
+		for (i = 0; i < n - 1; i++) if (!c[i]) c[i] = ' ';
+		found = strstr(c, "speaker-play.sh") && strstr(c, " -hold");
+	}
+	closedir(d);
+	return found;
 }
 
 /* a process called name (/proc/<pid>/comm) exists */
@@ -99,6 +127,7 @@ static int proc_running(const char *name)
 void talk_init(void)
 {
 	/* a lock left behind by a player that was killed: nobody plays, so nobody holds it */
+	if (hold_running()) return;		/* the -hold script of a session that is still ending holds the lock: not stale */
 	if (!access(TALK_LOCK, F_OK) && !proc_running("aplay") && rmdir(TALK_LOCK) == 0)
 		LOGT("removed a stale %s\n", TALK_LOCK);
 	unlink(TALK_READY);
@@ -175,11 +204,11 @@ static void play(const int16_t *p, int n, uint64_t now)
 		if (w > 0) { started = 1; if (aec_p) aec_far(aec_p, z, w); }
 	}
 	w = apb_write(bfd, p, n);
-	if (w < 0) {			/* the device failed: the session ends, the next packet tries again */
-		LOGT("speaker device failed: %s\n", strerror(errno));
+	if (w < 0) {			/* the device failed or keeps underrunning: aplay for the rest of this session */
+		LOGT("speaker device %s: aplay for the rest of the session\n", w == -2 ? "keeps underrunning" : "failed");
 		hold_end();
-		if (wfd >= 0) { close(wfd); wfd = -1; close_us = now; }
-		owner = -1; blocked_until = now + 2000000ULL;
+		hold_off = 1;
+		if (wfd >= 0) { close(wfd); wfd = -1; close_us = now; }	/* the script ends; its player follows (the talker is kept) */
 		return;
 	}
 	if (w > 0) { started = 1; if (aec_p) aec_far(aec_p, p, w); }
@@ -230,7 +259,7 @@ void talk_rtp(int who, const unsigned char *p, int n, uint64_t now)
 		 * block the speaker for 2 s while the lock is gone a moment later (review 2026-11-11, C2); the same for the
 		 * hold script of the echo canceller path, which takes the same lock */
 		if (!access(TALK_LOCK, F_OK)) { dropped++; return; }
-		if (aec_p) {		/* the device is ours: opened before the script, which refuses when a clip plays */
+		if (aec_p && !hold_off) {	/* the device is ours: opened before the script, which refuses when a clip plays */
 			bfd = apb_open(pd && *pd ? pd : TALK_PLAYDEV, 8000);
 			if (bfd >= 0) hold = 1;
 			else LOGT("playback device: %s, aplay instead\n", strerror(errno));
@@ -240,6 +269,7 @@ void talk_rtp(int who, const unsigned char *p, int n, uint64_t now)
 			dropped++; return;
 		}
 		started = ready = 0; npend = 0;
+		if (bfd >= 0 && aec_p) aec_reset(aec_p);	/* a new session: no state, and the sample counters start again */
 	}
 	for (i = 0; i < cnt; i++) pcm[i] = alaw_dec(p[off + i]);
 	if (bfd >= 0) { hold_feed(pcm, cnt, now); return; }
@@ -256,6 +286,7 @@ void talk_rtp(int who, const unsigned char *p, int n, uint64_t now)
 
 void talk_tick(uint64_t now)
 {
+	if (hold_off && now - last_us > TALK_IDLE_US) hold_off = 0;	/* the session is over */
 	if (bfd >= 0) {
 		if (!ready && access(TALK_READY, F_OK) == 0) ready = 1;
 		if (ready && npend) { int k = npend; npend = 0; play(pend, k, now); }

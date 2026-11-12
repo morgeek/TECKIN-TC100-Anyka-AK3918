@@ -2172,7 +2172,7 @@ static void aud_pump(void)
 	/* the speaker plays (two-way audio, push-to-talk, a sound): the microphone is muted (RTSP_AUDIO_DUCK); not while a
 	 * two-way audio session plays through the echo canceller, which takes care of it */
 	if (dsp && aud_dsp.duck) spk = (talk_state() == 1 || !access("/tmp/speaker-play.lock", F_OK)) && !(aecon && talk_hold_active());
-	if (aecon) aud_dsp.hold = aec_far_active(aud_aec);
+	aud_dsp.hold = aecon ? aec_far_active(aud_aec) : 0;	/* the level gain rises only when no echo can be in the sound */
 	while ((r = aud_get(raw, sizeof raw)) > 0) {
 		int rec_a = rec_audio_wanted(), left = 0;
 		uint64_t tus = rec_a ? now_us64() : 0;

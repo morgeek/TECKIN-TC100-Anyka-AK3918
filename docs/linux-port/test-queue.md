@@ -31,7 +31,7 @@ Rules that apply to every entry:
 - Memory of a process: **PSS** (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`, KB), not RSS. RSS counts the busybox
   and C library pages shared by every shell once per process (the C MQTT bridge looked 5 MB lighter in RSS, 0.9 MB in PSS).
 
-### AEC-01 Echo cancellation of the two-way audio, behind a switch (`[audio-aec]`) — `to test` (next RC, owner; measurements first)
+### AEC-01 Echo cancellation of the two-way audio, behind a switch (`[audio-aec]`) â€” `to test` (next RC, owner; measurements first)
 
 - **What (plan 3 of `plans-2026-11-12.md`):** with `RTSP_AUDIO_AEC=1`, a talk session (go2rtc, Home Assistant, Frigate: the
   RTSP backchannel) is played by `tc100_rtsp` itself on the playback device (`apb.c`, stereo S16_LE 8 kHz, non-blocking),
@@ -44,8 +44,16 @@ Rules that apply to every entry:
   Clock skew between the DAC and the ADC (up to 0.16-0.7 %, plan) is handled by a linear resampler of the reference,
   `RTSP_AUDIO_AEC_RATIO` (`625/624` or ppm); the camera measurement gives the value, default 1.0.
   If the playback device does not open, today's path (`aplay` + the microphone duck) is used. Push-to-talk of the web
-  UI and the sounds (`upload_audio.cgi`) keep the duck. Cost: about 2 KB of code, 18 KB of RAM only when the switch is
-  on, CPU only while the far end plays (to be measured; plan estimate 6-12 %).
+  UI and the sounds (`upload_audio.cgi`) keep the duck. Cost: 18 KB of RAM only when the switch is on, CPU only while the far end
+  plays (256 multiply-accumulates a sample plus 128 updates on average, one division per 16 samples; to be
+  measured, plan estimate 6-12 %).
+- **Known cost to measure:** opening the playback stream (session start, and every underrun recovery) calls the codec
+  driver's prepare (patch 0007: `akpcm_playback_prepare`, DAC clock, headphone power-up) which busy-waits tens of
+  milliseconds (up to about 200 ms, to be measured) in the main loop of `tc100_rtsp`: a gap in the video and the audio
+  at the start of a talk session. Mitigation in the code: 128 ms of silence queued first so underruns are rare, at
+  most one recovery a second and eight in all (then `aplay` for the rest of the session, log line `keeps
+  underrunning`); a device failure also falls back to `aplay` for the session. Measure the video frame gap
+  (`STAT` lines / the RTSP timestamps of a viewer) when a talk session starts.
 - **Switch:** `RTSP_AUDIO_AEC=0` (default, unset = 0) in `/mnt/config/rtsp.env`, restart `rtsp-h26x`. At 0 nothing
   changes: no allocation, the same `adsp_sample` path, `speaker-play.sh -` and the duck. Companions: `RTSP_AUDIO_AEC_RATIO`,
   `_DELAY` (ms, 20), `_TAPS` (256).

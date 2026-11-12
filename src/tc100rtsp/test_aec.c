@@ -258,6 +258,38 @@ static void synthetic(void)
 		check(erle >= 20, "skew 1600 ppm given as ppm: echo reduced (dB)", erle);
 	}
 
+	/* a realign in the middle of speech must not leave the energy sum wrong: after the far end stops the filter work stops
+	 * (hold expires) instead of running for ever (or the far end being taken for silent) */
+	{
+		static double nz[8000 * 6];
+		int16_t blk[BLK], act_mid = 0, act_end = 1, pos, k;
+		int fw = 0, p;
+
+		noise(nz, 3 * 8000, 4000, 0.6);
+		ac = aec_new(256); aec_set_d0(ac, D0);
+		for (p = 0; p + BLK <= 5 * 8000; p += BLK) {
+			int upto = p + BLK + QUEUED, q = QUEUED;
+
+			if (p / BLK == 94 || p / BLK == 95) q = QUEUED + 200;		/* the queue jumps: two realigns */
+			if (p / BLK == 95) upto = p + BLK + QUEUED + 200;
+			while (fw < upto) {
+				int m = upto - fw > BLK ? BLK : upto - fw;
+
+				for (k = 0; k < m; k++) blk[k] = (int16_t)lrint(fw + k < 3 * 8000 ? nz[fw + k] : 0);
+				aec_far(ac, blk, m);
+				fw += m;
+			}
+			aec_align(ac, q, BLK);
+			for (k = 0; k < BLK; k++) aec_process(ac, 0);
+			if (p / BLK == 125) act_mid = (int16_t)aec_far_active(ac);
+			if (p / BLK == 281) act_end = (int16_t)aec_far_active(ac);
+		}
+		pos = 0; (void)pos;
+		check(act_mid == 1, "far end active during the speech, after the realigns", act_mid);
+		check(act_end == 0, "hold expired 1.5 s after the far end stopped (no work for ever)", act_end);
+		aec_free(ac);
+	}
+
 	/* ratio syntax */
 	ac = aec_new(0);
 	check(aec_set_ratio(ac, "") == 0 && aec_set_ratio(ac, "-800") == 0 && aec_set_ratio(ac, "+300") == 0, "ratio: empty, -800, +300", 0);

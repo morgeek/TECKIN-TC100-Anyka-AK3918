@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
+#include <time.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include "apb.h"
@@ -22,6 +23,9 @@ int apb_queued(int fd) { (void)fd; return -1; }
 void apb_close(int fd) { (void)fd; }
 #else
 #include <sound/asound.h>
+
+static int xruns;			/* underruns of the open device */
+static long last_prep = -100;		/* when the last one was recovered, monotonic seconds */
 
 static struct snd_mask *mask(struct snd_pcm_hw_params *p, int k)
 {
@@ -52,6 +56,7 @@ int apb_open(const char *dev, int rate)
 	int fd = open(dev, O_WRONLY | O_NONBLOCK), k, e;
 
 	if (fd < 0) return -1;
+	xruns = 0; last_prep = -100;
 	memset(&p, 0, sizeof p);
 	for (k = SNDRV_PCM_HW_PARAM_FIRST_MASK; k <= SNDRV_PCM_HW_PARAM_LAST_MASK; k++)
 		memset(mask(&p, k), 0xff, sizeof(struct snd_mask));
@@ -97,7 +102,16 @@ int apb_write(int fd, const int16_t *mono, int n)
 		}
 		if (errno == EAGAIN || errno == EINTR) break;
 		if (errno == EPIPE || errno == ESTRPIPE) {	/* underrun: start again (the first write starts the stream) */
-			if (++tries > 3 || ioctl(fd, SNDRV_PCM_IOCTL_PREPARE) < 0) return done ? done : -1;
+			/* PREPARE reaches the codec driver, which powers the DAC up with busy waits of tens of milliseconds
+			 * (patch 0007: akpcm_playback_prepare, set_dac_samplerate, ak39_set_hp_power): at most one a second and
+			 * eight in all, then -2: the caller goes back to aplay for the rest of the session */
+			struct timespec ts;
+
+			clock_gettime(CLOCK_MONOTONIC, &ts);
+			xruns++;
+			if (++tries > 1 || xruns > 8 || ts.tv_sec - last_prep < 1) return done ? done : -2;
+			last_prep = ts.tv_sec;
+			if (ioctl(fd, SNDRV_PCM_IOCTL_PREPARE) < 0) return done ? done : -1;
 			continue;
 		}
 		return done ? done : -1;
