@@ -5470,8 +5470,8 @@ index 000000000..e9de58ea7
 +
 +/* R15-01: the white balance algorithm on the live statistics (word 1160) instead of the fixed block it always had */
 +static int awb_live;
-+module_param(awb_live, int, 0444);
-+MODULE_PARM_DESC(awb_live, "white balance on the live statistics (1) or as before (0, default: R15-01 blue cast)");
++module_param(awb_live, int, 0644);
++MODULE_PARM_DESC(awb_live, "white balance on the live statistics (1) or as before (0, default: R15-01 blue cast); read at every frame, writable at run time");
 +
 +//#define ISP_DEBUG
 +#ifdef ISP_DEBUG

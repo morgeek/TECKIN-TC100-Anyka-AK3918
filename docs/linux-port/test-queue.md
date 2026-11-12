@@ -31,6 +31,23 @@ Rules that apply to every entry:
 - Memory of a process: **PSS** (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`, KB), not RSS. RSS counts the busybox
   and C library pages shared by every shell once per process (the C MQTT bridge looked 5 MB lighter in RSS, 0.9 MB in PSS).
 
+### KRN-01 `ak_isp.awb_live` writable at run time (`[awb-live-rw]`, patch 0006) — `to test` (SD kernel first)
+
+- **What:** `module_param(awb_live, int, 0644)` instead of `0444` (audit 2026-11-06 D3). The white balance code reads
+  it at every frame, so `echo 1 > /sys/module/ak_isp/parameters/awb_live` tries the ISP white balance on the live
+  statistics without a reboot, and `echo 0` goes back. Default unchanged (0). `ak39_vi.sub_channel` stays `0444`: the
+  driver never undoes it at stream start, so a run-time write would not do what it says.
+- **Switch:** none needed (default 0, as before); revert the commit to make it read-only again.
+- **Test:** boot the CI kernel from the SD card (`tc100test/c66.img`, RAM only, no flash write). Check
+  `ls -l /sys/module/ak_isp/parameters/awb_live` shows `-rw-r--r--` and the value `0`; picture as before. `echo 1`:
+  within a few seconds the colours change (blue cast expected, R15-01); `echo 0`: back to the usual tint. No kernel
+  message, no capture error, RTSP keeps running during both writes. With `awb_live=1`, also run
+  `dmesg | grep -i 'division by zero'`: `_calc_awb_gain()` divides by the pixel count of the current colour bin, guarded
+  only by `>= total_cnt_thresh` (patch 0006 ~l. 6582 / 6944); if the sensor configuration sets that threshold to 0, an
+  empty live bin logs this warning (ARM32: stack dump, no oops). Not introduced by this change (`ak_isp.awb_live=1` on
+  the command line already reached it); if seen, a one-line guard goes in a separate kernel change.
+- **Pass:** as above; only then is the kernel a candidate for the next flash update (owner's agreement).
+
 ### INST-01 SD install skips the per-partition backup only on a first install (`[fast-install-fix]`) — `to test`
 
 - **What:** `v3/install/install66.sh` skipped the per-partition backup (`flashw -b`) whenever
