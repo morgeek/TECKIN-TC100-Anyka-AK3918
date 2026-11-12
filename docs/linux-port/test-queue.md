@@ -577,7 +577,7 @@ Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was 
   the camera" line under the form shows the value.
 - **Fail:** picture broken or unchanged at ±50: note the logged gains; `RTSP_ISPTUNE` does not cover it, set SHARPNESS=0.
 
-### HW-09 Noise reduction by the ISP (Image page, `DENOISE`, item 37) — `to test`
+### HW-09 Noise reduction by the ISP (Image page, `DENOISE`, item 37) — `partly passed` (2026-11-12, .11 rc37, daylight)
 - **What:** a Noise reduction slider on the Image page. `tc100_rtsp` stretches the weight curves of the tuning file's
   NR1 (raw) and NR2 (luma) sets, manual and 9 gain-linked, along the pixel difference: 2 % per step, -50 = almost none,
   +50 = twice as wide. The driver keeps picking the set of the gain level. Nothing is written while the slider is at 0.
@@ -592,6 +592,16 @@ Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was 
   `a` of `w[4] a -> b` must be the same as before the restart (base not stretched twice); a day / night switch with
   DENOISE != 0 logs `noise reduction: 25 in the ISP` again after `night parameter set`; alternate -50 / +50 every
   second for 10 min while streaming: no kernel message, no corrupted frame.
+- **Result 2026-11-12 (.11, 3.0.1-rc37, by day, through `isp_tune_set` as the page does; isp_tune.conf restored after,
+  backup `isp_tune.conf.bak-20261112`):**
+  - start-up log: gain levels and the NR1 / NR2 sets of the day and of the night parameter set: **passed**;
+  - -50 / 0 / +50 / 25: `iso16 NR2 w[4] 451 -> 0 / 451 / 834 / 709`, `/var/run/isp_tune.status` follows: **passed**;
+  - DENOISE=25, restart of tc100_rtsp: `451 -> 709` again (base not stretched twice): **passed**;
+  - -50 / +50 every second for 10 min while streaming (497 changes, 94 applied: the file is read every few seconds):
+    no refusal, 0 dropped frames in 121 STAT lines, client kept, no kernel error (one `tuning parameter set 0` line,
+    the day set), base stays 451: **passed**; day picture after it clean;
+  - still to do **at night** (gain at its maximum): grain at -50 / 0 / +50 on snapshots, and `noise reduction: N in the
+    ISP` again after a day / night switch with DENOISE != 0.
 
 ### HW-08 Exposure state for day / night (`/tmp/cam_ae`) — `to test`
 - **What:** every 2 s `tc100_rtsp` writes `lumi exp_time a_gain d_gain isp_d_gain dark_flag` from
@@ -3122,3 +3132,13 @@ par ffmpeg). `h265live` les utilise par défaut (`H265_VENDOR_PARAMS=1` : la cop
   saved to flash) and made the board default on DEV.
 - To check: the .11 next evening (night picture as bright as the .24's, one click at the switch), the morning switch
   back to day (true colours, no pink cast), and after the next DEV install on a camera without the boot.conf lines.
+- 2026-11-12: night picture right after the fix (luma 115-136 at half the gain); with `DAYNIGHT_SOURCE=vendor` (owner's
+  OK) night held, day at 06:58 UTC without a bounce; day picture in true colours (filter in): **passed for the .11**.
+  Still to do: the first full night, and a camera without the boot.conf lines on the next DEV build.
+
+## rc37 post-install checks (.11, 2026-11-12)
+- `action.cgi` run on the camera with `REQUEST_METHOD=GET`: `cmd=x` and an unknown command get `405 POST required`,
+  `cmd=sd_card_info` answers: **passed** (the reboot itself was not tried by GET).
+- Start-up log line of the noise reduction: **passed** (HW-09).
+- Day / night page save keeping `AWB_*`, `VENDOR_LOCK`, `IR_LED_REST`: covered by the host tests in busybox; not done on
+  the camera (a save rewrites the whole daynight.conf from the form).
