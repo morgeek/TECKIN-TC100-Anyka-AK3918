@@ -543,6 +543,11 @@ class FreeEnc(unittest.TestCase):
         # at 25 fps the long GOP (250 = 10 s) and the cap agree; the cap never adds a keyframe before the base GOP
         self.assertEqual(self.idrs(self.run_fe('hevc', 130, 30, 50, 'smart', 's' * 130, 250, 45, 40, 2)), [0, 50, 100])
 
+    def test_smart_time_cap_across_the_32_bit_clock_wrap(self):
+        # the clock (ms) wraps after 49.7 days: the cap must keep firing across it (start 3 s before 2^32)
+        pics = self.run_fe('hevc', 120, 30, 5, 'smart', 's' * 120, 250, 45, 200, 10, 2 ** 32 - 3000)
+        self.assertEqual(self.idrs(pics), [0, 50, 100])
+
     def test_smart_poc_stays_in_range_at_gop_300(self):
         for codec in ('hevc', 'avc'):
             # asked 1000: limited to 300; 700 still pictures: keyframes at 0, 300, 600, POC at most 2 x 299
@@ -617,7 +622,7 @@ class FreeEncSmartWiring(unittest.TestCase):
 
     def test_fixed_gop_on_recording_and_live_view_and_thumbnails(self):
         self.assertIn('int fixed = (rec_mode != REC_OFF && k == rsi) || live_wants(k) || lossy[k];', self.src)
-        self.assertIn('fe_set_still(fe, !fixed && md_on && !md_motion && t_frame - last > 8.0);', self.src)
+        self.assertIn('fe_set_still(fe, !fixed && md_on && !moving);', self.src)
         self.assertIn('(free_enc && rs->enc ? fe_next_idr(rs->enc) : rs->nsent % rs->pa.gop == 0)', self.src)
 
     def test_lossy_clients_keep_the_base_gop(self):
@@ -640,8 +645,11 @@ class FreeEncSmartWiring(unittest.TestCase):
         self.assertIn('"RTSP_FE_SMART_MAXS", FE_SMART_MAXS_DEFAULT', f)
         self.assertIn('ms < 2 ? 2 : ms > 12 ? 12 : ms', f)
         self.assertIn('if (qx > FE_SMART_QP_MAX) qx = FE_SMART_QP_MAX;', f)
-        self.assertIn('fe_set_time(fe, (uint32_t)(t_frame * 1000.0));', self.src)
-        self.assertIn('if (was && !fe->still && !k) { md_enc_base = 0; md_enc_hits = 0; }', self.src)
+        self.assertIn('fe_set_time(fe, (uint32_t)(uint64_t)(t_frame * 1000.0));', self.src)
+        # the MD_ENC mean restarts only when the floor was released without motion
+        self.assertIn('int moving = md_motion || t_frame - last <= 8.0;', self.src)
+        self.assertIn('fe_set_still(fe, !fixed && md_on && !moving);', self.src)
+        self.assertIn('if (was && !fe->still && !k && !moving) { md_enc_base = 0; md_enc_hits = 0; }', self.src)
         fe = open(os.path.join(ROOT, 'src/h265enc/freeenc.h'), encoding='utf-8').read()
         self.assertIn('#define FE_SMART_QP_MAX 5', fe)
         self.assertIn('qp_extra > FE_SMART_QP_MAX ? FE_SMART_QP_MAX : qp_extra', fe)

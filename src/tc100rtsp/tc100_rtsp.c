@@ -3979,10 +3979,14 @@ unsigned char *fpb[2] = { NULL, NULL };
 					struct fe_enc *fe = s->enc;
 					int was = fe->still;
 
-					fe_set_time(fe, (uint32_t)(t_frame * 1000.0));
-					fe_set_still(fe, !fixed && md_on && !md_motion && t_frame - last > 8.0);
-					/* RTSP_MD_ENC: the floor's release makes the pictures bigger; that is not motion, so the mean starts again */
-					if (was && !fe->still && !k) { md_enc_base = 0; md_enc_hits = 0; }
+					int moving = md_motion || t_frame - last <= 8.0;
+
+					fe_set_time(fe, (uint32_t)(uint64_t)(t_frame * 1000.0));	/* through uint64_t: wraps after 49.7 days (a double above 2^32 is undefined as uint32_t) */
+					fe_set_still(fe, !fixed && md_on && !moving);
+					/* RTSP_MD_ENC: a floor released WITHOUT motion (recording, live view, a lossy client, smart off) makes the
+					 * pictures bigger without a cause: the mean starts again. Released by motion: kept, or the next motion P frame
+					 * would seed the mean and the motion would stop looking like motion */
+					if (was && !fe->still && !k && !moving) { md_enc_base = 0; md_enc_hits = 0; }
 				}
 			}
 			double tn = now_s();

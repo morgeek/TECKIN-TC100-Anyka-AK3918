@@ -3,12 +3,13 @@
  * into list word 0x41 and that many bytes (0xab, the first one 0x80) at stream + 0x820.
  *   fetest hevc|avc PICTURES QP GOP   prints, per picture: "pic <n> idr <0|1> len <bytes> list <words 0-0x3f>" then
  *                                     "data <hex of the access unit>"
- *   fetest ... [MODE SCRIPT [GOP_LONG [QMAX [MS_PER_PICTURE [MAX_SECONDS]]]]]
+ *   fetest ... [MODE SCRIPT [GOP_LONG [QMAX [MS_PER_PICTURE [MAX_SECONDS [START_MS]]]]]]
  *                                     MODE cbr|vbr|smart (smart = VBR + smart mode; default cbr); SCRIPT: one character per
  *                                     picture before it is coded: s = scene still, m = motion, w = still and a client
  *                                     waits for a keyframe, . = no change (a short script ends in '.'); the QP range is
  *                                     QP..QMAX (default QP..QP); the QP of a picture is list word 3 bits 16-23;
- *                                     MS_PER_PICTURE (default 40) is the clock step, MAX_SECONDS (default 12) the smart time cap
+ *                                     MS_PER_PICTURE (default 40) is the clock step, MAX_SECONDS (default 12) the smart time cap,
+ *                                     START_MS (default 0) the clock at picture 0 (the clock wraps at 2^32)
  * License: GPL-2.0-or-later
  */
 #define FE_HOST_TEST
@@ -40,10 +41,11 @@ int main(int argc, char **argv)
 	static const struct fe_env env = { NULL, t_alloc, t_release, t_v2p, t_wait, NULL };
 	static struct fe_enc e;
 	int hevc, w, h, n, qp, gop, k, i, qmax, glong = 0, vbr = 0, smart = 0, ms = 40, maxs = 12;
+	uint32_t start = 0;
 	const char *script = "";
 
-	if (argc != 5 && !(argc >= 7 && argc <= 11)) {
-		fprintf(stderr, "usage: fetest hevc|hevc720|avc|avc720|avc1080 PICTURES QP GOP [cbr|vbr|smart SCRIPT [GOP_LONG [QMAX [MS [MAXS]]]]]\n");
+	if (argc != 5 && !(argc >= 7 && argc <= 12)) {
+		fprintf(stderr, "usage: fetest hevc|hevc720|avc|avc720|avc1080 PICTURES QP GOP [cbr|vbr|smart SCRIPT [GOP_LONG [QMAX [MS [MAXS [START]]]]]]\n");
 		return 2;
 	}
 	hevc = !strncmp(argv[1], "hevc", 4);
@@ -57,6 +59,7 @@ int main(int argc, char **argv)
 		if (argc >= 9) qmax = atoi(argv[8]);
 		if (argc >= 10) ms = atoi(argv[9]);
 		if (argc >= 11) maxs = atoi(argv[10]);
+		if (argc >= 12) start = (uint32_t)strtoul(argv[11], NULL, 10);
 	}
 	if (!fe_open_wh(&env, &e, hevc, w, h, 0, 25, gop, 0, qp, qmax)) { fprintf(stderr, "fe_open failed\n"); return 1; }
 	fe_set_vbr(&e, vbr);
@@ -66,7 +69,7 @@ int main(int argc, char **argv)
 		uint32_t len, *l;
 		int idr, pred, c = k < (int)strlen(script) ? script[k] : '.';
 
-		fe_set_time(&e, (uint32_t)(k * ms));
+		fe_set_time(&e, start + (uint32_t)(k * ms));
 		if (c == 's' || c == 'w') fe_set_still(&e, 1);
 		if (c == 'm') fe_set_still(&e, 0);
 		if (c == 'w') fe_want_idr(&e);
