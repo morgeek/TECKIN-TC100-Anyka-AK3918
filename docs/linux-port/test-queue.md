@@ -359,7 +359,7 @@ Rules that apply to every entry:
   no extra 401 prompt.
 - **Pass:** (a)-(d) as above, `/tmp/log/httpfront.log` without new errors.
 
-### KRN-01 `ak_isp.awb_live` writable at run time (`[awb-live-rw]`, patch 0006) — `to test` (SD kernel first)
+### KRN-01 `ak_isp.awb_live` writable at run time (`[awb-live-rw]`, patch 0006) — `passed` (2026-11-12, .11 rc40: 0644 writable live, 5 s with `awb_live=1`, zero `division by zero` in `dmesg`, restored to 0)
 
 - **What:** `module_param(awb_live, int, 0644)` instead of `0444` (audit 2026-11-06 D3). The white balance code reads
   it at every frame, so `echo 1 > /sys/module/ak_isp/parameters/awb_live` tries the ISP white balance on the live
