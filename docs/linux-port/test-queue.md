@@ -31,6 +31,28 @@ Rules that apply to every entry:
 - Memory of a process: **PSS** (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`, KB), not RSS. RSS counts the busybox
   and C library pages shared by every shell once per process (the C MQTT bridge looked 5 MB lighter in RSS, 0.9 MB in PSS).
 
+### WEB-01 httpfront login counting and remembered login (`[httpfront-auth]`) — `to test` (SD test system)
+
+- **What (read-only Fable review of httpfront, 2026-11-12; `WEB_LOCKOUT=1` and `HTTPFRONT_NATIVE=1` are the
+  `boot.conf` defaults, so this concerns every camera):**
+  - A new password now forgets the remembered login: the cache `/tmp/.httpfront-ok` holds the MD5 of the header *and*
+    of `/etc/httpd.conf`. Before, the old password kept getting the status line / dashboard JSON until a reboot.
+  - Only the headers are searched for `Authorization:`: a form body line no longer counts as a wrong login (a hostile
+    page could lock the owner's address out for 5 min, again and again).
+  - Header name and `Basic` are read in any case, as httpd does: `AUTHORIZATION:` guesses are now counted.
+  - A token cut by the end of the 2 KB peek (long cookies or URL) is neither checked nor counted, instead of counting
+    as a wrong login.
+  - Still possible, by design (LAN only, defence in depth): guesses placed after 2 KB of headers or sent after the 2 s
+    wait are not counted; httpd still refuses them.
+- **Switch:** `WEB_LOCKOUT=0` / `HTTPFRONT_NATIVE=0` in `boot.conf` as before; revert the commit for the old code.
+- **Test:** SD test system with the CI `httpfront`. (a) Log in, change the password in Settings, then
+  `curl -u root:<old> http://<ip>/cgi-bin/statusline.cgi` → 401 (before: JSON). New password → JSON. (b) From another
+  LAN machine: 10 × `curl -s -o /dev/null -H 'AUTHORIZATION: Basic eDp5' http://<ip>/` → the 11th connection is closed
+  (locked 5 min; 127.0.0.1 is never locked). (c) 12 × `curl -X POST --data-binary $'Authorization: Basic eDp5\r\n' -u
+  root:<right> http://<ip>/cgi-bin/statusline.cgi` → never locked. (d) The web pages and the dashboard poll as usual,
+  no extra 401 prompt.
+- **Pass:** (a)-(d) as above, `/tmp/log/httpfront.log` without new errors.
+
 ### KRN-01 `ak_isp.awb_live` writable at run time (`[awb-live-rw]`, patch 0006) — `to test` (SD kernel first)
 
 - **What:** `module_param(awb_live, int, 0644)` instead of `0444` (audit 2026-11-06 D3). The white balance code reads

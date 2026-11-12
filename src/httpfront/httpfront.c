@@ -18,8 +18,9 @@
  * not match /etc/httpd.conf (MD5 crypt, md5crypt.h, or the plain text web-auth writes when httpd cannot hash) is
  * noted by its child in FAILFILE; at each new connection the parent counts them: LOCK_FAILS failures from one address
  * within LOCK_WINDOW s close its connections for LOCK_S s (127/8 never). httpd still answers the request itself (401
- * for a wrong login): this only counts. A login checked once is remembered by the MD5 of its header (OKFILE), so the
- * 1000-round crypt runs once, not at every request.
+ * for a wrong login): this only counts. A login checked once is remembered by the MD5 of its header and of httpd.conf
+ * (OKFILE), so the 1000-round crypt runs once, not at every request, and a new password forgets it. Only the header
+ * part of the request is searched, and a token cut by the end of the peeked bytes is neither checked nor counted.
  *
  * Native status line (item 55; TC100_NATIVE_STATUS=1, boot.conf HTTPFRONT_NATIVE=1, off by default): "GET
  * /cgi-bin/statusline.cgi" with a right Basic login is answered by httpfront itself (status.h), the same JSON as the CGI,
@@ -100,6 +101,12 @@ static void ignore(int sig) { sigset(sig, 1 /* SIG_IGN */); }
 static void sleep100ms(void) { struct ts t = { 0, 100000000 }; sc(SYS_nanosleep, (long)&t, 0, 0, 0, 0); }
 static int slen(const char *s) { int n = 0; while (s[n]) n++; return n; }
 static int pfx(const char *s, const char *p) { while (*p) if (*s++ != *p++) return 0; return 1; }
+/* p (lower case) at the start of s, ASCII letters in any case */
+static int ipfx(const char *s, const char *p)
+{
+	for (; *p; s++, p++) if ((*s >= 'A' && *s <= 'Z' ? *s + 32 : *s) != *p) return 0;
+	return 1;
+}
 static int num(const char *s) { int n = 0; while (*s >= '0' && *s <= '9') n = n * 10 + *s++ - '0'; return n; }
 static int has_nl(const char *b, int n) { for (int i = 0; i < n; i++) if (b[i] == '\n') return 1; return 0; }
 static int has_end(const char *b, int n) { for (int i = 3; i < n; i++) if (b[i] == '\n' && b[i - 2] == '\n') return 1; return 0; }
@@ -235,22 +242,29 @@ static int login_ok(const char *b)
 	struct md5 m;
 	int i, n;
 
-	for (;;) {	/* "Authorization: Basic " at the start of a line, any case for the name */
+	for (;;) {	/* "Authorization: Basic " at the start of a header line, any case (as httpd), never in the body */
 		while (*h && *h != '\n') h++;
 		if (!*h) return -1;
 		h++;
-		if ((h[0] | 32) == 'a' && pfx(h + 1, "uthorization:")) break;
+		if (*h == '\n' || (*h == '\r' && h[1] == '\n')) return -1;	/* blank line: end of the headers (a form body
+										 * line must not count as a wrong login) */
+		if (ipfx(h, "authorization:")) break;
 	}
 	v = h + 14;
-	while (*v == ' ') v++;
-	if (!pfx(v, "Basic ")) return -1;
+	while (*v == ' ' || *v == '\t') v++;
+	if (!ipfx(v, "basic ")) return -1;
 	v += 6;
 	for (i = 0; i < (int)sizeof tok - 1 && v[i] > ' '; i++) tok[i] = v[i];
+	if (v[i] > ' ') return 0;	/* longer than any camera login: a guess padded so that it is not checked, counted */
+	if (v[i] != '\r' && v[i] != '\n' && v[i] != ' ' && v[i] != '\t') return -1;	/* cut by the end of the peeked
+						 * bytes: not checked here, so never counted as a wrong login */
 	tok[i] = 0;
-	md5_init(&m); md5_update(&m, tok, (unsigned int)i); md5_final(&m, d); hex16(d, hx);
+	if ((n = read_file(httpd_conf, conf, sizeof conf)) <= 0) return -1;
+	/* remembered by the MD5 of the token and of httpd.conf: a new password (web-auth rewrites the file) forgets it */
+	md5_init(&m); md5_update(&m, tok, (unsigned int)i); md5_update(&m, conf, (unsigned int)n); md5_final(&m, d);
+	hex16(d, hx);
 	if (read_file(ok_file, got, sizeof got) == 32 && !slen_eq(got, hx)) return 1;	/* checked before */
 	if (b64dec(tok, cred, sizeof cred) < 0) return 0;
-	if ((n = read_file(httpd_conf, conf, sizeof conf)) <= 0) return -1;
 	{	/* "/:user:hash" */
 		const char *l = conf, *u, *p;
 
