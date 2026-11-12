@@ -3604,3 +3604,16 @@ NR3D line: appended), rtspserver.conf `[0] vbr=1 smart=1`, rtsp.env `RTSP_AUDIO_
 - **AEC-01: switched on, not measured.** Log `audio: echo cancellation on (clock ratio 1, delay 20 ms)`; ADC at 8012 Hz.
   The measurements of AEC-01 step 1 and a talk session are still to do.
 - MemAvailable 23.6 MB, stream and services up.
+
+## Wi-Fi downstream stall check on .11 vs .24 (2026-11-12 22:40–22:46, rc40 on .11)
+- **Simultaneous 60 s ping (120 pkts, 0.5 s) Mac -> `.11` and Mac -> `192.168.1.1`:**
+  - `192.168.1.1` (gateway): 119/120 (0.8% loss), `min/avg/max = 1.9/11.5/85.4 ms`.
+  - `.11`: 120/120 (**0.0% loss**), `min/avg/max = 3.1/1212.3/8678.1 ms` — two ~8 s stalls (`seq 54..69` up to `7857 ms`,
+    `seq 71..80+` up to `8678 ms`) where all packets were held and delivered in a burst.
+- **`.11` -> `192.168.1.1` (30 s, 60 pkts, 0.5 s):** 60/60 (0% loss), `min/avg/max = 1.8/7.1/231.7 ms` (no 8 s stall).
+- **Simultaneous 30 s ping (60 pkts, 0.5 s) Mac -> `.11` and Mac -> `.24`:**
+  - `.24`: 60/60 (0% loss), `min/avg/max = 3.1/13.6/91.3 ms`.
+  - `.11`: 60/60 (0% loss), `min/avg/max = 3.1/2005.1/8918.6 ms` (another ~8.9 s stall, `seq 9..18+`).
+- **`.11` link state:** `Power save: off`, `58:d9:d5:ae:1a:23` (`Keegrom6`, ch `2422`, `65/72.2 MBit/s MCS 7`, `dtim 1`),
+  `/proc/net/wireless` `link 70`, `level -13`, `retry 0`, `misc 354`, no scan/roam/disconnect in `dmesg`.
+  Points to downstream buffering/RX stall between AP and `.11` rather than RF packet loss.
