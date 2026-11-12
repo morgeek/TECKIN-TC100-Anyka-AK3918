@@ -31,7 +31,12 @@ Rules that apply to every entry:
 - Memory of a process: **PSS** (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`, KB), not RSS. RSS counts the busybox
   and C library pages shared by every shell once per process (the C MQTT bridge looked 5 MB lighter in RSS, 0.9 MB in PSS).
 
-### NR3D-01 3D noise reduction: runtime switch, crop-size reference, overflow counter (`[nr3d]`) — `to test` (patch 0017 UV-in-venc-tail; previous 1080p failed on .11 rc40 with `REQBUFS out of memory`, SD kernel first)
+### NR3D-01 3D noise reduction: runtime switch, crop-size reference, overflow counter (`[nr3d]`) — `partly passed` (2026-11-12, .11 rc41: patch 0017 allocates & streams 1080p cleanly, `nr3d_overflow=0` at 15 fps, overflows at 25 fps)
+
+- **Result (2026-11-12 23:11–23:17, `.11` rc41, flashed web update):**
+  - `3D-NR reference frame: 4050 KiB at 0x82f00000, 2025 KiB at 0x82200000 (UV in venc pool)` — **zero CMA/REQBUFS error** at 1080p (`MemAvailable: 17760 kB`, `CmaFree: 2256 kB` while streaming, 2 `rtsp-h26x restart` clean).
+  - **25 fps (1080p):** `nr3d_overflow` rose to `3895` (~25/s: `TNR_DMA_OVERFLOW` on every frame at 480 MHz PLL / 120 MHz ASIC). With `nr3d=0`: `0 overflows / 5s`.
+  - **15 fps (1080p, `-f 15`):** **`0 overflows / 5s`** — confirms 3D-NR + 1080p works cleanly once DRAM/ISP frame budget is at 15 fps (e.g. night/low-light `15 fps` or `20 fps` to test; 2 h soak + night noise comparison still to do).
 
 - **What (plans-2026-11-12 section 2; kernel patches 0006, 0016 and 0017, `v3/autorun-linux66.sh`, `config/boot.conf.dist`):**
   - **Patch 0017 (`[nr3d]` UV in encoder CMA tail):** `ak39_venc` exports `ak39_venc_aux_alloc()` / `ak39_venc_aux_free()`
