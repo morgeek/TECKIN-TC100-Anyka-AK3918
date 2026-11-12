@@ -8,7 +8,13 @@
  * dropped for 2 s, while a client talks the web push-to-talk is refused (upload_audio.cgi looks at the lock).
  * One talker at a time: the first client keeps the speaker until it has been silent for 3 s.
  * The packets go into a non-blocking pipe from the main loop: nothing here ever waits (a full pipe, more than 0.75 s of sound
- * not yet played, drops packets). Environment (tests): TC100_SPEAKER_SCRIPT. */
+ * not yet played, drops packets). Environment (tests): TC100_SPEAKER_SCRIPT.
+ *
+ * Echo cancellation (RTSP_AUDIO_AEC=1, talk_set_aec): the sound is not piped to aplay but written by tc100_rtsp itself to the
+ * playback device (apb.c), the written samples are the reference of the echo canceller (aec.c) and the queue length tells
+ * where the echo will be. The script then runs as `speaker-play.sh -hold`: lock, volume and amplifier, no aplay, and it
+ * exits when its standard input is closed; it creates /tmp/speaker-hold.ready once the amplifier is on, the packets wait
+ * (at most 0.75 s) until then. If the device does not open, today's path (aplay, microphone duck) is used. */
 #define _GNU_SOURCE
 #include <dirent.h>
 #include <errno.h>
@@ -23,9 +29,15 @@
 #include <unistd.h>
 
 #include "talk.h"
+#include "aec.h"
+#include "apb.h"
 
 #define TALK_LOCK	"/tmp/speaker-play.lock"
 #define TALK_SCRIPT	"/mnt/scripts/speaker-play.sh"
+#define TALK_READY	"/tmp/speaker-hold.ready"
+#define TALK_PLAYDEV	"/dev/snd/pcmC0D0p"
+#define TALK_PEND	6000		/* samples waiting for the amplifier (0.75 s) */
+#define TALK_PREFILL	320		/* samples of silence in front of a session: 40 ms of jitter buffer */
 #define TALK_IDLE_US	2000000ULL	/* the player is closed this long after the last packet */
 #define TALK_TAKE_US	3000000ULL	/* another client may take over after this much silence */
 #define TALK_BACKLOG	12000		/* bytes (0.75 s) waiting in the pipe: drop what comes */
@@ -37,6 +49,10 @@ static int wfd = -1;			/* its standard input */
 static int owner = -1;
 static uint64_t last_us, start_us, close_us, blocked_until;
 static unsigned long pkts, dropped, sessions;
+static struct aec *aec_p;		/* the echo canceller (talk_set_aec), NULL: aplay and the microphone duck */
+static int bfd = -1;			/* the playback device while a session plays through apb (hold mode) */
+static int ready, started, npend;	/* hold mode: the script holds the speaker / a sample was written / samples waiting */
+static int16_t pend[TALK_PEND];
 
 static int16_t alaw_dec(unsigned char a)
 {
@@ -83,6 +99,18 @@ void talk_init(void)
 	/* a lock left behind by a player that was killed: nobody plays, so nobody holds it */
 	if (!access(TALK_LOCK, F_OK) && !proc_running("aplay") && rmdir(TALK_LOCK) == 0)
 		LOGT("removed a stale %s\n", TALK_LOCK);
+	unlink(TALK_READY);
+}
+
+void talk_set_aec(struct aec *a) { aec_p = a; }
+int talk_hold_active(void) { return bfd >= 0; }
+int talk_queued(void)
+{
+	int q;
+
+	if (bfd < 0 || !started) return -1;
+	q = apb_queued(bfd);
+	return q < 0 ? 0 : q;
 }
 
 static const char *script(void)
@@ -92,7 +120,7 @@ static const char *script(void)
 	return e && *e ? e : TALK_SCRIPT;
 }
 
-static int spawn(uint64_t now)
+static int spawn(uint64_t now, int hold)
 {
 	int p[2];
 	pid_t c;
@@ -100,6 +128,7 @@ static int spawn(uint64_t now)
 
 	if (access(sc, R_OK)) { blocked_until = now + 5000000ULL; LOGT("%s missing\n", sc); return -1; }
 	if (pipe(p)) return -1;
+	unlink(TALK_READY);
 	c = vfork();
 	if (c == 0) {
 		int i = open("/dev/null", O_WRONLY);
@@ -108,7 +137,7 @@ static int spawn(uint64_t now)
 		dup2(p[0], 0);
 		if (i >= 0) { dup2(i, 1); dup2(i, 2); }
 		for (i = 3; i < 256; i++) close(i);
-		execl("/bin/sh", "sh", sc, "-", (char *)NULL);
+		execl("/bin/sh", "sh", sc, hold ? "-hold" : "-", (char *)NULL);
 		_exit(127);
 	}
 	close(p[0]);
@@ -118,6 +147,61 @@ static int spawn(uint64_t now)
 	start_us = now;
 	sessions++;
 	return 0;
+}
+
+static void hold_end(void)
+{
+	unsigned rs = 0, ra = 0;
+
+	if (bfd < 0) return;
+	apb_close(bfd);
+	bfd = -1; started = ready = 0; npend = 0;
+	if (aec_p) aec_counters(aec_p, &rs, &ra);
+	LOGT("speaker closed (echo canceller: %u resets, %u realigns)\n", rs, ra);
+}
+
+/* samples to the speaker and to the echo canceller as its reference; the part the device did not take is dropped */
+static void play(const int16_t *p, int n, uint64_t now)
+{
+	int w;
+
+	if (!started) {		/* a little silence first: the first write starts the stream and packets come in bursts */
+		int16_t z[TALK_PREFILL];
+
+		memset(z, 0, sizeof z);
+		w = apb_write(bfd, z, TALK_PREFILL);
+		if (w > 0) { started = 1; if (aec_p) aec_far(aec_p, z, w); }
+	}
+	w = apb_write(bfd, p, n);
+	if (w < 0) {			/* the device failed: the session ends, the next packet tries again */
+		LOGT("speaker device failed: %s\n", strerror(errno));
+		hold_end();
+		if (wfd >= 0) { close(wfd); wfd = -1; close_us = now; }
+		owner = -1; blocked_until = now + 2000000ULL;
+		return;
+	}
+	if (w > 0) { started = 1; if (aec_p) aec_far(aec_p, p, w); }
+	if (w < n) dropped++;
+}
+
+/* hold mode: the packet waits for the amplifier, then goes to the speaker */
+static void hold_feed(const int16_t *p, int n, uint64_t now)
+{
+	if (!ready) {
+		if (access(TALK_READY, F_OK) == 0) ready = 1;
+		else {
+			if (npend + n <= TALK_PEND) { memcpy(pend + npend, p, (size_t)n * 2); npend += n; }
+			else dropped++;
+			return;
+		}
+	}
+	if (npend) { int k = npend; npend = 0; play(pend, k, now); if (bfd < 0) return; }
+	{
+		int q = apb_queued(bfd);
+
+		if (q > TALK_BACKLOG / 2) { dropped++; return; }	/* 0.75 s of sound not played yet */
+	}
+	play(p, n, now);
 }
 
 void talk_rtp(int who, const unsigned char *p, int n, uint64_t now)
@@ -136,15 +220,28 @@ void talk_rtp(int who, const unsigned char *p, int n, uint64_t now)
 	last_us = now;
 	pkts++;
 	if (wfd < 0) {
+		int hold = 0;
+		const char *pd = getenv("TC100_PLAY_DEV");
+
 		if (pid > 0 || now < blocked_until) { dropped++; return; }	/* the last player is still finishing / was refused */
-		if (spawn(now)) { dropped++; return; }
+		if (aec_p) {		/* the device is ours: opened before the script, which refuses when a clip plays */
+			bfd = apb_open(pd && *pd ? pd : TALK_PLAYDEV, 8000);
+			if (bfd >= 0) hold = 1;
+			else LOGT("playback device: %s, aplay instead\n", strerror(errno));
+		}
+		if (spawn(now, hold)) {
+			if (bfd >= 0) { apb_close(bfd); bfd = -1; }
+			dropped++; return;
+		}
+		started = ready = 0; npend = 0;
 	}
+	for (i = 0; i < cnt; i++) pcm[i] = alaw_dec(p[off + i]);
+	if (bfd >= 0) { hold_feed(pcm, cnt, now); return; }
 	{
 		int pend = 0;
 
 		if (ioctl(wfd, FIONREAD, &pend) == 0 && pend > TALK_BACKLOG) { dropped++; return; }
 	}
-	for (i = 0; i < cnt; i++) pcm[i] = alaw_dec(p[off + i]);
 	if (write(wfd, pcm, (size_t)cnt * 2) < 0) {
 		if (errno == EAGAIN || errno == EINTR) { dropped++; return; }
 		close(wfd); wfd = -1; close_us = now;		/* the player is gone */
@@ -153,7 +250,16 @@ void talk_rtp(int who, const unsigned char *p, int n, uint64_t now)
 
 void talk_tick(uint64_t now)
 {
-	if (wfd >= 0 && now - last_us > TALK_IDLE_US) {	/* nobody talks any more: the player plays the rest and exits */
+	if (bfd >= 0) {
+		if (!ready && access(TALK_READY, F_OK) == 0) ready = 1;
+		if (ready && npend) { int k = npend; npend = 0; play(pend, k, now); }
+	}
+	if (bfd >= 0 && now - last_us > TALK_IDLE_US) {	/* let the device play what it has, 1.5 s at most, then free it */
+		int q = apb_queued(bfd);
+
+		if (!(q > 0 && now - last_us < TALK_IDLE_US + 1500000ULL)) hold_end();
+	}
+	if (wfd >= 0 && bfd < 0 && now - last_us > TALK_IDLE_US) {	/* nobody talks any more: the player plays the rest and exits */
 		close(wfd); wfd = -1; close_us = now; owner = -1;
 		LOGT("end (%lu packets, %lu dropped)\n", pkts, dropped);
 	}
@@ -169,6 +275,11 @@ void talk_tick(uint64_t now)
 				owner = -1;
 			}
 			pid = -1;
+			if (bfd >= 0) {		/* the script that held the speaker is gone: lock and amplifier are not ours any more */
+				hold_end();
+				if (wfd >= 0) { close(wfd); wfd = -1; close_us = now; }
+				owner = -1;
+			}
 		} else if (wfd < 0 && now - close_us > 10000000ULL) {	/* does not finish: stop the group */
 			kill(-pid, close_us && now - close_us > 13000000ULL ? SIGKILL : SIGTERM);
 		}
@@ -184,6 +295,7 @@ int talk_state(void) { return wfd >= 0; }
 
 void talk_shutdown(void)
 {
+	if (bfd >= 0) { apb_close(bfd); bfd = -1; }
 	if (wfd >= 0) { close(wfd); wfd = -1; }
 	if (pid > 0) kill(-pid, SIGTERM);
 }

@@ -31,6 +31,49 @@ Rules that apply to every entry:
 - Memory of a process: **PSS** (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`, KB), not RSS. RSS counts the busybox
   and C library pages shared by every shell once per process (the C MQTT bridge looked 5 MB lighter in RSS, 0.9 MB in PSS).
 
+### AEC-01 Echo cancellation of the two-way audio, behind a switch (`[audio-aec]`) — `to test` (next RC, owner; measurements first)
+
+- **What (plan 3 of `plans-2026-11-12.md`):** with `RTSP_AUDIO_AEC=1`, a talk session (go2rtc, Home Assistant, Frigate: the
+  RTSP backchannel) is played by `tc100_rtsp` itself on the playback device (`apb.c`, stereo S16_LE 8 kHz, non-blocking),
+  not through `aplay`. The written samples are the reference of a fixed-point NLMS filter (`aec.c`, 256 taps = 32 ms, Q15, no
+  floats, no libm) that removes the speaker's echo from the microphone before the level control (order: high-pass, echo
+  canceller, residual suppressor 0 to -18 dB, level control). Double talk: Geigel test plus an error test freeze the
+  adaptation (100 ms hold); the suppressor does not act when someone talks. The level gain does not rise while the far
+  end plays. The microphone is **not** muted any more during a session (the half duplex duck of today), so the listener
+  can talk over the speaker. `speaker-play.sh -hold` keeps the lock, the volume and the amplifier (no `aplay`).
+  Clock skew between the DAC and the ADC (up to 0.16-0.7 %, plan) is handled by a linear resampler of the reference,
+  `RTSP_AUDIO_AEC_RATIO` (`625/624` or ppm); the camera measurement gives the value, default 1.0.
+  If the playback device does not open, today's path (`aplay` + the microphone duck) is used. Push-to-talk of the web
+  UI and the sounds (`upload_audio.cgi`) keep the duck. Cost: about 2 KB of code, 18 KB of RAM only when the switch is
+  on, CPU only while the far end plays (to be measured; plan estimate 6-12 %).
+- **Switch:** `RTSP_AUDIO_AEC=0` (default, unset = 0) in `/mnt/config/rtsp.env`, restart `rtsp-h26x`. At 0 nothing
+  changes: no allocation, the same `adsp_sample` path, `speaker-play.sh -` and the duck. Companions: `RTSP_AUDIO_AEC_RATIO`,
+  `_DELAY` (ms, 20), `_TAPS` (256).
+- **Prerequisite:** the end-to-end talk test (F1) passes with the switch at 0 (sound reaches the speaker from go2rtc / Home
+  Assistant, push-to-talk refused during a session).
+- **Test, in this order:**
+  1. **Measurements first** (`audio-aec-measure.md`): `dmesg` rates, the probe at volumes 50/90/100 (RTSP server
+     stopped, restarted by `rtsp-h26x start`), peak below -3 dBFS, click spacing (ppm), response length, offline echo
+     reduction with `test_aec -f` with and without the ratio. Write the numbers below. Put the ratio and the delay
+     in `rtsp.env`.
+  2. `RTSP_AUDIO_AEC=1` and the measured values; restart the server. Log: `echo cancellation on`.
+  3. With go2rtc or Home Assistant talk to the camera, a second person in the room talking in turns and at the same
+     time, a viewer listening to the RTSP audio (VLC) or the Listen button: the sound of the speaker is not heard back
+     (or only as a faint tail), the second person is heard without cuts while the talker speaks.
+  4. `scripts/cpu-profile.sh 60` during a session (talk running) with the switch at 1, and at 0 for comparison;
+     the log line `talk: speaker closed (echo canceller: N resets, M realigns)` after the session.
+  5. Stop the session, push-to-talk of the web UI works at once; restart the talk; a web sound while talking is refused as before.
+  6. Switch back to 0: the old behaviour (duck: the microphone is silent while the speaker plays) returns.
+- **Pass:** echo reduction of the probe 20 dB or more at volume 90 offline; in step 3 the echo is not audible or at most
+  a short faint tail after the talker stops, the near-end voice is clear during double talk; CPU of `tc100_rtsp` during
+  a session at most +12 points over the switch at 0 and no frame drops of the video (`STAT` lines); `resets` 0 or 1 per
+  session and `realigns` a few per minute at most; no underrun noise (clicks) in the sound; the amplifier and the lock
+  behave as before (lock released after the session, no pop at the end beyond today's); switch 0 behaves exactly like
+  the previous build.
+- **If it fails:** keep 0 (the feature is off), write which step; the measurement files tell whether the ratio, the delay or
+  the speaker's distortion (volume 100) is the cause.
+- **Result:** (to fill in)
+
 ### ONVIF-02 onvifd: lockout per address, full answers on slow links, connection and discovery limits (`[onvifd-review]`) â€” `to test` (next RC, owner: NVR + Home Assistant)
 
 - **What (read-only Fable review of `tc100-onvifd`, 2026-11-12: no authentication bypass, no out-of-bounds access):**

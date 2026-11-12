@@ -11,11 +11,15 @@ struct adsp {
 	int32_t gain, target;		/* level gain, x4096 */
 	int32_t mute;			/* mute gain, x4096 */
 	int n;
+	int hold;			/* 1 while the far end plays and the echo canceller works (aec.c): the level gain does not go up */
 };
 
 void adsp_init(struct adsp *d, int hpf, int agc, int duck);
 int adsp_on(const struct adsp *d);
 /* one sample in, one out; speaker = 1 while the speaker plays (push-to-talk, two-way audio, a sound) */
+/* the same in two steps, the echo canceller between them (RTSP_AUDIO_AEC): high-pass, then level control, duck, soft clip */
+int adsp_hpf(struct adsp *d, int s);
+int adsp_rest(struct adsp *d, int s, int speaker);
 int adsp_sample(struct adsp *d, int s, int speaker);
 
 #endif

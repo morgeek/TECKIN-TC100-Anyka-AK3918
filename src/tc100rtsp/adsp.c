@@ -32,7 +32,7 @@ void adsp_init(struct adsp *d, int hpf, int agc, int duck)
 {
 	d->hpf = hpf; d->agc = agc; d->duck = duck;
 	d->x1 = d->x2 = d->y1 = d->y2 = d->err = 0;
-	d->env = 0; d->gain = d->target = G1; d->mute = G1; d->n = 0;
+	d->env = 0; d->gain = d->target = G1; d->mute = G1; d->n = 0; d->hold = 0;
 }
 
 int adsp_on(const struct adsp *d)
@@ -40,7 +40,7 @@ int adsp_on(const struct adsp *d)
 	return d->hpf || d->agc || d->duck;
 }
 
-int adsp_sample(struct adsp *d, int s, int speaker)
+int adsp_hpf(struct adsp *d, int s)
 {
 	int32_t y = s;
 
@@ -56,6 +56,13 @@ int adsp_sample(struct adsp *d, int s, int speaker)
 		if (y < -65536) y = -65536;
 		d->x2 = d->x1; d->x1 = s; d->y2 = d->y1; d->y1 = y;
 	}
+	return y;
+}
+
+int adsp_rest(struct adsp *d, int s, int speaker)
+{
+	int32_t y = s;
+
 	if (d->agc) {
 		int32_t a = (y < 0 ? -y : y) << 8;
 
@@ -71,7 +78,7 @@ int adsp_sample(struct adsp *d, int s, int speaker)
 			}
 		}
 		if (d->target < d->gain) d->gain -= (d->gain - d->target + 63) >> 6;	/* down in ~8 ms */
-		else d->gain += (d->target - d->gain) >> 10;			/* up in ~130 ms */
+		else if (!d->hold) d->gain += (d->target - d->gain) >> 10;	/* up in ~130 ms (not while the far end plays: echo) */
 		y = (int32_t)(((int64_t)y * d->gain) >> 12);
 	}
 	if (d->duck) {
@@ -86,4 +93,9 @@ int adsp_sample(struct adsp *d, int s, int speaker)
 		else if (y < -KNEE) y = -KNEE + (y + KNEE) / 4;
 	}
 	return y > 32767 ? 32767 : y < -32768 ? -32768 : (int)y;
+}
+
+int adsp_sample(struct adsp *d, int s, int speaker)
+{
+	return adsp_rest(d, adsp_hpf(d, s), speaker);
 }

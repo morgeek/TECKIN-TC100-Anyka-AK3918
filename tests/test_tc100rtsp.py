@@ -207,6 +207,52 @@ class AudioProcessing(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn('all OK', r.stdout)
 
+    def test_aec(self):
+        """echo cancellation (aec.c): synthetic room, double talk, delay jump, 1600 ppm skew with and without the resampler"""
+        build('test_aec')
+        r = subprocess.run([str(SRC / 'test_aec')], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('all OK', r.stdout)
+        print('
+' + r.stdout)
+
+    def test_aec_is_off_by_default_and_ordered_in_the_pump(self):
+        src = (SRC / 'tc100_rtsp.c').read_text()
+        self.assertIn("if (ae && ae[0] == '1') {", src)                       # RTSP_AUDIO_AEC=1 only; unset or 0 allocates nothing
+        pump = src[src.index('static void aud_pump(void)'):src.index('static int send_pkt(')]
+        self.assertIn('else if (dsp) s = adsp_sample(&aud_dsp, s, spk);', pump)  # the switch off path is the old one
+        helper = src[src.index('static int aud_aec_sample('):src.index('static void aud_pump(void)')]
+        self.assertLess(helper.index('adsp_hpf('), helper.index('aec_process('))      # high-pass, AEC (suppressor inside), level control
+        self.assertLess(helper.index('aec_process('), helper.index('adsp_rest('))
+        self.assertLess(pump.index('lvl_add(&snd_w, s)'), pump.index('aud_aec_sample(s, spk)'))
+        talk = (SRC / 'talk.c').read_text()
+        self.assertIn('hold ? "-hold" : "-"', talk)                           # without the canceller the player is started as before
+
+    def test_speaker_script_hold_mode(self):
+        """speaker-play.sh -hold: lock, ready marker, waits for stdin to close, then cleans up (no aplay needed)"""
+        lock, ready = Path('/tmp/speaker-play.lock'), Path('/tmp/speaker-hold.ready')
+        if lock.exists():
+            self.skipTest('a speaker lock exists on this host')
+        p = subprocess.Popen(['sh', str(ROOT / 'scripts' / 'speaker-play.sh'), '-hold'], stdin=subprocess.PIPE,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            for _ in range(100):
+                if ready.exists():
+                    break
+                time.sleep(0.05)
+            self.assertTrue(ready.exists())
+            self.assertTrue(lock.is_dir())
+            self.assertIsNone(p.poll())                                       # waits
+            p.stdin.close()
+            self.assertEqual(p.wait(timeout=5), 0)
+            self.assertFalse(ready.exists())
+            self.assertFalse(lock.exists())
+        finally:
+            if p.poll() is None:
+                p.kill()
+            subprocess.run(['rmdir', '/tmp/speaker-play.lock'], stderr=subprocess.DEVNULL)
+            ready.unlink(missing_ok=True)
+
     def test_meter_before_the_processing_and_switches_off_by_default(self):
         src = (SRC / 'tc100_rtsp.c').read_text()
         pump = src[src.index('static void aud_pump(void)'):src.index('static int send_pkt(')]
@@ -1605,7 +1651,7 @@ class RtpPath(Server):
 class Sources(unittest.TestCase):
     def test_no_uclibc_missing_imports(self):
         """the camera's uClibc 0.9.33 has no __isoc23_* (glibc 2.38 C2x redirects), no libm in tc100_rtsp"""
-        for name in ('tc100_rtsp.c', 'rec.c', 'util.h', 'talk.c', 'alisten.c', 'mp4box.c', 'livemp4.c'):
+        for name in ('tc100_rtsp.c', 'rec.c', 'util.h', 'talk.c', 'alisten.c', 'mp4box.c', 'livemp4.c', 'aec.c', 'apb.c'):
             s = re.sub(r'/\*.*?\*/|//[^\n]*', '', (SRC / name).read_text(), flags=re.S)  # code only
             self.assertIsNone(re.search(r'\b(sscanf|fscanf|strtol|strtoul|atoi|atol|log10|sqrt|lrint)\s*\(', s), name)
 
