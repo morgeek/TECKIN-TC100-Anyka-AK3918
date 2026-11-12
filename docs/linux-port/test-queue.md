@@ -3545,3 +3545,20 @@ Build: run 43251033795 (main, commit 09d31b8), package `tc100-3.0.1-rc39-update.
 
 **Passed.** Tonight: the first full night of the .11 with the IR-cut fixed and `vendor` (HW-10), the night part of HW-09.
 The .24 stays on rc38 for one more night.
+
+## 3.0.1-rc40 install on the .11 (2026-11-12 evening, from rc39, web update, owner)
+Build: run 43298570849 (main, commit fdbe482), package `tc100-3.0.1-rc40-update.tar` (MD5SUMS checked).
+
+| check (20:45 UTC, 2 min after the reboot) | result |
+|---|---|
+| `/mnt/VERSION`, kernel | 3.0.1-rc40, kernel built 2026-11-12 20:21 UTC |
+| tc100_rtsp, supervisor, mqttd, onvifd, httpfront, whep, wpa_supplicant | all running |
+| stream | 1 client, 99 frames / 5 s just after start, 0 dropped; main H.265 1080p 1600 kbit/s **(CBR)**, sub H.264 640x360 250 kbit/s (CBR) |
+| encoder mode | rtspserver.conf `vbr=0`, `smart=0`: unchanged behaviour (CBR, GOP 50) |
+| 3D-NR | `ak39_vi.nr3d=0`, no `NR3D` in boot.conf: off, as before (opt-in) |
+| echo cancellation | no `RTSP_AUDIO_AEC`: off (default) |
+| MemAvailable | 23.4 MB |
+| settings kept | `DAYNIGHT_SOURCE=vendor`, boot.conf IR-cut 592 / 593, cfg-persist `saved to cfgb` |
+| `action.cgi` by GET, `cmd=x` | `405 Method Not Allowed` |
+
+**Passed.** The camera was in day mode at 21:45 local (lamps on); the first full night on rc40 is still to check.
