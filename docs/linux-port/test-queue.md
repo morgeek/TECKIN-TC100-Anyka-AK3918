@@ -31,6 +31,13 @@ Rules that apply to every entry:
 - Memory of a process: **PSS** (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`, KB), not RSS. RSS counts the busybox
   and C library pages shared by every shell once per process (the C MQTT bridge looked 5 MB lighter in RSS, 0.9 MB in PSS).
 
+### WIFI-TXATTEN rtl8188f runtime `tx_atten` parameter (`[wifi]`) — `to test`
+
+- **What:** Kernel patch `0019-wifi-rtl8xxxu-8188f-tx_atten-parameter.patch` adds `rtl8xxxu.tx_atten` (`0644`, `0..30`, default `0`) in `rtl8188f_set_tx_power()` to reduce CCK/OFDM/MCS TX power indices in ~0.5 dB steps (e.g. `12` = `-6 dB`, `20` = `-10 dB`) on cameras sitting very close to the AP (like `.11` at `-25 dBm`).
+- **Test (`.11`, after booting the CI kernel):**
+  1. `echo 12 > /sys/module/rtl8xxxu/parameters/tx_atten && wpa_cli -i wlan0 reassociate` (or `rtl8xxxu.tx_atten=12` in `EXTRA`).
+  2. Check RSSI / link stability / temperature and `ping -i 0.5 192.168.1.11`; revert with `echo 0 > /sys/module/rtl8xxxu/parameters/tx_atten && wpa_cli -i wlan0 reassociate`.
+
 ### HRTIMER-01 High-resolution timers and NO_HZ_IDLE (`[kernel]`) — `to test`
 
 - **What (`H4`/`H5`):** `patches/kernel-6.6/defconfig_cma` enables `CONFIG_HIGH_RES_TIMERS=y` and `CONFIG_NO_HZ_IDLE=y` (the AK39 timer in patch 0001 already declares `CLOCK_EVT_FEAT_ONESHOT`), and `src/tc100rtsp/tc100_rtsp.c` uses `nanosleep()` in `pace_udp()`.

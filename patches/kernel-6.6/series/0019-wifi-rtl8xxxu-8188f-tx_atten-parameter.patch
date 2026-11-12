@@ -1,0 +1,69 @@
+From 4aa9d12242f101a675e99af9d6e82614027a3bb5 Mon Sep 17 00:00:00 2001
+From: test <test@localhost>
+Date: Fri, 13 Nov 2026 00:10:04 +0100
+Subject: [PATCH] wifi: rtl8xxxu: 8188f runtime tx_atten parameter
+
+---
+ .../realtek/rtl8xxxu/rtl8xxxu_8188f.c         | 27 ++++++++++++-------
+ 1 file changed, 18 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_8188f.c b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_8188f.c
+index 66db531..d15f701 100644
+--- a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_8188f.c
++++ b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_8188f.c
+@@ -370,6 +370,18 @@ void rtl8188f_channel_to_group(int channel, int *group, int *cck_group)
+ 		*cck_group = *group;
+ }
+ 
++static unsigned int rtl8188f_tx_atten;
++module_param_named(tx_atten, rtl8188f_tx_atten, uint, 0644);
++MODULE_PARM_DESC(tx_atten, "Reduce RTL8188F TX power index by N (~0.5 dB steps, 0..30)");
++
++static inline u8 rtl8188f_atten(int val)
++{
++	int a = (int)min(rtl8188f_tx_atten, 30U);
++
++	val -= a;
++	return val < 0 ? 0 : (u8)min(val, 63);
++}
++
+ void
+ rtl8188f_set_tx_power(struct rtl8xxxu_priv *priv, int channel, bool ht40)
+ {
+@@ -379,7 +391,7 @@ rtl8188f_set_tx_power(struct rtl8xxxu_priv *priv, int channel, bool ht40)
+ 
+ 	rtl8188f_channel_to_group(channel, &group, &cck_group);
+ 
+-	cck = priv->cck_tx_power_index_A[cck_group];
++	cck = rtl8188f_atten(priv->cck_tx_power_index_A[cck_group]);
+ 
+ 	val32 = rtl8xxxu_read32(priv, REG_TX_AGC_A_CCK1_MCS32);
+ 	val32 &= 0xffff00ff;
+@@ -391,19 +403,16 @@ rtl8188f_set_tx_power(struct rtl8xxxu_priv *priv, int channel, bool ht40)
+ 	val32 |= ((cck << 8) | (cck << 16) | (cck << 24));
+ 	rtl8xxxu_write32(priv, REG_TX_AGC_B_CCK11_A_CCK2_11, val32);
+ 
+-	ofdmbase = priv->ht40_1s_tx_power_index_A[group];
+-	ofdmbase += priv->ofdm_tx_power_diff[0].a;
++	ofdmbase = rtl8188f_atten(priv->ht40_1s_tx_power_index_A[group] +
++				  priv->ofdm_tx_power_diff[0].a);
+ 	ofdm = ofdmbase | ofdmbase << 8 | ofdmbase << 16 | ofdmbase << 24;
+ 
+ 	rtl8xxxu_write32(priv, REG_TX_AGC_A_RATE18_06, ofdm);
+ 	rtl8xxxu_write32(priv, REG_TX_AGC_A_RATE54_24, ofdm);
+ 
+-	mcsbase = priv->ht40_1s_tx_power_index_A[group];
+-	if (ht40)
+-		/* This diff is always 0 - not used in 8188FU. */
+-		mcsbase += priv->ht40_tx_power_diff[0].a;
+-	else
+-		mcsbase += priv->ht20_tx_power_diff[0].a;
++	mcsbase = rtl8188f_atten(priv->ht40_1s_tx_power_index_A[group] +
++				 (ht40 ? priv->ht40_tx_power_diff[0].a :
++					 priv->ht20_tx_power_diff[0].a));
+ 	mcs = mcsbase | mcsbase << 8 | mcsbase << 16 | mcsbase << 24;
+ 
+ 	rtl8xxxu_write32(priv, REG_TX_AGC_A_MCS03_MCS00, mcs);
+-- 
+2.54.0 (Apple Git-157)
+
