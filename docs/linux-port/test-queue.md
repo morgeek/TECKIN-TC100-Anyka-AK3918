@@ -3336,3 +3336,20 @@ checked in stack.sqfs: setconf / board profile IR-cut 592 / 593, the two lighter
 
 **Passed.** Still to do: the first night on rc38 (.24, `vendor`), the first full night of the .11 with its IR-cut fixed,
 the night part of HW-09; the .11 itself is still on rc37.
+
+## 3.0.1-rc39 install on the .11 (2026-11-12, from rc37, web update, owner)
+Build: run 43251033795 (main, commit 09d31b8), package `tc100-3.0.1-rc39-update.tar` (MD5SUMS checked).
+
+| check (17:11-17:13 UTC, 3-5 min after the reboot) | result |
+|---|---|
+| `/mnt/VERSION`, kernel | 3.0.1-rc39, kernel built 2026-11-12 15:47 UTC |
+| tc100_rtsp, supervisor, mqttd, onvifd, httpfront, whep, wpa_supplicant | all running |
+| stream | 1 client, 122 frames / 5 s, 0 dropped |
+| MemAvailable | 23.8 MB |
+| settings kept | `DAYNIGHT_SOURCE=vendor`; boot.conf `IRCUT_DAY_GPIO=592` / `IRCUT_NIGHT_GPIO=593`; no new migration line; cfg-persist `saved to cfgb` |
+| day / night | `mode=day src=vendor` (lamps on: lum 8138, counts 1 062 416), filter in (ircut 1) |
+| noise reduction start-up log | present |
+| `action.cgi` by GET, `cmd=x` | `405 Method Not Allowed` |
+
+**Passed.** Tonight: the first full night of the .11 with the IR-cut fixed and `vendor` (HW-10), the night part of HW-09.
+The .24 stays on rc38 for one more night.
