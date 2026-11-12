@@ -3644,3 +3644,17 @@ NR3D line: appended), rtspserver.conf `[0] vbr=1 smart=1`, rtsp.env `RTSP_AUDIO_
 - **`.11` link state:** `Power save: off`, `58:d9:d5:ae:1a:23` (`Keegrom6`, ch `2422`, `65/72.2 MBit/s MCS 7`, `dtim 1`),
   `/proc/net/wireless` `link 70`, `level -13`, `retry 0`, `misc 354`, no scan/roam/disconnect in `dmesg`.
   Points to downstream buffering/RX stall between AP and `.11` rather than RF packet loss.
+
+## Day mode kept in a dark room, `vendor`, .24 rc38 (2026-11-12 evening; raw log frontier/data/raw/daynight-24-2026-11-13.log)
+| UTC | mode | luma | lum | awb | reading |
+|---|---|---|---|---|---|
+| 21:34-22:24 | day | 77-78 | 16 082-17 087 | 550 000-575 000 | dim lamp: day, as decided (colour while there is light) |
+| 22:29-22:44 | night | 98-102 | 2722-2896 | 17 800-32 000 | dark, IR on |
+| 22:49 | day | 76 | 2487 | 576 954 | a light came on (counts x30 under IR): day, right |
+| 22:54-23:04 -> | **day** | **38-39** | **68 350** | **60 404-66 181** | light off again: very dark (lum 68 350 = the 2026-11-11 "dark room in day mode" range 45 566-91 133), but the counts stay just above `AWB_DAY_CNT` 50 000, so no night: dark, IR off |
+
+- The 50 000 count threshold does not separate this dark room (60-66 k) from light; the measured light cases are
+  550 000-1 200 000 (dim lamp to lamps on). A threshold between, e.g. `AWB_DAY_CNT=200000`, would give night here and
+  keep day under the dim lamp: **owner's decision** (daynight.conf, no rebuild), and a question for the `daynight` brief.
+- The .24 also rebooted at about 14:29 UTC without a recorded reason (`reboot-history.log`: "unknown (no heartbeat
+  recorded yet)"), 2 h after the rc38 install: to explain (power, watchdog?).

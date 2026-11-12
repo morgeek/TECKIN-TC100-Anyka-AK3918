@@ -6,6 +6,7 @@ briefs carry; these files let anyone check a number against its source.
 | file | what | summary |
 |---|---|---|
 | `daynight-{11,24}-2026-11-12.log` | supervisor day / night log, one line per 5 min (`mode src luma ae[...] idx lum awb[10] rex bex u v`) | `../daynight-2026-11-12.md` |
+| `daynight-24-2026-11-13.log` | .24 (rc38, `vendor`) from 14:33 to 23:04 UTC: the evening when a dark room stayed in day mode | test-queue "Day mode kept in a dark room" |
 | `dn-capture-24-vendor-2026-11-12.csv` | .24 every 5 s from 18:10 to 07:05: `time luma \| cam_ae \| ircut` (1 = filter in, day) | `../daynight-2026-11-12.md` |
 | `perfcap-{11,24}-2026-11-11.txt` | 25 samples 5 min apart: meminfo, /proc/stat, per process PSS / utime / stime / minor faults; two bursts of new processes | `../background-2026-11-11.md`, `../rtsp-2026-11-11.md` |
 | `threads-{11,24}-2026-11-11.txt` | tc100_rtsp per thread, two reads 60 s apart (3.0.0) | `../rtsp-2026-11-11.md` |
