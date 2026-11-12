@@ -42,7 +42,8 @@ start()
   _port=$(sed -n 's/^PORT=\([0-9][0-9]*\).*/\1/p' /mnt/config/rtspserver.conf 2>/dev/null | head -n 1)
   _ruser=$(sed -n 's/^RTSP_USER=\([A-Za-z0-9_.-]*\)$/\1/p' /mnt/config/rtsp.env 2>/dev/null | tail -n 1)
   mkdir -p /tmp/logs
-  "$BIN" -i wlan0,eth0 -s "$_stream" -m "$_max" -a "$_aud" -r "${_port:-554}" -U "${_ruser:-root}" \
+  # NET_LAN_ONLY covers the UDP port too: the gateway reads the same list as httpfront and drops other datagrams
+  TC100_NET_ALLOW="$(netacl_allow_list 2>/dev/null)" "$BIN" -i wlan0,eth0 -s "$_stream" -m "$_max" -a "$_aud" -r "${_port:-554}" -U "${_ruser:-root}" \
     -w /mnt/config/user.pwd -c /mnt/config </dev/null >>"$LOG" 2>&1 &
   echo $! > "$PIDFILE"
   sleep 2	# the first start makes the certificate (about a second)

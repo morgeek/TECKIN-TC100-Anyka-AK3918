@@ -52,6 +52,8 @@
 #define REQ_MAX 16384		/* request (headers + body) */
 #define OUT_MAX 24576		/* one answer */
 #define MAXCONN 6
+#define WSD_RATE 20	/* WS-Discovery answers per second (several controllers may scan at once) */
+#define PERIP 4		/* connections at once from one address (an NVR may send a few requests in parallel) */
 #define READ_MS 5000
 #define MAXNET 16
 #define SKEW_S 300
@@ -699,8 +701,80 @@ static long parse_iso(const char *s)
 	return days_from_civil(y, (unsigned)mo, (unsigned)d) * 86400L + h * 3600L + mi * 60L + se;
 }
 
-static int g_fails;
-static long long g_fail_window;
+/* wrong logins counted per address (review 2026-11-12: one global counter let any LAN host lock the NVR out by sending
+ * 20 bad tokens a minute): FAIL_MAX failures within a minute refuse that address only; 127/8 is never counted */
+#define FAIL_MAX 20
+#define FAIL_SLOTS 32
+static struct { u_int32_t ip; int n; long long t0; } g_fail[FAIL_SLOTS];
+static u_int32_t g_peer;	/* host order, set by process() for the request being answered */
+
+static int fail_find(u_int32_t ip, long long t)
+{
+	for (int i = 0; i < FAIL_SLOTS; i++)
+		if (g_fail[i].n && g_fail[i].ip == ip) {
+			if (t - g_fail[i].t0 > 60000) { g_fail[i].n = 0; return -1; }
+			return i;
+		}
+	return -1;
+}
+
+static int fail_locked(u_int32_t ip, long long t)
+{
+	int i = fail_find(ip, t);
+
+	return (ip >> 24) != 127 && i >= 0 && g_fail[i].n >= FAIL_MAX;
+}
+
+static void fail_note(u_int32_t ip, long long t)
+{
+	int i = fail_find(ip, t), o = 0;
+
+	if ((ip >> 24) == 127) return;
+	if (i < 0) {	/* a free or expired slot, else the oldest one that is not locked (a locked address is never
+			 * evicted: cycling through more addresses than slots must not unlock one) */
+		o = -1;
+		for (i = 0; i < FAIL_SLOTS && g_fail[i].n && t - g_fail[i].t0 <= 60000; i++)
+			if (g_fail[i].n < FAIL_MAX && (o < 0 || g_fail[i].t0 < g_fail[o].t0)) o = i;
+		if (i == FAIL_SLOTS) {
+			if (o < 0) return;	/* every slot holds a locked address: more than FAIL_SLOTS guessers */
+			i = o;
+		}
+		g_fail[i].ip = ip; g_fail[i].n = 0; g_fail[i].t0 = t;
+	}
+	g_fail[i].n++;
+}
+
+/* the five predefined XML entities and ASCII character references, in place (credentials only: a decoded '<' must never be echoed in an answer) */
+static void xml_unescape(char *s)
+{
+	static const struct { const char *e; char c; } E[] = { { "&amp;", '&' }, { "&lt;", '<' }, { "&gt;", '>' },
+							       { "&quot;", '"' }, { "&apos;", '\'' } };
+	char *d = s;
+
+	while (*s) {
+		int k, done = 0;
+
+		if (*s == '&' && s[1] == '#') {	/* &#39; &#x27; ... (Go's encoding/xml escapes ' and " that way): ASCII only */
+			char *q = s + 2;
+			int v = 0, hex = (*q == 'x' || *q == 'X'), nd = 0;
+
+			if (hex) q++;
+			for (; nd < 6; q++, nd++) {
+				int c = *q, dv = c >= '0' && c <= '9' ? c - '0' : hex && c >= 'a' && c <= 'f' ? c - 'a' + 10 :
+					 hex && c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+
+				if (dv < 0) break;
+				v = v * (hex ? 16 : 10) + dv;
+			}
+			if (nd && *q == ';' && v > 0 && v < 128) { *d++ = (char)v; s = q + 1; done = 1; }
+		}
+		if (*s == '&' && !done)
+			for (k = 0; k < 5 && !done; k++)
+				if (!strncmp(s, E[k].e, strlen(E[k].e))) { *d++ = E[k].c; s += strlen(E[k].e); done = 1; }
+		if (!done) *d++ = *s++;
+	}
+	*d = 0;
+}
 
 static int has_sub(const char *h, int n, const char *needle)
 {
@@ -719,12 +793,12 @@ static int check_auth(const char *b, int n)
 	long long t = now_ms();
 
 	if (!G.pass[0]) return 1;
-	if (t - g_fail_window > 60000) { g_fail_window = t; g_fails = 0; }
-	if (g_fails >= 20) return 0;		/* guessing: nothing is accepted for the rest of the minute */
+	if (fail_locked(g_peer, t)) return 0;	/* guessing from this address: refused for the rest of its minute */
 	if (!find_elem(b, end, "UsernameToken", NULL, NULL, &cl)) return 0;
 	get_text(b, end, "Username", user, sizeof user);
 	if (!find_elem(b, end, "Password", &attrs, &al, &cl)) return 0;
 	get_text(b, end, "Password", pw, sizeof pw);
+	xml_unescape(user); xml_unescape(pw);	/* a password with & < > " ' arrives escaped */
 	if (!ct_eq(user, G.user)) goto bad;
 	if (has_sub(attrs, al, "PasswordDigest")) {
 		unsigned char raw[64], dg[20], buf[256];
@@ -756,7 +830,7 @@ static int check_auth(const char *b, int n)
 	if (!ct_eq(pw, G.pass)) goto bad;
 	return 1;
 bad:
-	g_fails++;
+	fail_note(g_peer, t);
 	return 0;
 }
 
@@ -1276,6 +1350,7 @@ static int dur_s(const char *s, int d)
 		else if (!dg) return d;
 		else {
 			if (*s == 'H') tot += n * 3600; else if (*s == 'M') tot += n * 60; else if (*s == 'S') tot += n; else return d;
+			if (tot > 1000000) tot = 1000000;	/* no int overflow on "PT99999H99999H..."; callers clamp further */
 			n = 0; dg = 0;
 		}
 	}
@@ -1437,15 +1512,24 @@ static int handle_soap(int svc, const char *b, int n)
 
 /* ---- HTTP ---- */
 
-struct conn { int fd, len, pending, subid; long long deadline, pend_end; char buf[REQ_MAX + 2]; };
+struct conn { int fd, len, pending, subid; u_int32_t ip; long long deadline, pend_end; char buf[REQ_MAX + 2]; };
 static struct conn cn[MAXCONN];
 
 static void send_all(int fd, const char *p, int n)
 {
-	struct timeval tv = { 3, 0 };
+	struct timeval tv;
+	int fl = fcntl(fd, F_GETFL);
+	long long t0 = now_ms(), left;
 
-	setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
-	while (n > 0) {
+	/* the accepted sockets are non-blocking (select loop): blocking again here, so that SO_SNDTIMEO bounds the send
+	 * instead of an EAGAIN cutting an answer larger than the socket buffer (GetProfiles, Media2: up to 24 KB) */
+	if (fl >= 0 && (fl & O_NONBLOCK)) fcntl(fd, F_SETFL, fl & ~O_NONBLOCK);
+	while (n > 0) {	/* 3 s for the whole answer, not per send(): a peer trickling its ACKs cannot hold the loop longer */
+		left = 3000 - (now_ms() - t0);
+		if (left <= 0) return;
+		if (left < 100) left = 100;
+		tv.tv_sec = (time_t)(left / 1000); tv.tv_usec = (suseconds_t)(left % 1000 * 1000);
+		setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
 		long w = send(fd, p, n, MSG_NOSIGNAL);
 
 		if (w <= 0) {
@@ -1499,6 +1583,7 @@ static int process(struct conn *c, int hdr_end, int clen)
 	if (strcmp(method, "POST")) { reply(c->fd, 405, "text/plain", "", 0); return 0; }
 	svc = strstr(path, "subscription") ? SV_SUB : strstr(path, "event") ? SV_EVENT : strstr(path, "media2") ? SV_MEDIA2 : strstr(path, "media") ? SV_MEDIA : SV_DEVICE;
 	g_req_sub = 0;
+	g_peer = c->ip;
 	{
 		const char *q = strstr(path, "id=");
 
@@ -1584,6 +1669,14 @@ static void conn_accept(void)
 
 	if (f < 0) return;
 	if (!allowed(n2h(pa.sin_addr.s_addr))) { close(f); return; }
+	{	/* at most PERIP of the MAXCONN slots for one address (review 2026-11-12: six idle connections from one host
+		 * held every slot); 127/8 (the health check) is not limited */
+		u_int32_t ip = n2h(pa.sin_addr.s_addr);
+		int same = 0;
+
+		for (i = 0; i < MAXCONN; i++) if (cn[i].fd >= 0 && cn[i].ip == ip) same++;
+		if ((ip >> 24) != 127 && same >= PERIP) { reply(f, 503, "text/plain", "", 0); close(f); return; }
+	}
 	for (i = 0; i < MAXCONN; i++) if (cn[i].fd < 0) break;
 	if (i == MAXCONN) {
 		reply(f, 503, "text/plain", "", 0);
@@ -1592,6 +1685,7 @@ static void conn_accept(void)
 	}
 	fcntl(f, F_SETFL, fcntl(f, F_GETFL) | O_NONBLOCK);
 	cn[i].fd = f;
+	cn[i].ip = n2h(pa.sin_addr.s_addr);
 	cn[i].len = 0;
 	cn[i].pending = 0;
 	cn[i].deadline = now_ms() + READ_MS;
@@ -1672,15 +1766,30 @@ static void udp_in(void)
 	is_probe = find_elem(buf, end, "Probe", NULL, NULL, &s) != NULL;
 	is_resolve = !is_probe && find_elem(buf, end, "Resolve", NULL, NULL, &s) != NULL;
 	if (!is_probe && !is_resolve) return;
+	/* a SOAP envelope only, and at most WSD_RATE answers a second (review 2026-11-12: a 7-byte "<Probe>" from a
+	 * spoofed source got a 1 KB answer, a reflector inside the allowed networks) */
+	if (!find_elem(buf, end, "Envelope", NULL, NULL, &s)) return;
 	if (is_probe) {	/* a Types filter that is not ours: no answer */
 		char ty[200];
 
 		if (get_text(buf, end, "Types", ty, sizeof ty) && ty[0] && !strstr(ty, "NetworkVideoTransmitter") && !strstr(ty, "Device")) return;
 	} else {
 		char ad[96];
+		const char *rv = find_elem(buf, end, "Resolve", NULL, NULL, &s);
 
-		get_text(buf, end, "Address", ad, sizeof ad);
+		/* the first Address after the Resolve tag (its EndpointReference), not a wsa:ReplyTo/Address of the header,
+		 * which comes before the Body. find_elem's length stops at the first child tag, so search up to the end */
+		if (!rv) return;
+		get_text(rv, end, "Address", ad, sizeof ad);
 		if (strcmp(ad, G.uuid)) return;
+	}
+	{	/* counted here, once the message is one we answer: probes for other types do not use the budget */
+		static long long win;
+		static int cnt;
+		long long t = now_ms();
+
+		if (t - win >= 1000) { win = t; cnt = 0; }
+		if (++cnt > WSD_RATE) return;
 	}
 	get_text(buf, end, "MessageID", mid, sizeof mid);
 	/* the address we have towards the sender: where the controller can reach us */

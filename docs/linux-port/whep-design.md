@@ -81,7 +81,7 @@ What exists, and the choices made where the design left them open:
     their own sequence numbers; SPS and PPS of the RTSP `sprop-parameter-sets` are put in front of every IDR. One SRTP
     context per stream (each has its own rollover counter). PCMA audio when the offer has it and `WHEP_AUDIO=1`.
     No RTCP sender reports (no lip-sync, picture first), PLI not answered.
-  - At most `WHEP_MAX` (1-2) viewers; a viewer silent for 12 s (no STUN check, no SRTCP) is dropped; `429` beyond the limit.
+  - At most `WHEP_MAX` (1-2) viewers; a viewer without an authenticated STUN consent check for 30 s is dropped (RFC 7675; since 2026-11-12 DTLS and SRTCP no longer count, they are not authenticated); `429` beyond the limit.
   - `controlscripts/whep` starts it (service `whep`, switch `WHEP` in `boot.conf`, started by `autorun-linux66.sh` step
     12b like the other services); `WHEP_STREAM`, `WHEP_MAX`, `WHEP_AUDIO` are read at each start.
 - **Step 4, page.** `src/webui/index/30-live-view.js`: the live view asks `cgi-bin/whep.cgi` (one small request, no statusline

@@ -160,7 +160,7 @@ class OnvifD(unittest.TestCase):
 
     # ---- WS-Discovery -------------------------------------------------------------------------------------------
 
-    def probe(self, types='dn:NetworkVideoTransmitter', timeout=2.0, msg='Probe'):
+    def probe(self, types='dn:NetworkVideoTransmitter', timeout=2.0, msg='Probe', header=''):
         mid = 'uuid:' + secrets.token_hex(8)
         if msg == 'Probe':
             body = '<d:Probe><d:Types>%s</d:Types></d:Probe>' % types
@@ -170,8 +170,8 @@ class OnvifD(unittest.TestCase):
             act = 'Resolve'
         pkt = ('<?xml version="1.0"?><s:Envelope xmlns:s="%s" xmlns:a="%s" xmlns:d="%s" xmlns:dn="http://www.onvif.org/ver10/network/wsdl">'
                '<s:Header><a:MessageID>%s</a:MessageID><a:To>urn:schemas-xmlsoap-org:ws:2005:04:discovery</a:To>'
-               '<a:Action>http://schemas.xmlsoap.org/ws/2005/04/discovery/%s</a:Action></s:Header><s:Body>%s</s:Body></s:Envelope>'
-               % (S, NS['a'], NS['d'], mid, act, body))
+               '<a:Action>http://schemas.xmlsoap.org/ws/2005/04/discovery/%s</a:Action>%s</s:Header><s:Body>%s</s:Body></s:Envelope>'
+               % (S, NS['a'], NS['d'], mid, act, header, body))
         u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         u.settimeout(timeout)
         try:
@@ -214,6 +214,24 @@ class OnvifD(unittest.TestCase):
         self.assertEqual(r.find('s:Body/d:ResolveMatches/d:ResolveMatch/d:XAddrs', NS).text.split(':')[0], 'http')
         _, none = self.probe(types='urn:uuid:other', msg='Resolve')
         self.assertIsNone(none)
+        # review 2026-11-12: a wsa:ReplyTo/Address in the header must not be taken for the Resolve address
+        _, r2 = self.probe(types=uuid, msg='Resolve',
+                           header='<a:ReplyTo><a:Address>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:Address></a:ReplyTo>')
+        self.assertIsNotNone(r2)
+
+    def test_discovery_needs_an_envelope(self):
+        # review 2026-11-12: a bare "<Probe>" got a 1 KB answer (a reflector); only a SOAP envelope is answered
+        self.start()
+        u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        u.settimeout(1.0)
+        try:
+            u.sendto(b'<Probe>', ('127.0.0.1', self.dport))
+            with self.assertRaises(socket.timeout):
+                u.recvfrom(65535)
+        finally:
+            u.close()
+        _, root = self.probe()
+        self.assertIsNotNone(root)
 
     def test_bye_on_sigterm(self):
         mc = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -266,6 +284,18 @@ class OnvifD(unittest.TestCase):
         self.assertEqual(st, 200)
         st, n, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=security('root', self.password))
         self.assertEqual(st, 200)
+
+    def test_password_with_xml_special_characters(self):
+        # review 2026-11-12: the five XML entities are decoded in the credentials (they arrive escaped)
+        self.write('user.pwd', "p&ss<w>rd'\n")
+        self.start()
+        st, _, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=security('root', 'p&amp;ss&lt;w&gt;rd&apos;', digest=False))
+        self.assertEqual(st, 200)
+        # the numeric form that Go's encoding/xml writes
+        st, _, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=security('root', 'p&amp;ss&lt;w&gt;rd&#39;', digest=False))
+        self.assertEqual(st, 200)
+        st, _, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=security('root', 'p&amp;ss', digest=False))
+        self.assertEqual(st, 400)
 
     def test_user_from_config_and_no_password_means_open(self):
         self.write('rtsp.env', 'RTSP_USER=camuser\n')

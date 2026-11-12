@@ -31,6 +31,164 @@ Rules that apply to every entry:
 - Memory of a process: **PSS** (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`, KB), not RSS. RSS counts the busybox
   and C library pages shared by every shell once per process (the C MQTT bridge looked 5 MB lighter in RSS, 0.9 MB in PSS).
 
+### ONVIF-02 onvifd: lockout per address, full answers on slow links, connection and discovery limits (`[onvifd-review]`) — `to test` (next RC, owner: NVR + Home Assistant)
+
+- **What (read-only Fable review of `tc100-onvifd`, 2026-11-12: no authentication bypass, no out-of-bounds access):**
+  - Wrong logins are counted per address (20 a minute locks that address only; 127/8 never; 32 slots, a locked
+    address is never evicted). Before, one global counter let any LAN host lock the NVR and Home Assistant out by
+    sending 20 bad tokens a minute. Residual: more than 32 guessing addresses at once are not all counted.
+  - `send_all` puts the socket back in blocking mode before sending, with 3 s for the whole answer. Before, the
+    accepted sockets were non-blocking and an answer larger than the socket buffer (GetProfiles, Media2: up to
+    24 KB) was cut at the first `EAGAIN` on a slow Wi-Fi link: a possible cause of a "flaky" ONVIF in an NVR.
+  - At most 4 of the 6 connections from one address (127/8 not limited): six idle connections from one host held
+    every slot.
+  - WS-Discovery answers only a SOAP envelope and at most 20 answers a second, probes for other types not counted
+    (a 7-byte `<Probe>` from a spoofed source got a 1 KB answer); a Resolve with a `wsa:ReplyTo` header is answered (it compared the ReplyTo address).
+  - The five XML entities and ASCII character references (`&#39;`) are decoded in the user name and password: a password with `& < > " '` works in
+    PasswordText (it failed before). `dur_s` no longer overflows on a huge duration.
+  - Not changed (owner's choice): no nonce cache against replay of a captured PasswordDigest within ±300 s (some
+    clients reuse nonces; LAN only).
+- **Switch:** none; revert the commit.
+- **Test:** (a) NVR and Home Assistant: discovery, add the camera, live view, motion events, as usual; restart Home
+  Assistant: the ONVIF integration comes back. (b) Optional, from another LAN machine: 25 requests with a wrong
+  password (e.g. a script with `curl` and a bad UsernameToken), then the NVR still works while that machine gets
+  NotAuthorized even with the right password for the rest of the minute. (c) Optional: an ONVIF client on a slow
+  link (phone app over Wi-Fi) lists both profiles completely.
+- **Pass:** (a); (b)/(c) if run.
+
+### WHEP-02 WebRTC gateway: LAN filter on its UDP port, consent from authenticated checks only (`[whep-udp]`) — `to test` (next RC, owner, with the WHEP entry of 2026-11-05)
+
+- **What (read-only Fable review of the UDP side of `tc100-whep`, 2026-11-12: no out-of-bounds access, nothing
+  reachable without a session):**
+  - UDP 8189 was bound to every interface and outside `NET_LAN_ONLY` (libnetacl filters accept / bind only, and the
+    gateway was not started through it). `controlscripts/whep` now passes `TC100_NET_ALLOW` (`netacl_allow_list`, the
+    same list as httpfront) and the gateway drops datagrams from other networks; log line `udp 8189: datagrams from
+    the allowed networks only`. `NET_LAN_ONLY=0` gives an empty list = no filter, as before.
+  - Only an ICE consent check with the right MESSAGE-INTEGRITY keeps a viewer alive (RFC 7675). DTLS and SRTCP
+    datagrams no longer reset the timer: a datagram sent from a spoofed address kept a dead viewer's slot (one of
+    `WHEP_MAX=2`) and its stream forever. The timer is 30 s instead of 12 s (Firefox checks every 4-6 s; two lost
+    datagrams on the Wi-Fi must not drop a viewer). The page still sends its stop request when it closes or hides
+    the video, so a closed tab frees its slot at once; the 30 s only matters for a viewer that vanished.
+  - `profile-level-id=` at the end of a long fmtp line no longer reads past the copy (authenticated offer only).
+  - Not changed: spoofed datagrams during the handshake window or a replayed binding request (needs sniffing on the
+    LAN); one slow authenticated HTTP request stalls the single thread for a few seconds; a non-browser WHEP client
+    whose keepalive is a STUN Binding Indication (libnice) is now dropped after 30 s; the network list is read when
+    the gateway starts (after a change of `NET_ALLOW_EXTRA` / `NET_LAN_ONLY`, restart the WebRTC service too).
+- **Switch:** `NET_LAN_ONLY=0` disables the filter; revert the commit for the old consent rule.
+- **Test:** (a) Live view in Chrome and Firefox on the LAN, 10 minutes each: no "no sign of life (consent)" in
+  `/tmp/logs/whep.log` while the tab is open; closing the tab frees the viewer at once (stop request), killing the
+  browser without closing frees it within ~30 s. (b) Two viewers at once,
+  then a third is refused as before. (c) The log shows the "allowed networks only" line. (d) Optional: from a non-LAN
+  address (VPN outside `NET_ALLOW_EXTRA`), the live view falls back (no WebRTC) and the log shows no new viewer.
+- **Pass:** (a)-(c); a browser that does not send consent checks would be dropped after 30 s: if one is seen, report
+  which one.
+
+### UPD-01 Web update: no upload / discard during an install, stricter package, true failure message (`[update-review]`) — `to test` (next RC, owner)
+
+- **What (read-only Fable review of `update66.sh`, `update.cgi`, `boot-guard`, 2026-11-12: no brick path):**
+  - `update.cgi` refuses `upload` and `discard` while `/tmp/update66.running` exists. Before, a second tab or API call
+    could delete the package being written, and without a card (services stopped for memory) `discard` restarted the
+    camera in the middle of a flash erase.
+  - `update66.sh check` refuses a package whose files are links, or whose `MD5SUMS` holds any line other than
+    `md5  name` / `md5 *name` for `VERSION`, `stack.sqfs`, `c66.img`, `c66rd.gz` (a `VERSION` link showed any file in
+    the page; a `/dev/zero` entry hung it). The real `MD5SUMS` of `build-release.sh` passes (test
+    `test_md5sums_names_only_the_package_files`).
+  - After a write failure the message no longer promises the web page (it lives in the stack partition, written
+    first): it points to the SD card. `update66.sh` leaves `/tmp/update66.failed`, and `update.cgi` then refuses any
+    upload, discard or install until a restart (a discard deleted the package and could restart on a half-written
+    stack; a new install recopied its tools from the rewritten `/mnt`). No manual ssh retry is offered: `apply-ram`
+    skips the package checks, and a retry pruned the only good backup. If the stack write was refused before any
+    erase (flashw exit 1-4 or 7: no room for the backup on the card, md5, size), the message says the flash is
+    unchanged and a restart starts the old firmware.
+  - Known, not changed: two install POSTs a few ms apart can both start (check and marker are not atomic); a kill of
+    the install shell (OOM) leaves no failed marker.
+  - Not changed (owner's decision if wanted): writing kernel and initrd before the stack would keep the web retry for
+    those two; mixed old/new partitions were not tested.
+- **Switch:** none; revert the commit.
+- **Test (next RC update over the web, owner):** (a) normal web update with and without a card: works as before.
+  (b) During the install, from a second tab or `curl` with the CSRF token, POST `cmd=discard` and `cmd=upload`: both
+  answer `busy`, the install finishes and the camera restarts normally. (c) Optional: a package with an extra line in
+  `MD5SUMS` is refused at upload ("MD5SUMS names other files"). (d) Optional, SD test system only: `touch
+  /tmp/update66.failed`, then upload / discard / install from the page answer the "failed half way" message.
+- **Pass:** (a) and (b); no change for a normal update.
+
+### HOOK-01 First-install hook: stricter checks and U-Boot built-in environment (`[stock-hook-review]`) — `to test` (next RC, owner)
+
+- **What (read-only Fable review of `stock-hook.sh` + `envtool.c`, 2026-11-12: no brick path in the code):**
+  - `tc100-3/known-stock.txt` is now a required file (with its 32-digit `uboot` md5 line): without it the U-Boot / root / `/usr` md5 checks were skipped
+    (only a note) and the environment was still written on an unidentified camera.
+  - The flash copy on the card is read back after `drop_caches`, so a card that loses writes fails the md5 check
+    instead of passing from the page cache.
+  - An unexpected `envtool` exit (killed, >= 128) no longer logs "Nothing was written to the flash"; it says the
+    environment may be incomplete and points to `env-stock.bin`.
+  - **Open, the one brick question:** after a power cut in the middle of the environment write, U-Boot uses its
+    built-in environment; nobody has checked that this one boots the stock firmware (`internals.md`, "What is not
+    covered yet" 1).
+- **Switch:** none (the hook runs once per new camera); revert the commit for the old checks.
+- **Test (read-only, no card needed, on a camera running 3.0 from its flash, over ssh):**
+  `m=$(grep '"boot"' /proc/mtd | cut -d: -f1); dd if=/dev/${m}ro bs=4096 count=57 2>/dev/null | tr '\0' '\n' | grep -E '^(bootcmd|boot_normal|bootargs|bootdelay)='`
+  (U-Boot's built-in environment is plain text inside its binary). Paste the lines to the implementer; they hold no
+  secret. Also record the stock `bootcmd` from `tc100-3/env-stock.txt` if a card from a first install is available.
+- **Pass:** the built-in `bootcmd` (directly or through `boot_normal`) loads the kernel from the flash (`sf read` ...
+  `bootm`): the power-cut case is then covered; update `internals.md` and close this entry. If it does not, power-cut
+  recovery needs the serial console: say so in the install guide.
+
+### WEB-01 httpfront login counting and remembered login (`[httpfront-auth]`) — `to test` (SD test system)
+
+- **What (read-only Fable review of httpfront, 2026-11-12; `WEB_LOCKOUT=1` and `HTTPFRONT_NATIVE=1` are the
+  `boot.conf` defaults, so this concerns every camera):**
+  - A new password now forgets the remembered login: the cache `/tmp/.httpfront-ok` holds the MD5 of the header *and*
+    of `/etc/httpd.conf`. Before, the old password kept getting the status line / dashboard JSON until a reboot.
+  - Only the headers are searched for `Authorization:`: a form body line no longer counts as a wrong login (a hostile
+    page could lock the owner's address out for 5 min, again and again).
+  - Header name and `Basic` are read in any case, as httpd does: `AUTHORIZATION:` guesses are now counted.
+  - A token cut by the end of the 2 KB peek (long cookies or URL) is neither checked nor counted, instead of counting
+    as a wrong login.
+  - Still possible, by design (LAN only, defence in depth): guesses placed after 2 KB of headers or sent after the 2 s
+    wait are not counted; httpd still refuses them.
+- **Switch:** `WEB_LOCKOUT=0` / `HTTPFRONT_NATIVE=0` in `boot.conf` as before; revert the commit for the old code.
+- **Test:** SD test system with the CI `httpfront`. (a) Log in, change the password in Settings, then
+  `curl -u root:<old> http://<ip>/cgi-bin/statusline.cgi` → 401 (before: JSON). New password → JSON. (b) From another
+  LAN machine: 10 × `curl -s -o /dev/null -H 'AUTHORIZATION: Basic eDp5' http://<ip>/` → the 11th connection is closed
+  (locked 5 min; 127.0.0.1 is never locked). (c) 12 × `curl -X POST --data-binary $'Authorization: Basic eDp5\r\n' -u
+  root:<right> http://<ip>/cgi-bin/statusline.cgi` → never locked. (d) The web pages and the dashboard poll as usual,
+  no extra 401 prompt.
+- **Pass:** (a)-(d) as above, `/tmp/log/httpfront.log` without new errors.
+
+### KRN-01 `ak_isp.awb_live` writable at run time (`[awb-live-rw]`, patch 0006) — `to test` (SD kernel first)
+
+- **What:** `module_param(awb_live, int, 0644)` instead of `0444` (audit 2026-11-06 D3). The white balance code reads
+  it at every frame, so `echo 1 > /sys/module/ak_isp/parameters/awb_live` tries the ISP white balance on the live
+  statistics without a reboot, and `echo 0` goes back. Default unchanged (0). `ak39_vi.sub_channel` stays `0444`: the
+  driver never undoes it at stream start, so a run-time write would not do what it says.
+- **Switch:** none needed (default 0, as before); revert the commit to make it read-only again.
+- **Test:** boot the CI kernel from the SD card (`tc100test/c66.img`, RAM only, no flash write). Check
+  `ls -l /sys/module/ak_isp/parameters/awb_live` shows `-rw-r--r--` and the value `0`; picture as before. `echo 1`:
+  within a few seconds the colours change (blue cast expected, R15-01); `echo 0`: back to the usual tint. No kernel
+  message, no capture error, RTSP keeps running during both writes. With `awb_live=1`, also run
+  `dmesg | grep -i 'division by zero'`: `_calc_awb_gain()` divides by the pixel count of the current colour bin, guarded
+  only by `>= total_cnt_thresh` (patch 0006 ~l. 6582 / 6944); if the sensor configuration sets that threshold to 0, an
+  empty live bin logs this warning (ARM32: stack dump, no oops). Not introduced by this change (`ak_isp.awb_live=1` on
+  the command line already reached it); if seen, a one-line guard goes in a separate kernel change.
+- **Pass:** as above; only then is the kernel a candidate for the next flash update (owner's agreement).
+
+### INST-01 SD install skips the per-partition backup only on a first install (`[fast-install-fix]`) — `to test`
+
+- **What:** `v3/install/install66.sh` skipped the per-partition backup (`flashw -b`) whenever
+  `restore-stock.sh --check` passed. That check compares only the `boot` and `mac` areas, so reinstalling from the card
+  on a camera that already runs 3.0 from its flash overwrote its 3.0 vendor, stack, kernel and initrd with no copy
+  (found by the read-only Fable review of `8077ff1`, 2026-11-12). The skip now also requires no valid settings slot in
+  the flash (`cfg-persist saved` fails), i.e. a first install over the stock firmware. Not a brick path: every write is
+  still read back by `flashw`.
+- **Switch:** `INSTALL66_FORCE_PART_BACKUP=1` keeps forcing the backup in every case. To go back to the old behaviour,
+  revert the commit.
+- **Test:** (a) first install on a stock camera with a card holding a verified `flash-stock.bin`: the log shows
+  "skipping redundant per-partition read-back" and `tc100-3/backup/` gets no new partition files. (b) SD reinstall on a
+  camera already running 3.0 from its flash (`cfg-persist saved` prints a slot): no skip message, and
+  `tc100-3/backup/` holds the vendor, stack, kernel and initrd copies of the previous flash content. Both installs need
+  the owner's agreement per flash write.
+- **Pass:** (a) and (b) as above, both installs finish, the camera boots from its flash afterwards.
+
 ## Owner-confirmed current work (2026-11-10)
 
 These are the current owner-confirmed work items. The detailed switch-by-switch procedures stay in their existing entries.
@@ -2520,6 +2678,24 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
 **État au 2026-11-10 :** le défaut du lanceur firmware reste `RTSP_SENDER_THREAD=0` tant que R16 n'est pas qualifié.
 Le rapport rc36/rc35 confirme le flux sur les deux caméras avec un client; les critères quatre clients et mélange
 TCP/UDP ci-dessous restent à tester. Le binaire lancé seul utilise aussi le chemin inline si la variable manque.
+Attention : le tag `v3.0.0` (08/11) a été construit pendant les deux jours où le défaut valait `1` (`21494b9`, retour à
+`0` dans `91c408b` le 10/11) ; une caméra en 3.0.0 sans `RTSP_SENDER_THREAD` dans `rtsp.env` fait donc tourner le fil.
+
+**Relecture du code (Fable, lecture seule, 2026-11-12) :** ni interblocage, ni tampon libéré pendant un envoi, ni
+mélange des trames TCP. Points à observer pendant l'essai :
+- **UDP :** la socket UDP est bloquante et l'envoi se fait sous `cl_mu` (avec l'attente `RTSP_PACING_US` si elle est
+  réglée) ; un client UDP lent freine donc encore la capture, fil actif ou non. Le fil n'apporte un gain qu'aux
+  clients TCP. Dans l'heure à deux clients, comparer `snd_wait` et `cap` avec et sans le client UDP : une hausse nette
+  de `snd_wait` avec UDP confirme ce point (pas une régression : l'envoi inline fait de même).
+- **Arrêt :** à l'arrêt, le fil vide d'abord la file (jusqu'à 48 images) ; un redémarrage du serveur RTSP peut prendre
+  un peu plus longtemps avec `=1`. Noter la durée d'un `rtsp-h26x restart`.
+- **Corrigé (`[sender-gap]`) :** une copie d'image impossible faute de mémoire marquait tout de suite les clients ; un IDR
+  plus ancien encore en file pouvait alors effacer la marque et laisser partir les images P suivantes (image corrompue
+  jusqu'à l'IDR suivant). La perte est maintenant portée par la prochaine image de la file, comme un rejet de file
+  pleine. Aucun effet avec `=0`. Sans test caméra dédié (il faut un échec de `malloc`) : couvert par le critère
+  « image correcte » ci-dessous.
+- **Non traité :** le fil lit SPS/PPS sans verrou pendant que la boucle les réécrit à chaque IDR ; sans effet tant que
+  les paramètres ne changent pas en marche (à vérifier si le débit adaptatif ou le smart mode les modifient).
 
 - **Quoi :** la boucle de capture ne fait plus l'envoi aux clients (environ 2,4 ms par client et par image, cause de R16 :
   chaque client en plus retirait des images à la capture). Avec `RTSP_SENDER_THREAD=1`, elle copie chaque image encodée

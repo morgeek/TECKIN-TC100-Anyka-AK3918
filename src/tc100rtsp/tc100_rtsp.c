@@ -2445,18 +2445,21 @@ static void *snd_main(void *arg)
  * or hand a copy to the sender thread when the firmware launcher sets it to 1 */
 static void emit_frame(int si, const unsigned char *d, int n, uint32_t ts, int idr, const struct nal_tab *tab)
 {
+	static unsigned lost_gap;		/* main thread only: frames lost since the last queued job (stream bits) */
+	static unsigned long lost_seq;		/* and the number of the last of them */
 	struct sjob *j;
 
 	if (!sndr_on) { bcast(si, d, n, ts, idr, tab); return; }
 	j = sjob_new(d, (unsigned)n, tab, tab ? (unsigned)sizeof *tab : 0);
-	if (!j) {	/* no memory for the copy: the frame is lost for the clients of this stream, they resume at the next IDR */
-		cl_lock();
-		for (int i = 0; i < MAXCLI; i++)
-			if (cl[i].fd >= 0 && cl[i].playing && cl[i].si == si) { cl[i].wait_idr = 1; cl[i].dropped++; }
-		cl_unlock();
+	if (!j) {	/* no memory for the copy: the frame is lost for the clients of this stream, they resume at the next IDR.
+			 * The loss rides on the next queued job, as a queue drop does (sndq.h), so the sender applies it in
+			 * order: marking the clients here would let an older IDR still queued clear wait_idr and the P frames
+			 * after the lost one go out */
+		lost_gap |= 1u << si; lost_seq = ++snd_seq;
 		return;
 	}
 	j->si = si; j->ts = ts; j->idr = idr; j->seq = ++snd_seq;
+	if (lost_gap) { j->gap = lost_gap; j->gapseq = lost_seq; lost_gap = 0; }
 	sndq_put(&snd_q, j);
 }
 

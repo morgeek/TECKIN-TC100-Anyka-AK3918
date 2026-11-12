@@ -215,5 +215,50 @@ class FirstBootEndsWithPassword(unittest.TestCase):
         self.assertIn('touch /tmp/.first_boot', reset)
 
 
+class UpdateReview20261112(unittest.TestCase):
+    """read-only review of the web update, 2026-11-12"""
+
+    def md5sums_names_ok(self, content):
+        s = text('v3/install/update66.sh')
+        prog = re.search(r"awk '(BEGIN \{ split.*?exit bad \})' \"\$D/MD5SUMS\"", s, re.S).group(1)
+        with tempfile.NamedTemporaryFile('w', suffix='.md5', delete=False) as f:
+            f.write(content)
+        try:
+            return subprocess.run(['awk', prog, f.name]).returncode == 0
+        finally:
+            os.unlink(f.name)
+
+    @unittest.skipUnless(shutil.which('awk'), 'needs awk')
+    def test_md5sums_names_only_the_package_files(self):
+        real = ''.join('%s  %s\n' % ('0' * 32, n) for n in ('stack.sqfs', 'c66.img', 'c66rd.gz', 'VERSION'))
+        self.assertTrue(self.md5sums_names_ok(real))                         # what build-release.sh writes
+        self.assertTrue(self.md5sums_names_ok('%s *c66.img\n\n' % ('0' * 32)))
+        self.assertFalse(self.md5sums_names_ok(real + '%s  /dev/zero\n' % ('0' * 32)))
+        self.assertFalse(self.md5sums_names_ok('%s  ../etc/passwd\n' % ('0' * 32)))
+        self.assertFalse(self.md5sums_names_ok('x\tVERSION  /dev/zero\n'))       # awk fields vs md5sum's own name
+        self.assertFalse(self.md5sums_names_ok('%s  VERSION  /dev/zero\n' % ('0' * 32)))
+
+    def test_links_refused_and_no_upload_or_discard_during_an_install(self):
+        s = text('v3/install/update66.sh')
+        self.assertIn('[ -L "$D/$f" ] && { echo "$f is a link', s)
+        self.assertLess(s.index('[ -L "$D/$f" ]'), s.index('md5sum -c MD5SUMS'))
+        cgi = text('www/cgi-bin/update.cgi')
+        for cmd in ('POST:upload)', 'POST:discard)'):
+            body = cgi[cgi.index(cmd) + len(cmd):]
+            body = body[:body.index('POST:')]	# up to the next command
+            self.assertLess(body.index('busy_or_failed'), body.index('rm -rf "$WORK"'), cmd)
+        inst = cgi[cgi.index('POST:install)'):]
+        self.assertLess(inst.index('busy_or_failed'), inst.index(': > /tmp/update66.running'))
+        self.assertIn('[ -e /tmp/update66.failed ]', cgi[cgi.index('busy_or_failed() {'):])
+
+    def test_failure_leaves_a_marker_and_points_to_the_sd_card(self):
+        s = text('v3/install/update66.sh')
+        loop = s[s.index('# END write_part'):s.index('say "DONE:')]
+        self.assertEqual(loop.count(': > /tmp/update66.failed'), 2)
+        self.assertIn('start the camera from the 3.0 SD card', loop)
+        self.assertNotIn('apply-ram $D', loop)                                # no unchecked manual retry
+        self.assertNotIn('Web and ssh stay available', s)
+
+
 if __name__ == '__main__':
     unittest.main()

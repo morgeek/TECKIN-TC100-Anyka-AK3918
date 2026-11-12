@@ -62,5 +62,31 @@ class Md5Crypt(unittest.TestCase):
             self.assertEqual(self.run_t('b', base64.b64encode(raw).decode()).stdout.rstrip('\n'), raw.decode())
 
 
+class LoginCounting(unittest.TestCase):
+    """2026-11-12 review of httpfront (WEB_LOCKOUT=1 and HTTPFRONT_NATIVE=1 are the boot.conf defaults)"""
+
+    def setUp(self):
+        src = (ROOT / 'src/httpfront/httpfront.c').read_text()
+        self.lo = src[src.index('static int login_ok('):src.index('static void lock_note(')]
+
+    def test_only_the_headers_are_searched(self):
+        # a form body line "Authorization: Basic x" must not count as a wrong login (owner lockout by a hostile page)
+        self.assertIn("if (*h == '\\n' || (*h == '\\r' && h[1] == '\\n')) return -1;", self.lo)
+
+    def test_header_name_and_scheme_in_any_case(self):
+        self.assertIn('ipfx(h, "authorization:")', self.lo)
+        self.assertIn('ipfx(v, "basic ")', self.lo)
+
+    def test_a_cut_token_is_not_counted(self):
+        self.assertIn("if (v[i] != '\\r' && v[i] != '\\n' && v[i] != ' ' && v[i] != '\\t') return -1;", self.lo)
+        # but a token longer than tok (padded guess) is counted
+        self.assertLess(self.lo.index("if (v[i] > ' ') return 0;"), self.lo.index("if (v[i] != '\\r'"))
+
+    def test_remembered_login_depends_on_the_password_file(self):
+        # a new password (web-auth rewrites httpd.conf) must forget the remembered login
+        self.assertIn('md5_update(&m, conf, (unsigned int)n);', self.lo)
+        self.assertLess(self.lo.index('read_file(httpd_conf'), self.lo.index('read_file(ok_file'))
+
+
 if __name__ == '__main__':
     unittest.main()
