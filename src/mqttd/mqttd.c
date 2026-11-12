@@ -528,6 +528,7 @@ static void discovery_publish(void)
 		{ "contrast", "Contrast", "mdi:contrast-box", "{{ value_json.conf.CONTRAST }}", -50, 50, 1 },
 		{ "saturation", "Saturation", "mdi:palette", "{{ value_json.conf.SATURATION }}", -50, 50, 1 },
 		{ "sharpness", "Sharpness", "mdi:image-filter-center-focus", "{{ value_json.conf.SHARPNESS }}", -50, 50, 1 },
+		{ "denoise", "Noise Reduction", "mdi:blur", "{{ value_json.conf.DENOISE or 0 }}", -50, 50, 1 },
 		{ "hue", "Hue", "mdi:palette-swatch", "{{ value_json.conf.HUE }}", -50, 50, 1 },
 		{ "exposure_max_pct", "Exposure Cap", "mdi:camera-timer", "{{ value_json.conf.EXPOSURE_MAX_PCT or 0 }}", 0, 100, 5 },
 	};
@@ -587,7 +588,7 @@ static void discovery_publish(void)
 			snprintf(key, sizeof key, "isp_%s", isp_tab[i].key);
 			dpub("number", key, "{\"name\":\"%s %s\",\"uniq_id\":\"%s_isp_%s\",\"stat_t\":\"%s\",\"val_tpl\":\"%s\",\"cmd_t\":\"%s\",\"cmd_tpl\":\"{\\\"cmd\\\":\\\"isp_%s\\\",\\\"value\\\":\\\"{{ value | int }}\\\"}\",\"min\":%d,\"max\":%d,\"step\":%d,\"mode\":\"slider\",\"ent_cat\":\"config\"%s,\"avty_t\":\"%s\",\"ic\":\"%s\",\"dev\":{\"ids\":[\"%s\"],\"name\":\"%s\",\"mf\":\"Morgeek\",\"mdl\":\"TC100/AK3918\"}}",
 			     dn, isp_tab[i].name, di, isp_tab[i].key, ist, isp_tab[i].tpl, cj, isp_tab[i].key, isp_tab[i].min, isp_tab[i].max, isp_tab[i].step,
-			     i == 5 ? ",\"unit_of_meas\":\"%\"" : "", av, isp_tab[i].ic, di, dn);
+			     !strcmp(isp_tab[i].key, "exposure_max_pct") ? ",\"unit_of_meas\":\"%\"" : "", av, isp_tab[i].ic, di, dn);
 		}
 		dpub_raw("select", "isp_power_hz", "");	/* anti-flicker is not applied on 3.0: no entity */
 		dpub("switch", "isp_tune", "{\"name\":\"%s Image Tuning\",\"uniq_id\":\"%s_isp_tune\",\"stat_t\":\"%s\",\"val_tpl\":\"{{ 'ON' if value_json.enabled == 1 else 'OFF' }}\",\"cmd_t\":\"%s\",\"pl_on\":\"{\\\"cmd\\\":\\\"isp_tune\\\",\\\"value\\\":\\\"on\\\"}\",\"pl_off\":\"{\\\"cmd\\\":\\\"isp_tune\\\",\\\"value\\\":\\\"off\\\"}\",\"ent_cat\":\"config\",\"avty_t\":\"%s\",\"ic\":\"mdi:tune\"," DEV "}", dn, di, ist, cj, av, di, dn);

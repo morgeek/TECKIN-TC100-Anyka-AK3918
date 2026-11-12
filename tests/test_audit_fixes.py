@@ -466,7 +466,9 @@ class RebootAfterUpdateHasAnIntent(unittest.TestCase):
 
     def test_install66_and_update_cgi_reboots_have_an_intent(self):
         inst = (ROOT / 'v3/install/install66.sh').read_text()
-        self.assertLess(inst.index('reboot-tracker.sh intent'), inst.index('cfg-persist save'))
+        # the save itself, not the `cfg-persist saved` check of the first-install test earlier in the script
+        save = re.search(r'cfg-persist save(?!d)', inst).start()
+        self.assertLess(inst.index('reboot-tracker.sh intent'), save)
         cgi = (ROOT / 'www/cgi-bin/update.cgi').read_text()
         for line in cgi.splitlines():
             if re.search(r'\breboot \)', line):

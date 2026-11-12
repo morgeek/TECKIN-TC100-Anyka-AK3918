@@ -1,0 +1,4 @@
+48
+STAT cap 123 enc 123 bytes 990706 enc_ms 3686 snd_ms 119 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 1 sub_ms 1 snd_q 1 snd_qdrop 0 snd_thr_ms 379 snd_wait 5
+STAT cap 122 enc 122 bytes 984837 enc_ms 3623 snd_ms 119 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 1 sub_ms 1 snd_q 1 snd_qdrop 0 snd_thr_ms 359 snd_wait 10
+STAT cap 125 enc 125 bytes 1005186 enc_ms 3666 snd_ms 89 clients 1 dropped 0 sub_enc 0 sub_bytes 0 rec 0 pp_ms 2 sub_ms 1 snd_q 1 snd_qdrop 0 snd_thr_ms 358 snd_wait 5

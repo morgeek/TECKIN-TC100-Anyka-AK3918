@@ -803,6 +803,32 @@ Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was 
   the camera" line under the form shows the value.
 - **Fail:** picture broken or unchanged at ±50: note the logged gains; `RTSP_ISPTUNE` does not cover it, set SHARPNESS=0.
 
+### HW-09 Noise reduction by the ISP (Image page, `DENOISE`, item 37) — `partly passed` (2026-11-12, .11 rc37, daylight)
+- **What:** a Noise reduction slider on the Image page. `tc100_rtsp` stretches the weight curves of the tuning file's
+  NR1 (raw) and NR2 (luma) sets, manual and 9 gain-linked, along the pixel difference: 2 % per step, -50 = almost none,
+  +50 = twice as wide. The driver keeps picking the set of the gain level. Nothing is written while the slider is at 0.
+  At each video start the log has `noise reduction: gain levels ...` and the NR1 / NR2 mode and sets (read only).
+  Also a "Noise Reduction" slider in Home Assistant (MQTT command `isp_denoise`).
+- **Test:** live tuning on, at night (gain at its maximum, the iso16 set), noise reduction -50, 0, +50: log
+  `noise reduction: N in the ISP (iso16 NR2 w[4] a -> b)`; the grain on flat dark areas goes up / down (compare
+  snapshots of the same scene); the bit rate goes up / down. The "Applied on the camera" line shows the value.
+- **Fail:** picture broken, frozen or unchanged at ±50: note the log; set DENOISE=0 (the tuning file's values come
+  back at the next video start).
+- **Also (review of 2026-11-11, `docs/linux-port/frontier/nr-2026-11-11.md`):** DENOISE=25, restart tc100_rtsp: the
+  `a` of `w[4] a -> b` must be the same as before the restart (base not stretched twice); a day / night switch with
+  DENOISE != 0 logs `noise reduction: 25 in the ISP` again after `night parameter set`; alternate -50 / +50 every
+  second for 10 min while streaming: no kernel message, no corrupted frame.
+- **Result 2026-11-12 (.11, 3.0.1-rc37, by day, through `isp_tune_set` as the page does; isp_tune.conf restored after,
+  backup `isp_tune.conf.bak-20261112`):**
+  - start-up log: gain levels and the NR1 / NR2 sets of the day and of the night parameter set: **passed**;
+  - -50 / 0 / +50 / 25: `iso16 NR2 w[4] 451 -> 0 / 451 / 834 / 709`, `/var/run/isp_tune.status` follows: **passed**;
+  - DENOISE=25, restart of tc100_rtsp: `451 -> 709` again (base not stretched twice): **passed**;
+  - -50 / +50 every second for 10 min while streaming (497 changes, 94 applied: the file is read every few seconds):
+    no refusal, 0 dropped frames in 121 STAT lines, client kept, no kernel error (one `tuning parameter set 0` line,
+    the day set), base stays 451: **passed**; day picture after it clean;
+  - still to do **at night** (gain at its maximum): grain at -50 / 0 / +50 on snapshots, and `noise reduction: N in the
+    ISP` again after a day / night switch with DENOISE != 0.
+
 ### HW-08 Exposure state for day / night (`/tmp/cam_ae`) — `to test`
 - **What:** every 2 s `tc100_rtsp` writes `lumi exp_time a_gain d_gain isp_d_gain dark_flag` from
   `AK_ISP_GET_AE_RUN_INFO`. Nothing uses it yet. The day / night daemon decides from `/tmp/cam_luma`, the mean luma
@@ -3341,3 +3367,57 @@ par ffmpeg). `h265live` les utilise par défaut (`H265_VENDOR_PARAMS=1` : la cop
   segfault ni OOM ; `tc100-logfwd` en marche sur les deux ; `watch7.sh` n'est plus lancé (perdu au redémarrage de
   mise à jour, non relancé : la surveillance de 7 jours de la rc32 est terminée par les mises à jour).
 - 2026-11-09 08:45 : surveillance annulée par le propriétaire (« Annule la surveillance ») ; les points quotidiens programmés (jours 4 à 6 et bilan du 13) sont supprimés.
+
+## HW-10 — IR-cut polarity (2026-11-12)
+
+- Found on the .11 (rc37): night picture dark (luma 23-37 at full gain), IR LEDs off / on changed nothing, filter "in"
+  gave luma 136-198 at half the gain: the pulses were reversed. The .24 already had `IRCUT_DAY_GPIO=592` /
+  `IRCUT_NIGHT_GPIO=593` in boot.conf. Fixed on the .11 the same way (owner's OK, backup `boot.conf.bak-20261112`,
+  saved to flash) and made the board default on DEV.
+- To check: the .11 next evening (night picture as bright as the .24's, one click at the switch), the morning switch
+  back to day (true colours, no pink cast), and after the next DEV install on a camera without the boot.conf lines.
+- 2026-11-12: night picture right after the fix (luma 115-136 at half the gain); with `DAYNIGHT_SOURCE=vendor` (owner's
+  OK) night held, day at 06:58 UTC without a bounce; day picture in true colours (filter in): **passed for the .11**.
+  Still to do: the first full night, and a camera without the boot.conf lines on the next DEV build.
+
+## rc37 post-install checks (.11, 2026-11-12)
+- `action.cgi` run on the camera with `REQUEST_METHOD=GET`: `cmd=x` and an unknown command get `405 POST required`,
+  `cmd=sd_card_info` answers: **passed** (the reboot itself was not tried by GET).
+- Start-up log line of the noise reduction: **passed** (HW-09).
+- Day / night page save keeping `AWB_*`, `VENDOR_LOCK`, `IR_LED_REST`: covered by the host tests in busybox; not done on
+  the camera (a save rewrites the whole daynight.conf from the form).
+
+## 3.0.1-rc38 install on the .24 (2026-11-12, from 3.0.0, web update, owner)
+Build: CI run 43207206200 (commit f51961d), package `tc100-3.0.1-rc38-update.tar` (MD5SUMS checked, rc38 content
+checked in stack.sqfs: setconf / board profile IR-cut 592 / 593, the two lighter Wi-Fi scripts).
+
+| check (12:28-12:31 UTC, 3-5 min after the reboot) | result |
+|---|---|
+| `/mnt/VERSION`, kernel | 3.0.1-rc38, kernel built 2026-11-12 11:16 UTC |
+| tc100_rtsp, supervisor, mqttd, onvifd, httpfront, whep, wpa_supplicant | all running |
+| stream | 1 client, 121 frames / 5 s, 0 dropped; one thread (sender thread opt-in since rc37) |
+| MemAvailable | 23.9 MB |
+| settings kept | `daynight.conf` still `DAYNIGHT_SOURCE=vendor`; boot.conf `IRCUT_DAY_GPIO=592` / `IRCUT_NIGHT_GPIO=593` kept (same as the new board default); no new migration line; cfg-persist `saved to cfga` |
+| day / night | first log line `mode=day src=vendor` |
+| noise reduction start-up log | present (HW-09) |
+| `action.cgi` by GET, `cmd=x` | `405 Method Not Allowed` |
+
+**Passed.** Still to do: the first night on rc38 (.24, `vendor`), the first full night of the .11 with its IR-cut fixed,
+the night part of HW-09; the .11 itself is still on rc37.
+
+## 3.0.1-rc39 install on the .11 (2026-11-12, from rc37, web update, owner)
+Build: run 43251033795 (main, commit 09d31b8), package `tc100-3.0.1-rc39-update.tar` (MD5SUMS checked).
+
+| check (17:11-17:13 UTC, 3-5 min after the reboot) | result |
+|---|---|
+| `/mnt/VERSION`, kernel | 3.0.1-rc39, kernel built 2026-11-12 15:47 UTC |
+| tc100_rtsp, supervisor, mqttd, onvifd, httpfront, whep, wpa_supplicant | all running |
+| stream | 1 client, 122 frames / 5 s, 0 dropped |
+| MemAvailable | 23.8 MB |
+| settings kept | `DAYNIGHT_SOURCE=vendor`; boot.conf `IRCUT_DAY_GPIO=592` / `IRCUT_NIGHT_GPIO=593`; no new migration line; cfg-persist `saved to cfgb` |
+| day / night | `mode=day src=vendor` (lamps on: lum 8138, counts 1 062 416), filter in (ircut 1) |
+| noise reduction start-up log | present |
+| `action.cgi` by GET, `cmd=x` | `405 Method Not Allowed` |
+
+**Passed.** Tonight: the first full night of the .11 with the IR-cut fixed and `vendor` (HW-10), the night part of HW-09.
+The .24 stays on rc38 for one more night.

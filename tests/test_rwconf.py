@@ -112,7 +112,8 @@ class Expectations(unittest.TestCase):
         self.assertEqual(f.count(b'['), 4)
         self.assertIn(b'brmode=1\ncodec=2\n', f)                                    # retained legacy vendor field
         self.assertIn(b'smartmode=0\n', f)                                           # legacy Smart remains off in defaults
-        self.assertIn(b'vbr=0\nsmart=0\n', f)                                      # active free-encoder defaults
+        self.assertIn(b'\nvbr=0\n', f)                                             # active free-encoder defaults (sorted)
+        self.assertIn(b'\nsmart=0\n', f)
         self.assertEqual(f.split(b'\n[0]\n')[0].count(b'\n'), 23)                  # 24 top level keys
 
     def test_write_forms_of_the_scripts(self):

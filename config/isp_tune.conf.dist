@@ -5,6 +5,7 @@ BRIGHTNESS=0
 CONTRAST=0
 SATURATION=0
 SHARPNESS=0
+DENOISE=0
 HUE=0
 # Mains frequency for anti-flicker: 50 (Europe) or 60, auto = from the Wi-Fi country (boot.conf WIFI_COUNTRY;
 # Japan and an unset country: unchanged). Empty = unchanged.
