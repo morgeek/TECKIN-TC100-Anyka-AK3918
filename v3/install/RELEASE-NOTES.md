@@ -2,6 +2,14 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
+## What is new in 3.0.1-rc41 (test build, branch main)
+Everything in 3.0.1-rc40 below, plus:
+- **3D-NR 1080p memory layout (patch 0017):** `ak39_vi` allocates the 2025 KiB 3D-NR UV reference plane from the
+  2688 KiB unused tail of the encoder CMA area (`venc@81800000`), freeing ~2 MiB in the default CMA for 1080p capture
+  buffers (`NR3D=0` remains the default; `dmesg` shows `(UV in venc pool)` when active).
+- **Test queue updates:** `HOOK-01` (U-Boot built-in env) and `KRN-01` (`ak_isp.awb_live` `0644`) verified `passed` on
+  `.11` rc40.
+
 ## What is new in 3.0.1-rc40 (test build, branch main)
 Everything in 3.0.1-rc39 below, plus:
 - **Free encoder, VBR and smart mode:** the H.264 / H.265 encoder now follows `vbr` (a ceiling, quality first) and
