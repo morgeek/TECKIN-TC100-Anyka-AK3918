@@ -48,7 +48,8 @@ class Wiring(unittest.TestCase):
 
     def test_service(self):
         self.assertIn('whep)             SW_FILE=$_sw_d/boot.conf; SW_KEY=WHEP; SW_DEF=1', read('scripts/service-switch.sh'))
-        self.assertRegex(read('v3/autorun-linux66.sh'), r'(?m)^for n in sound-detection .* telegram-bot whep; do')
+        self.assertRegex(read('v3/autorun-linux66.sh'), r'(?m)^for n in sound-detection .* telegram-bot; do')
+        self.assertIn('sh /mnt/controlscripts/whep start', read('www/cgi-bin/whep.cgi'))
         cs = read('controlscripts/whep')
         self.assertIn('BIN=/mnt/ext/bin/tc100-whep', cs)
         for key in ('WHEP_STREAM', 'WHEP_MAX', 'WHEP_AUDIO'):

@@ -1,0 +1,42 @@
+From 0aa5e634ba505ab138bbb09719afe94affb327cf Mon Sep 17 00:00:00 2001
+From: test <test@localhost>
+Date: Thu, 12 Nov 2026 23:40:48 +0100
+Subject: [PATCH] wifi: rtl8xxxu: runtime ampdu_rx parameter
+
+---
+ drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
+index a1af922..a4dd3d9 100644
+--- a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
++++ b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
+@@ -39,6 +39,7 @@ static bool rtl8xxxu_ht40_2g;
+ static bool rtl8xxxu_dma_aggregation;
+ static int rtl8xxxu_dma_agg_timeout = -1;
+ static int rtl8xxxu_dma_agg_pages = -1;
++static bool rtl8xxxu_ampdu_rx = true;
+ 
+ MODULE_AUTHOR("Jes Sorensen <Jes.Sorensen@gmail.com>");
+ MODULE_DESCRIPTION("RTL8XXXu USB mac80211 Wireless LAN Driver");
+@@ -68,6 +69,8 @@ module_param_named(dma_agg_timeout, rtl8xxxu_dma_agg_timeout, int, 0600);
+ MODULE_PARM_DESC(dma_agg_timeout, "Set DMA aggregation timeout (range 1-127)");
+ module_param_named(dma_agg_pages, rtl8xxxu_dma_agg_pages, int, 0600);
+ MODULE_PARM_DESC(dma_agg_pages, "Set DMA aggregation pages (range 1-127, 0 to disable)");
++module_param_named(ampdu_rx, rtl8xxxu_ampdu_rx, bool, 0644);
++MODULE_PARM_DESC(ampdu_rx, "Allow RX A-MPDU (BlockAck) aggregation (default Y)");
+ 
+ #define USB_VENDOR_ID_REALTEK		0x0bda
+ #define RTL8XXXU_RX_URBS		32
+@@ -6906,6 +6909,8 @@ rtl8xxxu_ampdu_action(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+ 		break;
+ 	case IEEE80211_AMPDU_RX_START:
+ 		dev_dbg(dev, "%s: IEEE80211_AMPDU_RX_START\n", __func__);
++		if (!rtl8xxxu_ampdu_rx)
++			return -EOPNOTSUPP;
+ 		break;
+ 	case IEEE80211_AMPDU_RX_STOP:
+ 		dev_dbg(dev, "%s: IEEE80211_AMPDU_RX_STOP\n", __func__);
+-- 
+2.54.0 (Apple Git-157)
+

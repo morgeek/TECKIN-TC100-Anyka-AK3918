@@ -196,7 +196,7 @@ static void play(const int16_t *p, int n, uint64_t now)
 {
 	int w;
 
-	if (!started) {		/* a little silence first: the first write starts the stream and packets come in bursts */
+	if (!started || apb_queued(bfd) <= 0) {		/* prime the buffer at start and after any underrun/PREPARE */
 		int16_t z[TALK_PREFILL];
 
 		memset(z, 0, sizeof z);

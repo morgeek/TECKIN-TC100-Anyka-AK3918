@@ -31,6 +31,24 @@ Rules that apply to every entry:
 - Memory of a process: **PSS** (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`, KB), not RSS. RSS counts the busybox
   and C library pages shared by every shell once per process (the C MQTT bridge looked 5 MB lighter in RSS, 0.9 MB in PSS).
 
+### WIFI-RXAGG rtl8xxxu runtime `ampdu_rx` switch (`[wifi]`) — `to test`
+
+- **What:** Kernel patch `0018-wifi-rtl8xxxu-runtime-ampdu_rx-parameter.patch` adds `rtl8xxxu.ampdu_rx` (`0644`, default `Y`). When `0`/`N`, `rtl8xxxu_ampdu_action(IEEE80211_AMPDU_RX_START)` returns `-EOPNOTSUPP`, so `mac80211` declines BlockAck RX sessions from the AP and receives frames individually without RX reorder buffering.
+- **Test (`.11`, no reboot needed once kernel is booted):**
+  1. `echo 0 > /sys/module/rtl8xxxu/parameters/ampdu_rx && wpa_cli -i wlan0 reassociate`
+  2. Run a continuous ping from the Mac (`ping -i 0.5 192.168.1.11`) over 1–2 hours (or overnight) and compare 8–9 s RX stalls against `ampdu_rx=1`.
+- **Pass criteria:** If stalls disappear or drop sharply with `ampdu_rx=0`, consider defaulting `ampdu_rx=0` (in `boot.conf` or driver); revert to `ampdu_rx=1` with `echo 1 > /sys/module/rtl8xxxu/parameters/ampdu_rx && wpa_cli -i wlan0 reassociate`.
+
+### RTSP-UDP-NB non-blocking UDP RTP send (`[rtsp]`) — `to test`
+
+- **What:** `src/tc100rtsp/tc100_rtsp.c` now passes `MSG_DONTWAIT | MSG_NOSIGNAL` on UDP `sendto`/`sendmsg`/`sendmmsg` (video, audio, and `RTSP_UDPSG=1`). On transient `EAGAIN`/`EWOULDBLOCK`/`ENOBUFS` (e.g. during a Wi-Fi stall), video marks `wait_idr` + `want_idr` and increments `c->dropped` once instead of blocking capture or closing the client.
+- **Test:** Stream UDP RTSP (`rtsp://.../stream0`) during a Wi-Fi disturbance or rate-limited link; verify `STAT` shows `dropped` incrementing without killing the UDP client or stalling `cap` fps.
+
+### WHEP-ONDEMAND start `tc100-whep` on demand (`[whep]`) — `to test`
+
+- **What (`H10`):** `v3/autorun-linux66.sh` no longer starts `whep` at boot. When `WHEP!=0` in `boot.conf` and `/mnt/ext/bin/tc100-whep` is present, `www/cgi-bin/whep.cgi` answers `200 {"viewers":0,"ondemand":1}` to `GET` without spawning the daemon, and starts `/mnt/controlscripts/whep start` on the first `POST` SDP offer. Set `WHEP=0` to disable completely.
+- **Test:** After boot, verify `ps` has no `tc100-whep` (1–4 MB RAM saved), open the web UI live view, verify `tc100-whep` starts on the WebRTC `POST` and streams video cleanly.
+
 ### NR3D-01 3D noise reduction: runtime switch, crop-size reference, overflow counter (`[nr3d]`) — `partly passed` (2026-11-12, .11 rc41: patch 0017 allocates & streams 1080p cleanly, `nr3d_overflow=0` at 15 fps, overflows at 25 fps)
 
 - **Result (2026-11-12 23:11–23:17, `.11` rc41, flashed web update):**

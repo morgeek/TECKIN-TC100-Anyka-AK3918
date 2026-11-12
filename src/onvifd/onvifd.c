@@ -1361,9 +1361,16 @@ static void iso(long t, char *o, size_t n)
 {
 	time_t tt = (time_t)t;
 	struct tm u;
+	unsigned int y, mo, d, h, mi, se;
 
 	gmtime_r(&tt, &u);
-	snprintf(o, n, "%04d-%02d-%02dT%02d:%02d:%02dZ", u.tm_year + 1900, u.tm_mon + 1, u.tm_mday, u.tm_hour, u.tm_min, u.tm_sec);
+	y = (u.tm_year >= -1900 && u.tm_year <= 8099) ? (unsigned)(u.tm_year + 1900) : 1970u;
+	mo = (unsigned)(u.tm_mon + 1) % 100u;
+	d = (unsigned)u.tm_mday % 100u;
+	h = (unsigned)u.tm_hour % 100u;
+	mi = (unsigned)u.tm_min % 100u;
+	se = (unsigned)u.tm_sec % 100u;
+	snprintf(o, n, "%04u-%02u-%02uT%02u:%02u:%02uZ", y, mo, d, h, mi, se);
 }
 
 static long sub_term(const struct sub *s) { return (long)time(NULL) + (long)((s->expire - now_ms()) / 1000); }

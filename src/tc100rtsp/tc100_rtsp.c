@@ -1972,6 +1972,19 @@ static int qflush(struct cli *c)
 static int pacing_us;	/* RTSP_PACING_US: delay in us after sending each UDP packet/batch to smooth IDR burst */
 static int sndbuf_kb;	/* RTSP_SNDBUF: socket SO_SNDBUF in KB (e.g. 32 to 64 KB to limit Wi-Fi driver queuing) */
 
+/* Transient UDP backpressure (full qdisc/SNDBUF during Wi-Fi stalls): drop without blocking capture or killing the client */
+static int udp_err_ok(struct cli *c)
+{
+	if (errno != EAGAIN && errno != EWOULDBLOCK && errno != ENOBUFS)
+		return 0;
+	if (c && !c->wait_idr) {
+		c->wait_idr = 1;
+		want_idr(c->si);
+		c->dropped++;
+	}
+	return 1;
+}
+
 static int rtp_out(struct cli *c, const unsigned char *hdr12, const unsigned char *pl, int n)
 {
 	unsigned char pk[16 + RTP_PAYLOAD + 64];
@@ -1982,7 +1995,8 @@ static int rtp_out(struct cli *c, const unsigned char *hdr12, const unsigned cha
 		pk[0] = '$'; pk[1] = c->ch; pk[2] = (12 + n) >> 8; pk[3] = (12 + n) & 255;
 		return qsend(c, pk, 16 + n);
 	}
-	int rc = sendto(udpfd, pk + 4, 12 + n, 0, (struct sockaddr *)&c->udp, sizeof c->udp) < 0 ? -1 : 0;
+	if (c->wait_idr) return 0;
+	int rc = sendto(udpfd, pk + 4, 12 + n, MSG_DONTWAIT | MSG_NOSIGNAL, (struct sockaddr *)&c->udp, sizeof c->udp) < 0 ? (udp_err_ok(c) ? 0 : -1) : 0;
 	if (!rc && pacing_us > 0) usleep((useconds_t)pacing_us);
 	return rc;
 }
@@ -2160,7 +2174,7 @@ static void aud_send(const unsigned char *pl, int n)
 			pk[0] = '$'; pk[1] = c->a_ch; pk[2] = (12 + n) >> 8; pk[3] = (12 + n) & 255;
 			if (qsend(c, pk, 16 + n) || qflush(c)) cli_close(c);
 		} else {
-			sendto(udpfd, pk + 4, 12 + n, 0, (struct sockaddr *)&c->a_udp, sizeof c->a_udp);
+			(void)sendto(udpfd, pk + 4, 12 + n, MSG_DONTWAIT | MSG_NOSIGNAL, (struct sockaddr *)&c->a_udp, sizeof c->a_udp);
 		}
 	}
 	aud_ts += n;
@@ -2282,7 +2296,7 @@ static int sg_flush(void)
 	while (i < sg.n) {
 #ifdef SYS_sendmmsg
 		if (sg_mmsg_on && sg.n - i > 1) {
-			long r = syscall(SYS_sendmmsg, udpfd, sg.m + i, (unsigned)(sg.n - i), MSG_NOSIGNAL);
+			long r = syscall(SYS_sendmmsg, udpfd, sg.m + i, (unsigned)(sg.n - i), MSG_DONTWAIT | MSG_NOSIGNAL);
 
 			if (r > 0) {
 				i += (int)r;
@@ -2291,10 +2305,15 @@ static int sg_flush(void)
 			}
 			if (r < 0 && errno == ENOSYS) { sg_mmsg_on = 0; continue; }
 			if (r < 0 && errno == EINTR) continue;
+			if (r < 0 && udp_err_ok(sg.c)) break;
 			rc = -1; break;
 		}
 #endif
-		if (sendmsg(udpfd, &sg.m[i].hdr, MSG_NOSIGNAL) < 0) { rc = -1; break; }
+		if (sendmsg(udpfd, &sg.m[i].hdr, MSG_DONTWAIT | MSG_NOSIGNAL) < 0) {
+			if (errno == EINTR) continue;
+			if (!udp_err_ok(sg.c)) rc = -1;
+			break;
+		}
 		if (pacing_us > 0) usleep((useconds_t)pacing_us);
 		i++;
 	}

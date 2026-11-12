@@ -21,11 +21,43 @@ reply()	# status reason content-type body
   exit 0
 }
 
+# On-demand check: WHEP=0 in boot.conf disables WebRTC; otherwise tc100-whep starts on the first POST offer.
+whep_enabled()
+{
+  [ -x /mnt/ext/bin/tc100-whep ] && [ -f /mnt/controlscripts/whep ] || return 1
+  _we=$(sed -n 's/^WHEP="\?\([^"]*\)"\?$/\1/p' /mnt/config/boot.conf 2>/dev/null | tail -n 1)
+  case "$_we" in 0|no|off|false) return 1 ;; esac
+  return 0
+}
+
 # the daemon runs: its pid file names a live process (shell built-ins only, this is polled)
 _pid=""
+_alive=0
 [ -r /var/run/whep.pid ] && read -r _pid < /var/run/whep.pid 2>/dev/null
-case "$_pid" in ''|*[!0-9]*) reply 503 "Service Unavailable" application/json '{"enabled":0}' ;; esac
-kill -0 "$_pid" 2>/dev/null || reply 503 "Service Unavailable" application/json '{"enabled":0}'
+case "$_pid" in
+  ''|*[!0-9]*) ;;
+  *) kill -0 "$_pid" 2>/dev/null && _alive=1 ;;
+esac
+
+if [ "$_alive" = 0 ]; then
+  case "$QUERY_STRING" in stop=*) reply 503 "Service Unavailable" application/json '{"enabled":0}' ;; esac
+  whep_enabled || reply 503 "Service Unavailable" application/json '{"enabled":0}'
+  case "$REQUEST_METHOD" in
+    GET|HEAD)
+      reply 200 OK application/json '{"viewers":0,"ondemand":1}'
+      ;;
+    POST)
+      sh /mnt/controlscripts/whep start >/dev/null 2>&1 || true
+      _pid=""
+      [ -r /var/run/whep.pid ] && read -r _pid < /var/run/whep.pid 2>/dev/null
+      case "$_pid" in ''|*[!0-9]*) reply 503 "Service Unavailable" application/json '{"enabled":0}' ;; esac
+      kill -0 "$_pid" 2>/dev/null || reply 503 "Service Unavailable" application/json '{"enabled":0}'
+      ;;
+    *)
+      reply 503 "Service Unavailable" application/json '{"enabled":0}'
+      ;;
+  esac
+fi
 
 case "$QUERY_STRING" in
   stop=*)
