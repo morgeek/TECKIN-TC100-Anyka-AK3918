@@ -3113,3 +3113,12 @@ par ffmpeg). `h265live` les utilise par défaut (`H265_VENDOR_PARAMS=1` : la cop
   segfault ni OOM ; `tc100-logfwd` en marche sur les deux ; `watch7.sh` n'est plus lancé (perdu au redémarrage de
   mise à jour, non relancé : la surveillance de 7 jours de la rc32 est terminée par les mises à jour).
 - 2026-11-09 08:45 : surveillance annulée par le propriétaire (« Annule la surveillance ») ; les points quotidiens programmés (jours 4 à 6 et bilan du 13) sont supprimés.
+
+## HW-10 — IR-cut polarity (2026-11-12)
+
+- Found on the .11 (rc37): night picture dark (luma 23-37 at full gain), IR LEDs off / on changed nothing, filter "in"
+  gave luma 136-198 at half the gain: the pulses were reversed. The .24 already had `IRCUT_DAY_GPIO=592` /
+  `IRCUT_NIGHT_GPIO=593` in boot.conf. Fixed on the .11 the same way (owner's OK, backup `boot.conf.bak-20261112`,
+  saved to flash) and made the board default on DEV.
+- To check: the .11 next evening (night picture as bright as the .24's, one click at the switch), the morning switch
+  back to day (true colours, no pink cast), and after the next DEV install on a camera without the boot.conf lines.
