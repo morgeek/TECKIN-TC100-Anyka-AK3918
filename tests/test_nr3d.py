@@ -70,6 +70,26 @@ class SeriesApplies(unittest.TestCase):
             alloc = alloc[:alloc.index('\n}\n')]
             self.assertIn('size_t px = CROP_W * CROP_H;', alloc)
 
+    def test_uv_venc_tail_patch_applies(self):
+        if not shutil.which('git'):
+            self.skipTest('no git')
+        with tempfile.TemporaryDirectory() as d:
+            subprocess.run(['git', 'init', '-q', d], check=True)
+            for prefix in ('0006', '0008', '0011', '0012', '0014', '0015', '0016', '0017'):
+                p = next(x for x in SERIES if Path(x).name.startswith(prefix))
+                r = git_apply([
+                    '--include=drivers/media/platform/anyka-isp/*',
+                    '--include=drivers/misc/ak39_venc.c',
+                    '--include=include/*',
+                    p,
+                ], d)
+                self.assertEqual(r.returncode, 0, (prefix, r.stderr))
+            vi = (Path(d) / 'drivers/media/platform/anyka-isp/ak39_vi.c').read_text(encoding='utf-8')
+            venc = (Path(d) / 'drivers/misc/ak39_venc.c').read_text(encoding='utf-8')
+            self.assertIn('ak39_venc_aux_alloc', vi)
+            self.assertIn('ref_uv_venc', vi)
+            self.assertIn('EXPORT_SYMBOL_GPL(ak39_venc_aux_alloc);', venc)
+
 
 class KernelSwitch(unittest.TestCase):
     def setUp(self):

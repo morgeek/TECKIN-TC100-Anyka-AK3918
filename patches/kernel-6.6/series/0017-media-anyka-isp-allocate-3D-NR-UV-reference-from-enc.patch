@@ -1,0 +1,180 @@
+From 71ab508f5b59a037b4277d821f52865061ddc0b8 Mon Sep 17 00:00:00 2001
+From: morgeek <morgeek@morgeek.com>
+Date: Thu, 12 Nov 2026 22:17:29 +0100
+Subject: [PATCH] media: anyka-isp: allocate 3D-NR UV reference from encoder
+ CMA tail
+
+Move the 2025 KiB 3D-NR UV reference plane out of the default 18 MiB CMA into the 2688 KiB tail left unused by ak39_venc.pool=9600K in venc@81800000 (falls back to the default CMA if unavailable).
+---
+ drivers/media/platform/anyka-isp/ak39_vi.c | 23 +++++++++---
+ drivers/misc/ak39_venc.c                   | 43 ++++++++++++++++++++++
+ include/linux/ak39_venc.h                  | 21 +++++++++++
+ 3 files changed, 81 insertions(+), 6 deletions(-)
+ create mode 100644 include/linux/ak39_venc.h
+
+diff --git a/drivers/media/platform/anyka-isp/ak39_vi.c b/drivers/media/platform/anyka-isp/ak39_vi.c
+index 1e8c875..8218272 100644
+--- a/drivers/media/platform/anyka-isp/ak39_vi.c
++++ b/drivers/media/platform/anyka-isp/ak39_vi.c
+@@ -27,6 +27,7 @@
+  *  - the ISP core is released on close so the next open re-runs the sensor
+  *    init list.
+  */
++#include <linux/ak39_venc.h>
+ #include <linux/delay.h>
+ #include <linux/dma-mapping.h>
+ #include <linux/i2c.h>
+@@ -132,6 +133,7 @@ struct ak39_vi {
+ 	void *ref_y, *ref_uv;
+ 	dma_addr_t ref_y_dma, ref_uv_dma;
+ 	size_t ref_y_bytes, ref_uv_bytes;
++	bool ref_uv_venc;
+ 
+ 	struct delayed_work ae_work, awb_work, guard_work;
+ 	size_t guard_last[4];
+@@ -358,9 +360,14 @@ static void free_ref(struct ak39_vi *vi)
+ {
+ 	if (vi->ref_y)
+ 		dma_free_coherent(vi->dev, vi->ref_y_bytes, vi->ref_y, vi->ref_y_dma);
+-	if (vi->ref_uv)
+-		dma_free_coherent(vi->dev, vi->ref_uv_bytes, vi->ref_uv, vi->ref_uv_dma);
++	if (vi->ref_uv) {
++		if (vi->ref_uv_venc)
++			ak39_venc_aux_free(vi->ref_uv_bytes, vi->ref_uv, vi->ref_uv_dma);
++		else
++			dma_free_coherent(vi->dev, vi->ref_uv_bytes, vi->ref_uv, vi->ref_uv_dma);
++	}
+ 	vi->ref_y = vi->ref_uv = NULL;
++	vi->ref_uv_venc = false;
+ }
+ 
+ /* the reference frame of the largest picture (try_fmt), kept until the driver goes. 0 or -ENOMEM */
+@@ -372,15 +379,19 @@ static int alloc_ref(struct ak39_vi *vi)
+ 	vi->ref_uv_bytes = px;
+ 	vi->ref_y = dma_alloc_coherent(vi->dev, vi->ref_y_bytes,
+ 				       &vi->ref_y_dma, GFP_KERNEL);
+-	vi->ref_uv = dma_alloc_coherent(vi->dev, vi->ref_uv_bytes,
+-					&vi->ref_uv_dma, GFP_KERNEL);
++	vi->ref_uv = ak39_venc_aux_alloc(vi->ref_uv_bytes, &vi->ref_uv_dma);
++	vi->ref_uv_venc = !!vi->ref_uv;
++	if (!vi->ref_uv)
++		vi->ref_uv = dma_alloc_coherent(vi->dev, vi->ref_uv_bytes,
++						&vi->ref_uv_dma, GFP_KERNEL);
+ 	if (!vi->ref_y || !vi->ref_uv) {
+ 		free_ref(vi);
+ 		dev_warn(vi->dev, "no memory for the 3D-NR reference frame, 3D-NR off\n");
+ 		return -ENOMEM;
+ 	}
+-	dev_info(vi->dev, "3D-NR reference frame: %zu KiB at %pad, %zu KiB at %pad\n",
+-		 vi->ref_y_bytes >> 10, &vi->ref_y_dma, vi->ref_uv_bytes >> 10, &vi->ref_uv_dma);
++	dev_info(vi->dev, "3D-NR reference frame: %zu KiB at %pad, %zu KiB at %pad%s\n",
++		 vi->ref_y_bytes >> 10, &vi->ref_y_dma, vi->ref_uv_bytes >> 10, &vi->ref_uv_dma,
++		 vi->ref_uv_venc ? " (UV in venc pool)" : "");
+ 	return 0;
+ }
+ 
+diff --git a/drivers/misc/ak39_venc.c b/drivers/misc/ak39_venc.c
+index 4effd68..36a97eb 100644
+--- a/drivers/misc/ak39_venc.c
++++ b/drivers/misc/ak39_venc.c
+@@ -30,6 +30,7 @@
+ #include <linux/spinlock.h>
+ #include <linux/string.h>
+ #include <linux/workqueue.h>
++#include <linux/ak39_venc.h>
+ #include <linux/soc/anyka/ak_l2.h>
+ #include <uapi/linux/ak39_venc.h>
+ 
+@@ -303,6 +304,39 @@ static const struct file_operations ak39_venc_fops = {
+ 	.llseek		= noop_llseek,
+ };
+ 
++static DEFINE_MUTEX(ak39_venc_aux_lock);
++static struct ak39_venc *ak39_venc_aux_dev;
++
++/*
++ * Allocate/free an auxiliary DMA buffer from the encoder's own reusable CMA
++ * area (the tail left unused by ak39_venc.pool=9600K in the 12 MiB region).
++ * Used by ak39_vi for the 2025 KiB 3D-NR UV reference plane so it does not
++ * compete with 1080p capture buffers in the default CMA.
++ */
++void *ak39_venc_aux_alloc(size_t size, dma_addr_t *dma)
++{
++	void *cpu = NULL;
++
++	mutex_lock(&ak39_venc_aux_lock);
++	if (ak39_venc_aux_dev && ak39_venc_aux_dev->pool_cma)
++		cpu = dma_alloc_coherent(ak39_venc_aux_dev->dev, size, dma,
++					 GFP_KERNEL | __GFP_NOWARN);
++	mutex_unlock(&ak39_venc_aux_lock);
++	return cpu;
++}
++EXPORT_SYMBOL_GPL(ak39_venc_aux_alloc);
++
++void ak39_venc_aux_free(size_t size, void *cpu, dma_addr_t dma)
++{
++	if (!cpu)
++		return;
++	mutex_lock(&ak39_venc_aux_lock);
++	if (ak39_venc_aux_dev)
++		dma_free_coherent(ak39_venc_aux_dev->dev, size, cpu, dma);
++	mutex_unlock(&ak39_venc_aux_lock);
++}
++EXPORT_SYMBOL_GPL(ak39_venc_aux_free);
++
+ static void ak39_venc_pool_free(struct ak39_venc *v)
+ {
+ 	if (v->pool_reserved)
+@@ -442,6 +476,11 @@ static int ak39_venc_probe(struct platform_device *pdev)
+ 		return ret;
+ 	}
+ 	platform_set_drvdata(pdev, v);
++	if (v->pool_cma) {
++		mutex_lock(&ak39_venc_aux_lock);
++		ak39_venc_aux_dev = v;
++		mutex_unlock(&ak39_venc_aux_lock);
++	}
+ 	dev_info(dev, "video encoder: regs %pa+%zx irq %d, pool %zu KiB at %pad%s\n",
+ 		 &v->regs_phys, v->regs_size, v->irq, v->pool_size >> 10,
+ 		 &v->pool_dma, v->pool_cma ? " (CMA)" : "");
+@@ -452,6 +491,10 @@ static void ak39_venc_remove(struct platform_device *pdev)
+ {
+ 	struct ak39_venc *v = platform_get_drvdata(pdev);
+ 
++	mutex_lock(&ak39_venc_aux_lock);
++	if (ak39_venc_aux_dev == v)
++		ak39_venc_aux_dev = NULL;
++	mutex_unlock(&ak39_venc_aux_lock);
+ 	cancel_delayed_work_sync(&v->guard_work);
+ 	misc_deregister(&v->misc);
+ 	ak39_venc_pool_free(v);
+diff --git a/include/linux/ak39_venc.h b/include/linux/ak39_venc.h
+new file mode 100644
+index 0000000..1737570
+--- /dev/null
++++ b/include/linux/ak39_venc.h
+@@ -0,0 +1,21 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++#ifndef _LINUX_AK39_VENC_H
++#define _LINUX_AK39_VENC_H
++
++#include <linux/types.h>
++
++#if IS_REACHABLE(CONFIG_AK39_VENC)
++void *ak39_venc_aux_alloc(size_t size, dma_addr_t *dma);
++void ak39_venc_aux_free(size_t size, void *cpu, dma_addr_t dma);
++#else
++static inline void *ak39_venc_aux_alloc(size_t size, dma_addr_t *dma)
++{
++	return NULL;
++}
++
++static inline void ak39_venc_aux_free(size_t size, void *cpu, dma_addr_t dma)
++{
++}
++#endif
++
++#endif
+-- 
+2.54.0 (Apple Git-157)
+

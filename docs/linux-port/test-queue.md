@@ -31,9 +31,14 @@ Rules that apply to every entry:
 - Memory of a process: **PSS** (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`, KB), not RSS. RSS counts the busybox
   and C library pages shared by every shell once per process (the C MQTT bridge looked 5 MB lighter in RSS, 0.9 MB in PSS).
 
-### NR3D-01 3D noise reduction: runtime switch, crop-size reference, overflow counter (`[nr3d]`) — `failed at 1080p` (2026-11-12, .11 rc40: REQBUFS out of memory, recovered without reboot; see "rc40 features switched on" at the end)
+### NR3D-01 3D noise reduction: runtime switch, crop-size reference, overflow counter (`[nr3d]`) — `to test` (patch 0017 UV-in-venc-tail; previous 1080p failed on .11 rc40 with `REQBUFS out of memory`, SD kernel first)
 
-- **What (plans-2026-11-12 section 2; kernel patches 0006 and 0016, `v3/autorun-linux66.sh`, `config/boot.conf.dist`):**
+- **What (plans-2026-11-12 section 2; kernel patches 0006, 0016 and 0017, `v3/autorun-linux66.sh`, `config/boot.conf.dist`):**
+  - **Patch 0017 (`[nr3d]` UV in encoder CMA tail):** `ak39_venc` exports `ak39_venc_aux_alloc()` / `ak39_venc_aux_free()`
+    to allocate the 2025 KiB UV reference plane (`ref_uv`) from the 2688 KiB tail left unused by `ak39_venc.pool=9600K`
+    in `venc@81800000` (falling back to the default CMA if unavailable). `dmesg` logs `(UV in venc pool)` on
+    `3D-NR reference frame:` when placed there, freeing ~2 MiB in the default CMA for 1080p capture buffers.
+    `NR3D=0` remains the default; revert patch 0017 to go back to allocating both planes from the default CMA.
   - `ak39_vi.nr3d` is now a 0644 parameter (default 0). Writing 1 while the queue is not streaming allocates the 6075 KiB
     reference frame (Y 4050 + UV 2025 KiB) from the default CMA and turns 3D-NR on; writing 1 while streaming without a
     reference returns `EBUSY` (CMA is then full of capture buffers); writing 0 while streaming sets `noref` at once (memory
