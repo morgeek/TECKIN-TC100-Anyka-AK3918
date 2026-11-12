@@ -1016,6 +1016,29 @@ static void isp_bases_reset(void)
 	awb_fd = -1; awb_hw = -1; tune_dirty = 1;
 }
 
+static void nr3d_auto_sync(int want)
+{
+	static int en = -1, cur = -1;
+	int fd, n;
+
+	if (en < 0) {
+		const char *e = getenv("RTSP_NR3D_AUTO");
+		en = e && e[0] == '1';
+	}
+	if (!en || want == cur) return;
+	fd = open("/sys/module/ak39_vi/parameters/nr3d", O_WRONLY);
+	if (fd < 0) { en = 0; return; }
+	n = write(fd, want ? "1\n" : "0\n", 2);
+	close(fd);
+	if (n != 2) {
+		LOG("3D-NR auto: disabled (%s)\n", strerror(errno));
+		en = 0;
+		return;
+	}
+	cur = want;
+	LOG("3D-NR auto: %s\n", want ? "on (night/low-light)" : "off (day)");
+}
+
 static void style_switch(int night)
 {
 	unsigned int s = night ? 1 : 0;
@@ -1031,6 +1054,7 @@ static void style_switch(int night)
 	isp_bases_reset();
 	lowlight_on = 0;
 	if (!night) sensor_fps_want = stream_fps;
+	nr3d_auto_sync(night ? 1 : 0);
 }
 
 /* R12-02: by day in low light the stock app drops the sensor to 10 fps and lets the exposure run 2.5 x longer
@@ -1093,6 +1117,7 @@ static void ispx_ae_report(double tn)
 	memset(&r, 0, sizeof r);
 	if (ioctl(ispx_fd, ISP_GET_AE_RUN_INFO, &r) < 0) return;
 	lowlight_check(tn, &r);
+	nr3d_auto_sync((bw_want || (lowlight_on && lowlight_fps <= 15)) ? 1 : 0);
 	{
 		unsigned int a[AE_WORDS];
 		unsigned int mx = ioctl(ispx_fd, ISP_GET_AE, a) == 0 ? a[0] : 0;	/* 7th field: the exposure limit now (R12-03) */

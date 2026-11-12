@@ -336,13 +336,15 @@ RED_LED=0
 # internet access; updates are installed from Settings → Firmware update.
 UPDATE_CHECK=0
 
-# NR3D=1: temporal (3D) noise reduction of the ISP, cleaner night picture (25-34 % less noise measured). It keeps a 6 MB
-# reference frame in the 20 MiB CMA area (about 6 MB less MemAvailable) and is taken once at boot, before the video
-# starts; the kernel refuses it when it does not fit (3D-NR then stays off, see the console line "[tc100-v3] 3D-NR").
-# 720p main stream (RTSP_WIDTH=1280, RTSP_HEIGHT=720) is the reliable mode; at 1080p the CMA area is almost full and the
-# reference may leave no room for the video buffers (no picture): then set NR3D=0, `echo 0 > /sys/module/ak39_vi/parameters/nr3d`
-# (frees it while nothing streams) and restart the video service, no reboot needed.
-# Read once at boot (the sysfs write above applies it at once). Test status: docs/linux-port/test-queue.md NR3D-01.
-NR3D=0
+# NR3D=auto|1|0: temporal (3D) noise reduction of the ISP, cleaner night/low-light picture (25-34 % less noise measured).
+# It keeps a 4050 KiB Y frame in default CMA + 2025 KiB UV in the encoder pool tail (patch 0017), allocated at boot before
+# the video starts. At 1080p @ 25 fps, 3D-NR overflows the DRAM bus (~25/s), while at 10-15 fps (night / low light) it
+# runs with 0 overflow.
+#   auto (default): allocate at boot, keep off by day (25 fps) and turn on live at night or in low light (<= 15 fps).
+#   1: always on (use 720p or <= 15 fps).
+#   0: off (no reference frame allocated).
+# Recovery if CMA runs out: set NR3D=0, `echo 0 > /sys/module/ak39_vi/parameters/nr3d`, restart rtsp-h26x.
+# Read once at boot / rtsp-h26x restart. Test status: docs/linux-port/test-queue.md NR3D-01.
+NR3D=auto
 
 # Camera tampering / occlusion detection: config/tamper.conf (ENABLE, its one switch).

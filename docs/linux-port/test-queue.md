@@ -37,6 +37,10 @@ Rules that apply to every entry:
   - `3D-NR reference frame: 4050 KiB at 0x82f00000, 2025 KiB at 0x82200000 (UV in venc pool)` — **zero CMA/REQBUFS error** at 1080p (`MemAvailable: 17760 kB`, `CmaFree: 2256 kB` while streaming, 2 `rtsp-h26x restart` clean).
   - **25 fps (1080p):** `nr3d_overflow` rose to `3895` (~25/s: `TNR_DMA_OVERFLOW` on every frame at 480 MHz PLL / 120 MHz ASIC). With `nr3d=0`: `0 overflows / 5s`.
   - **15 fps (1080p, `-f 15`):** **`0 overflows / 5s`** — confirms 3D-NR + 1080p works cleanly once DRAM/ISP frame budget is at 15 fps (e.g. night/low-light `15 fps` or `20 fps` to test; 2 h soak + night noise comparison still to do).
+  - **`NR3D=auto` default (`[nr3d]`):** `boot.conf.dist` sets `NR3D=auto`; `autorun-linux66.sh` allocates the reference
+    at boot for `1|auto`, `rtsp-launch.sh` exports `RTSP_NR3D_AUTO=1`, and `tc100_rtsp` toggles `ak39_vi.nr3d` live
+    (`1` in night mode `bw_want` or low light `lowlight_on` when `lowlight_fps <= 15`, `0` in bright 25 fps). Set
+    `NR3D=0` in `boot.conf` to turn off.
 
 - **What (plans-2026-11-12 section 2; kernel patches 0006, 0016 and 0017, `v3/autorun-linux66.sh`, `config/boot.conf.dist`):**
   - **Patch 0017 (`[nr3d]` UV in encoder CMA tail):** `ak39_venc` exports `ak39_venc_aux_alloc()` / `ak39_venc_aux_free()`

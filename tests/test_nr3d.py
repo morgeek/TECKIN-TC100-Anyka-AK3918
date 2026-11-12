@@ -142,7 +142,7 @@ class KernelSwitch(unittest.TestCase):
 class Userspace(unittest.TestCase):
     def block(self):
         s = (ROOT / 'v3/autorun-linux66.sh').read_text(encoding='utf-8')
-        i = s.index('  if [ "$BC_NR3D" = 1 ]; then')
+        i = s.index('  case "${BC_NR3D:-auto}" in')
         j = s.index('  sh $TB/rtsp-launch.sh', i)
         return s[i:j], s, i, j
 
@@ -158,11 +158,12 @@ class Userspace(unittest.TestCase):
             r = subprocess.run(ASH + ['-c', code], capture_output=True, text=True, timeout=30)
             return (par / 'nr3d').read_text().strip(), r.stderr
 
-    def test_sysfs_written_only_for_nr3d_1(self):
-        val, err = self.run_block('1')
-        self.assertEqual(val, '1')
-        self.assertIn('3D-NR on (ak39_vi.nr3d=1', err)
-        for v in ('0', '', 'yes', '2'):
+    def test_sysfs_written_for_nr3d_1_and_auto(self):
+        for v in ('1', 'auto', ''):
+            val, err = self.run_block(v)
+            self.assertEqual(val, '1', v)
+            self.assertIn('3D-NR ready (NR3D=', err, v)
+        for v in ('0', 'yes', '2'):
             val, err = self.run_block(v)
             self.assertEqual(val, '0', v)
             self.assertEqual(err, '', v)
@@ -174,11 +175,13 @@ class Userspace(unittest.TestCase):
 
     def test_nr3d_only_in_boot_conf_dist(self):
         boot = (ROOT / 'config/boot.conf.dist').read_text(encoding='utf-8')
-        self.assertEqual(len(re.findall(r'^NR3D=0$', boot, re.M)), 1)
+        self.assertEqual(len(re.findall(r'^NR3D=auto$', boot, re.M)), 1)
         for p in (ROOT / 'config').glob('*.dist'):
             if p.name == 'boot.conf.dist':
                 continue
             self.assertNotRegex(p.read_text(encoding='utf-8'), r'(?m)^#?\s*NR3D', p.name)
+        launch = (ROOT / 'v3/linux66-sd/rtsp-launch.sh').read_text(encoding='utf-8')
+        self.assertIn('NR3D_CFG=$(bc NR3D); case "${NR3D_CFG:-auto}" in auto) export RTSP_NR3D_AUTO=1 ;; esac', launch)
 
 
 if __name__ == '__main__':
