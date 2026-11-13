@@ -124,6 +124,40 @@ Rules that apply to every entry:
   in-subnet sender at >= 20 matching queries/s takes each second's answers until it stops. Candidates for a later
   small change.
 
+### RTSP-AUTH-01 tc100_rtsp: slot DoS, Digest replay, failed-login lockout, UDP talk source port, Content-Length (`[rtsp-auth]`) — `to test`
+
+- **Review (2026-11-13, read-only, `src/tc100rtsp/tc100_rtsp.c`):** no buffer overflow, no injection and no authentication
+  bypass found (request line, header scanner, base64 and Digest field copies are all bounded; the password check cannot be
+  skipped). Six weaknesses were verified and are fixed here.
+- **What changes:** (1) At most 2 concurrent connections per source IPv4 (127/8 exempt: the WHEP gateway, `live.cgi`, the
+  recorder). When the table or the address is full, a connection that is not authenticated goes first, whatever its age,
+  from the address holding the most connections (oldest of them); then the old rule (idle >= 2 s and not playing). A
+  playing client is never evicted, so a LAN host opening a connection every 0.5 s can no longer keep the 4 slots.
+  (2) Digest: the nonce is random per connection (16 bytes of `/dev/urandom` read once, a counter and the clock through
+  MD5, 32 hex digits; renewed on a challenge when older than 5 min); the `uri=` must equal the request-line URL (with or
+  without `rtsp://host:port`, one trailing `/` ignored), so a captured response no longer authorises another URL such as
+  `track3`; the Digest response, user name and the Basic `user:password` are compared in constant time. A client may
+  reuse the nonce for the whole connection. (3) Wrong answers (an Authorization header that does not verify; the first
+  request without one is the normal challenge and is not counted) are counted per source address: 20 in a minute lock
+  that address (401 without checking) for the rest of the minute, as `src/onvifd`; 127/8 never counted, a locked address
+  is never evicted from the 32-entry table, other addresses are untouched. (4) UDP backchannel RTP must come from the exact
+  port given in SETUP; `RTSP_TALK_NAT=1` in `/mnt/config/rtsp.env` brings back "same host, any port" for a client behind a
+  NAT (default 0). (5) `Content-Length` is honoured (SET_PARAMETER, GET_PARAMETER, ANNOUNCE): the body is waited for and
+  consumed with the request; a body larger than the 4 KB buffer closes the client. (6) `b64dec` and `num()` no longer
+  overflow a signed int (mask, cap at 999999999).
+- **Switches:** `RTSP_TALK_NAT=1` (rtsp.env) for (4); otherwise revert the `[rtsp-auth]` commit. The host tests use
+  `TC100_TEST_NO_EXEMPT=1`, honoured only in the `TC100_HOST_TEST` build.
+- **Test on the camera:** with a password set, stream from the NVR, Frigate, Home Assistant, go2rtc and VLC, each with
+  Digest and (where the client allows it) Basic; WHEP live view; a talk session over UDP and over TCP (UDP: `RTSP_TALK_NAT`
+  unset, the client keeps its SETUP port); with the NVR streaming, from one PC run
+  `for i in $(seq 50); do (exec 3<>/dev/tcp/<ip>/554; sleep 1) & sleep 0.3; done` and check the NVR stream never drops
+  and `/var/log` (or `rtsp.log`) shows "connections from one address, client N closed"; then 25 wrong passwords from one
+  PC (`for i in $(seq 25); do ffprobe -v quiet rtsp://root:bad@<ip>:554/video0; done`) and check the NVR and a second PC
+  still stream, while the first PC is refused for the rest of the minute even with the right password.
+- **Pass:** every legitimate client streams as before (no new 401 loops, no dropped connection), the reconnect storm and
+  the wrong-password run do not disturb the NVR, a PC behind a NAT talks with `RTSP_TALK_NAT=1` and not without, no
+  crash or restart of `tc100_rtsp`.
+
 ### WIFI-RXAGG rtl8xxxu runtime `ampdu_rx` switch (`[wifi]`) — `to test`
 
 - **What:** Kernel patch `0018-wifi-rtl8xxxu-runtime-ampdu_rx-parameter.patch` adds `rtl8xxxu.ampdu_rx` (`0644`, default `Y`). When `0`/`N`, `rtl8xxxu_ampdu_action(IEEE80211_AMPDU_RX_START)` returns `-EOPNOTSUPP`, so `mac80211` declines BlockAck RX sessions from the AP and receives frames individually without RX reorder buffering.
