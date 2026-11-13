@@ -200,7 +200,7 @@ Rules that apply to every entry:
   owner's agreement) the kernel is a flash candidate through `flashw` with its read-back check, and `NR3D=1` can become the
   default for 720p setups. **Nothing is flashed before a pass.**
 
-### NR3D-02 3D-NR by day: why 25 fps overflows, and which setting avoids it (`[nr3d]`) — `cases A-D passed on the .24 by day, 2 h soak running` (2026-11-13, results at the end)
+### NR3D-02 3D-NR by day: why 25 fps overflows, and which setting avoids it (`[nr3d]`) — `passed on the .24 by day (2 h soak)` (2026-11-13; night at 25 fps and the .11 still to measure; results at the end)
 
 - **Why (read-only Fable analysis, 2026-11-13; facts checked against patch 0006):** the sensor sets its frame rate by
   frame length, not by pixel rate (JX-F23 MIPI table: 25 fps = 0x465 = 1125 lines, 20 fps = 0x56e = 1390, 15 fps =
@@ -3873,3 +3873,11 @@ night log across reboots (a night is lost at every update).
 - **Same statistics block on both units:** `statistics DMA area at 0x82e61dd4, 4800 bytes (white balance counts read
   from word 1160)` (the sheet assumed word 1032): the per-unit leftover-memory hypothesis needs a dump to be tested.
 - Step 3 (A/B with `awb_live=1`, white paper, daylight then tungsten) needs the owner.
+
+### NR3D-02 soak, .24 (checked 2026-11-13 12:14 UTC)
+- **NR3D-02 passed on the .24 by day (2 h soak).** 1080p 25 fps, `NR3D=1`, one RTSP client, from 10:01 to 12:14 UTC:
+  `nr3d=1`, **`nr3d_overflow=0`**, no reboot (up 2 h 22 since the test reboot), 839 STAT lines in the kept logs, 101 719
+  frames, **0 dropped**, no kernel error (only the usual ISP pause warning), MemAvailable 17.5 MB, CmaFree 1.8 MB; picture
+  clean in daylight (snapshot checked).
+- Left as is: `NR3D=1` on the .24 (backup `boot.conf.bak-nr3d02` = the `auto` default). Next: the same at night (25 fps,
+  high gain) where the .11 overflowed, before changing the `auto` rule (a-faire, 2026-11-13 findings, point 2).
