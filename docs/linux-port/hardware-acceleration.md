@@ -8,7 +8,7 @@ on a capture memory that the CPU reads uncached.
 
 | Block | Use in 3.0 | CPU work it could remove |
 |---|---|---|
-| Video encoder (H.264 / H.265) | yes: vendor libraries on the free `libakuio` | - |
+| Video encoder (H.264 / H.265) | yes: free hardware encoder (`src/h265enc/freeenc.h`, default since rc34) on `libakuio` | - |
 | JPEG engine | yes: snapshots, stream.jpg, thumbnails (`jpeg_hw`) | - |
 | ISP: demosaic, AE, AWB, noise filters, gamma, CCM | yes, from the camera's own tuning file (`isp.conf`) | - |
 | ISP contrast / saturation / hue / Y gamma (`AK_ISP_SET_CONTRAST`, `_SAT`, `_HUE`, `_Y_GAMMA` on `/dev/isp_char`) | **no**: done by a table on every byte (`post_copy`) when Live image tuning is on | a 3 MB pass per frame |
@@ -17,7 +17,7 @@ on a capture memory that the CPU reads uncached.
 | ISP black and white (`AK_ISP_SET_YUV_EFFECT` or saturation 0) | **no**: `memset` of the chroma | 1 MB write per frame in B/W |
 | ISP flip / mirror (`AK_ISP_SET_FLIP_MIRROR`) | **now**: `bin/isp_flip` (was missing, Settings orientation did nothing) | - |
 | ISP sub channel (hardware scaler, 640x360 second output) | **yes** since 2026-10-29, now a compiled-in default (`static int sub_channel = 1` in patch 0006, `ak39_vi.sub_channel=0` turns it off; stable since the 480 MHz clock fix), `tc100_rtsp` copies the ISP picture when the capture buffers hold it (`RTSP_HWSUB=0` falls back to `sub_scale`). IPCAM2: sub picture CPU time 1100 -> 460 ms per 5 s, same framing | was 345 600 scattered reads per frame |
-| ISP 3D noise reduction | **works, not kept** (R9-01): `ak39_vi.nr3d=1` with `cma=24M` reserves the 6.2 MB reference frame at boot; 25-34 % less noise, no CPU or frame cost, but MemAvailable 22 -> 15.8 MB and 1.6 MB of CMA left. Off by default | quality and bit rate, not CPU |
+| ISP 3D noise reduction | **on by default (`NR3D=auto`, 3.0.1-rc41/rc42)** via patch 0017 (2025 KiB UV reference plane allocated from the unused tail of `venc@81800000`); `NR3D=0` turns it off in `boot.conf` | quality and bit rate, not CPU |
 | ISP statistics (Y histogram, AE info) | **no**: the light level is a CPU sample of the picture | small |
 | Capture DMA into cached memory (kernel patch 0012, `RTSP_CACHED=1`) | used with the copy path (`RTSP_DIRECT=0`) or the colour tables; direct capture (default) cleans the cache over the buffer instead | every CPU read above becomes a cache-line fill instead of a bus access |
 | Capture straight into the encoder pool (kernel patch 0011, `RTSP_ZEROCOPY=1`) | off by default, superseded by **direct capture** (default since rc2x: the encoder reads the V4L2 capture buffer itself, `RTSP_DIRECT=0` goes back to the copy; `direct_setup` in `tc100_rtsp.c`) | the 3 MB copy itself |

@@ -1109,11 +1109,12 @@ select_compat_profile_values() {
 csrf_check() {
   _csrf_stored=""
   if [ -r /tmp/csrf_token ]; then
-    read -r _csrf_stored < /tmp/csrf_token
-    _csrf_stored="$(printf '%s' "$_csrf_stored" | tr -cd '0-9a-fA-F')"
+    IFS= read -r _csrf_stored < /tmp/csrf_token
+    case "$_csrf_stored" in *[!0-9a-fA-F]*) _csrf_stored="$(printf '%s' "$_csrf_stored" | tr -cd '0-9a-fA-F')" ;; esac
   fi
   [ -z "$_csrf_stored" ] && return 0  # no token yet, skip enforcement
-  _csrf_header="$(printf '%s' "${HTTP_X_CSRF_TOKEN:-}" | tr -cd '0-9a-fA-F')"
+  _csrf_header="${HTTP_X_CSRF_TOKEN:-}"
+  case "$_csrf_header" in *[!0-9a-fA-F]*) _csrf_header="$(printf '%s' "$_csrf_header" | tr -cd '0-9a-fA-F')" ;; esac
   if [ "$_csrf_header" != "$_csrf_stored" ]; then
     # Headers already sent — output body only (HTTP status will be 200 but action won't run)
     if wants_json_response; then
@@ -1127,7 +1128,10 @@ csrf_check() {
 
 audit_log() {
   # only what a command name can hold: the log is shown by showlog, and a newline would forge lines
-  _al_cmd="$(printf '%s' "$1" | tr -cd 'A-Za-z0-9_.-' | cut -c1-48)"
+  case "$1" in
+    *[!A-Za-z0-9_.-]*) _al_cmd="$(printf '%s' "$1" | tr -cd 'A-Za-z0-9_.-' | cut -c1-48)" ;;
+    *) _al_cmd="$1"; [ "${#_al_cmd}" -gt 48 ] && _al_cmd="$(printf '%s' "$_al_cmd" | cut -c1-48)" ;;
+  esac
   _al_dir="/tmp/log"
   _al_file="$_al_dir/audit.log"
   _al_max_bytes=65536
@@ -1162,23 +1166,43 @@ if [ -n "$F_cmd" ]; then
     showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|wifi_rescue_info|wifi_country_info|local_rec_status|sd_card_info|md_zones_info|motion_heatmap|rtsp_server_info|events_info|hw_state|mem_budget|ha_discovery_info|presence_info) ;;
     *) csrf_check ;;
   esac
-  # The zone response is assembled through many sed/grep subprocesses. Cache
-  # its JSON body briefly after the normal audit and CSRF checks above.
-  if [ "${REQUEST_METHOD:-GET}" = GET ] && [ "$F_cmd" = md_zones_info ] && [ "${ACTION_RESPONSE_CACHE_BYPASS:-0}" != 1 ]; then
-    _az_cache=/tmp/action-response-md_zones_info.cache
-    _az_now="$(date +%s 2>/dev/null)"
-    case "$_az_now" in ''|*[!0-9]*) _az_now=0 ;; esac
+  # Polled read-only queries with no per-request arguments share a short-lived RAM
+  # snapshot after the normal audit and CSRF checks above.
+  _az_cacheable=0
+  case "${REQUEST_METHOD:-GET}:$F_cmd:${ACTION_RESPONSE_CACHE_BYPASS:-0}" in
+    GET:md_zones_info:0|GET:sd_card_info:0|GET:local_rec_status:0|GET:rtsp_server_info:0|GET:mem_budget:0|GET:presence_info:0|GET:ha_discovery_info:0|GET:wifi_country_info:0)
+      _az_cacheable=1 ;;
+  esac
+  if [ "$_az_cacheable" = 1 ]; then
+    _az_fmt=html; wants_json_response && _az_fmt=json
+    _az_cache="/tmp/action-response-${F_cmd}.${_az_fmt}.cache"
+    _az_now=0
+    if [ -r /proc/stat ] && [ -r /proc/uptime ]; then
+      _ac_now
+      _az_now="$now_ts"
+    fi
+    if [ "$_az_now" -le 0 ] 2>/dev/null; then
+      _az_now="$(date +%s 2>/dev/null)"
+      case "$_az_now" in ''|*[!0-9]*) _az_now=0 ;; esac
+    fi
     if [ -r "$_az_cache" ] && [ "$_az_now" -gt 0 ]; then
-      IFS= read -r _az_header < "$_az_cache"
-      case "$_az_header" in
-        ts=*)
-          _az_ts="${_az_header#ts=}"
-          case "$_az_ts" in ''|*[!0-9]*) _az_ts=0 ;; esac
-          if [ "$_az_ts" -gt 0 ] && [ "$_az_ts" -le "$_az_now" ] && [ $((_az_now - _az_ts)) -le 2 ]; then
-            sed '1d' "$_az_cache"
-            exit 0
-          fi ;;
-      esac
+      _az_hit=0
+      {
+        IFS= read -r _az_header
+        case "$_az_header" in
+          ts=*)
+            _az_ts="${_az_header#ts=}"
+            case "$_az_ts" in ''|*[!0-9]*) _az_ts=0 ;; esac
+            if [ "$_az_ts" -gt 0 ] && [ "$_az_ts" -le "$_az_now" ] && [ $((_az_now - _az_ts)) -le 2 ]; then
+              _az_hit=1
+              while IFS= read -r _az_line; do
+                printf '%s\n' "$_az_line"
+              done
+              [ -n "$_az_line" ] && printf '%s' "$_az_line"
+            fi ;;
+        esac
+      } < "$_az_cache"
+      [ "$_az_hit" = 1 ] && exit 0
     fi
     _az_tmp="/tmp/action-response.$$.tmp"
     _az_body="/tmp/action-response-body.$$.tmp"
@@ -1186,8 +1210,15 @@ if [ -n "$F_cmd" ]; then
     ACTION_RESPONSE_CACHE_BYPASS=1 ACTION_AUDIT_SKIP=1 sh /mnt/www/cgi-bin/action.cgi > "$_az_tmp" 2>/dev/null
     sed '1,/^$/d' "$_az_tmp" > "$_az_body"
     if [ -s "$_az_body" ] && grep -q '^Content-type:' "$_az_tmp"; then
-      _az_now="$(date +%s 2>/dev/null)"
-      case "$_az_now" in ''|*[!0-9]*) _az_now=0 ;; esac
+      _az_now=0
+      if [ -r /proc/stat ] && [ -r /proc/uptime ]; then
+        _ac_now
+        _az_now="$now_ts"
+      fi
+      if [ "$_az_now" -le 0 ] 2>/dev/null; then
+        _az_now="$(date +%s 2>/dev/null)"
+        case "$_az_now" in ''|*[!0-9]*) _az_now=0 ;; esac
+      fi
       if [ "$_az_now" -gt 0 ] && {
         printf 'ts=%s\n' "$_az_now"
         cat "$_az_body"

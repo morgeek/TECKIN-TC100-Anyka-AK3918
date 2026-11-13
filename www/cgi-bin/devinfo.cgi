@@ -3,12 +3,33 @@
 . /mnt/www/cgi-bin/func.cgi
 . /mnt/scripts/common_functions.sh
 
+_read_btime() {
+  btime=0
+  if [ -r /proc/stat ]; then
+    while read -r _k _v _; do
+      [ "$_k" = "btime" ] && btime="$_v" && break
+    done < /proc/stat
+  fi
+  case "$btime" in ''|*[!0-9]*) btime=0 ;; esac
+}
+
+uptime_seconds_safe() {
+  if [ ! -r /proc/uptime ]; then
+    echo "0"
+    return
+  fi
+  read -r up _ < /proc/uptime 2>/dev/null
+  up="${up%%.*}"
+  case "$up" in
+    ''|*[!0-9]*) echo "0" ;;
+    *) echo "$up" ;;
+  esac
+}
+
 now_epoch_safe() {
   # Prefer pure /proc arithmetic (btime + uptime) — no process fork
-  btime="$(awk '/^btime / {print $2; exit}' /proc/stat 2>/dev/null)"
-  up="$(cut -d'.' -f1 /proc/uptime 2>/dev/null)"
-  case "$btime" in ''|*[!0-9]*) btime=0 ;; esac
-  case "$up" in ''|*[!0-9]*) up=0 ;; esac
+  _read_btime
+  up="$(uptime_seconds_safe)"
   if [ "$btime" -gt 0 ] 2>/dev/null && [ "$up" -gt 0 ] 2>/dev/null; then
     echo $((btime + up))
     return
@@ -18,22 +39,6 @@ now_epoch_safe() {
   case "$ts" in
     ''|*[!0-9]*) echo "0" ;;
     *) echo "$ts" ;;
-  esac
-}
-
-uptime_seconds_safe() {
-  if [ ! -r /proc/uptime ]; then
-    echo "0"
-    return
-  fi
-  up="$(cut -d'.' -f1 /proc/uptime 2>/dev/null)"
-  case "$up" in
-    ''|*[!0-9]*)
-      echo "0"
-      ;;
-    *)
-      echo "$up"
-      ;;
   esac
 }
 
@@ -72,21 +77,15 @@ format_uptime() {
 }
 
 
-last_boot_epoch="$(awk '/^btime / {print $2; exit}' /proc/stat 2>/dev/null)"
-case "$last_boot_epoch" in
-  ''|*[!0-9]*)
-    last_boot_epoch="0"
-    ;;
-esac
+_read_btime
+last_boot_epoch="$btime"
+uptime_secs="$(uptime_seconds_safe)"
 if [ "$last_boot_epoch" -le 0 ] 2>/dev/null; then
   now_epoch="$(now_epoch_safe)"
-  uptime_secs="$(uptime_seconds_safe)"
   if [ "$now_epoch" -gt 0 ] 2>/dev/null && [ "$uptime_secs" -gt 0 ] 2>/dev/null; then
     last_boot_epoch=$((now_epoch - uptime_secs))
   fi
 fi
-
-uptime_secs="$(uptime_seconds_safe)"
 last_boot_text="$(format_epoch "$last_boot_epoch")"
 prev_shutdown_text="$(sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' /tmp/last-reboot-reason 2>/dev/null)"
 [ -n "$prev_shutdown_text" ] || prev_shutdown_text="unknown"
@@ -113,7 +112,8 @@ clock_text="$(run_strings /tmp/start_message | grep -m1 "clocks:" 2>/dev/null)"
 bootloader_text="$(cat /tmp/devinfo_bootloader.txt 2>/dev/null)"
 [ -n "$bootloader_text" ] || bootloader_text="$(run_strings /dev/mtd0 | grep -m1 'U-Boot 2' 2>/dev/null)"
 [ -n "$bootloader_text" ] || bootloader_text="n/a"
-cmdline_text="$(cat /proc/cmdline 2>/dev/null)"
+cmdline_text=""
+[ -r /proc/cmdline ] && IFS= read -r cmdline_text < /proc/cmdline 2>/dev/null || true
 [ -n "$cmdline_text" ] || cmdline_text="n/a"
 milestones_text=""
 if [ -f /tmp/boot-milestones.txt ]; then

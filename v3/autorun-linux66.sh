@@ -285,6 +285,7 @@ else
   /usr/sbin/httpd -p 80 -h /tmp/www
 fi
 echo "[tc100-v3] WebUI active on port 80" > /dev/console
+[ -f /mnt/scripts/boot-milestones.sh ] && sh /mnt/scripts/boot-milestones.sh web_ready
 
 # 7. (RTSP: tc100_rtsp, step 4a)
 

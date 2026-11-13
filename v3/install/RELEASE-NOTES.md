@@ -2,6 +2,22 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
+## What is new in 3.0.1-rc43 (test build, branch main)
+Everything in 3.0.1-rc42 below, plus:
+- **Web UI responsiveness:** pure-shell fast path for `json_escape` (`func.cgi`), batched configuration loading and
+  fork-free response caching in `state.cgi`, `action.cgi`, `disk.cgi` and `devinfo.cgi`, `config-transaction.sh` tab-check
+  fast path, and in-memory HTML fragment caching across tabs (`20-pages.js`).
+- **Flash space:** build-time HTML comment and indentation stripping outside `<script>`/`<style>`/`<pre>`/`<textarea>`
+  (`src/webui/minify.mjs`, ~32.8 KB raw saved) and install-only files (`anyka-wifi.awk`, `known-stock.txt`) excluded from
+  `stack.squashfs`.
+- **mDNS (`tc100-mdnsd`):** unified RFC 6762 §6.7 verbatim legacy question echo (`mdns_reply_head`) and per-source-IP +
+  global answer rate limiter (`struct mdns_ip_rl`).
+- **Wi-Fi runtime trials:** `scripts/wifi-try.sh` (`ampdu_rx=0|1`, `tx_atten=0..30`) with automatic gateway-ping watchdog
+  and safety-window revert.
+- **Boot milestones, CI & tests:** `web_ready` startup milestone, per-boot reset of `/tmp/boot-milestones.txt` with
+  bounded persistent log, dusk/dawn IR-lift hysteresis regression tests (`tests/test_supervisord.py`), GitLab firmware
+  mirror fallback, and Docker worktree cleanup in `local-ci.sh`.
+
 ## What is new in 3.0.1-rc42 (test build, branch main)
 Everything in 3.0.1-rc41 below, plus:
 - **RTSP access:** at most 3 connections per address (`RTSP_PERIP`), random Digest nonce and `uri` check (a parent

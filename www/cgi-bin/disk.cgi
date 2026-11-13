@@ -9,6 +9,47 @@ echo "Cache-Control: max-age=0, no-store, no-cache"
 echo ""
 PATH="/bin:/sbin:/usr/bin:/usr/sbin"
 
+# Fork-free single-line sysfs/proc reader and MiB/KB/percentage formatters.
+_read1() {
+    _r1=""
+    [ -r "$1" ] && IFS= read -r _r1 < "$1" 2>/dev/null || true
+}
+
+_fmt_pct100() {
+    _fp="$1"
+    [ "$_fp" -lt 0 ] 2>/dev/null && _fp=0
+    _fr=$(( _fp % 100 ))
+    [ "$_fr" -lt 10 ] && _fr="0$_fr"
+    _f_out="$(( _fp / 100 )).$_fr"
+}
+
+_fmt_sz_full() {
+    _fs="$1"
+    if [ "$_fs" -ge 1048576 ]; then
+        _hm=$(( (_fs * 100 + 524288) / 1048576 ))
+        _hr=$(( _hm % 100 ))
+        [ "$_hr" -lt 10 ] && _hr="0$_hr"
+        _f_out="$(( _hm / 100 )).${_hr} MiB ($(( _fs / 1024 )) KB)"
+    else
+        _f_out="$(( _fs / 1024 )) KB"
+    fi
+}
+
+_fmt_bytes() {
+    _fb="$1"
+    if [ "$_fb" -ge 1048576 ]; then
+        _hm=$(( (_fb * 100 + 524288) / 1048576 ))
+        _hr=$(( _hm % 100 ))
+        [ "$_hr" -lt 10 ] && _hr="0$_hr"
+        _f_out="$(( _hm / 100 )).${_hr} MiB"
+    elif [ "$_fb" -ge 1024 ]; then
+        _ht=$(( (_fb * 10 + 512) / 1024 ))
+        _f_out="$(( _ht / 10 )).$(( _ht % 10 )) KB"
+    else
+        _f_out="${_fb} B"
+    fi
+}
+
 # Disk growth forecasting: compare current usage % to a cached value from last hour.
 DISK_USAGE_CACHE="/tmp/disk_usage.cache"
 _disk_forecast=""
@@ -20,6 +61,7 @@ _now_ts=$((_btime + ${_up%.*}))
 _mnt_dir=/mnt/sd
 _mnt_pct="$(df "$_mnt_dir" 2>/dev/null | awk 'NR==2{gsub(/%/,"",$5); print $5+0}')"
 case "$_mnt_pct" in ''|*[!0-9]*) _mnt_pct="" ;; esac
+_cached_ts=0
 if [ -n "$_mnt_pct" ]; then
     if [ -f "$DISK_USAGE_CACHE" ]; then
         read -r _cached_ts _cached_pct < "$DISK_USAGE_CACHE" 2>/dev/null || true
@@ -44,7 +86,7 @@ if [ -n "$_mnt_pct" ]; then
         fi
     fi
     # Update cache if absent or older than 1 hour
-    if [ ! -f "$DISK_USAGE_CACHE" ] || [ "$(( _now_ts - $(awk '{print $1+0}' "$DISK_USAGE_CACHE" 2>/dev/null || echo 0) ))" -ge 3600 ]; then
+    if [ ! -f "$DISK_USAGE_CACHE" ] || [ "$(( _now_ts - ${_cached_ts:-0} ))" -ge 3600 ]; then
         printf '%s %s\n' "$_now_ts" "$_mnt_pct" > "$DISK_USAGE_CACHE" 2>/dev/null || true
     fi
 fi
@@ -87,20 +129,21 @@ if [ -d /sys/class/mtd/mtd0 ]; then
     for _d in /sys/class/mtd/mtd[0-9]*; do
         case "$_d" in *ro) continue ;; esac
         [ -r "$_d/size" ] || continue
-        _sz="$(cat "$_d/size" 2>/dev/null)"
+        _read1 "$_d/size"; _sz="$_r1"
         case "$_sz" in ''|*[!0-9]*) continue ;; esac
         flash_tot=$((flash_tot + _sz))
     done
     [ "$flash_tot" -le 0 ] && flash_tot=8388608
+    _read1 /proc/cmdline; _cmdline="$_r1"
 
     for _d in /sys/class/mtd/mtd[0-9]*; do
         case "$_d" in *ro) continue ;; esac
         [ -r "$_d/size" ] || continue
         _m="${_d##*/}"
-        _name="$(cat "$_d/name" 2>/dev/null)"
-        _sz="$(cat "$_d/size" 2>/dev/null)"
-        _flags="$(cat "$_d/flags" 2>/dev/null)"
-        _off="$(cat "$_d/offset" 2>/dev/null)"
+        _read1 "$_d/name"; _name="$_r1"
+        _read1 "$_d/size"; _sz="$_r1"
+        _read1 "$_d/flags"; _flags="$_r1"
+        _read1 "$_d/offset"; _off="$_r1"
         case "$_sz" in ''|*[!0-9]*) continue ;; esac
         case "$_off" in ''|*[!0-9]*) _off=0 ;; esac
 
@@ -136,8 +179,12 @@ if [ -d /sys/class/mtd/mtd0 ]; then
             initrd)
                 _color="#06b6d4"
                 _role="Initramfs (XZ RAM root)"
-                _icmd="$(sed -n 's/.*initrd=0x[0-9a-fA-F]*,\([0-9][0-9]*\).*/\1/p' /proc/cmdline 2>/dev/null)"
-                case "$_icmd" in [0-9]*) [ "$_icmd" -gt 0 ] && [ "$_icmd" -le "$_sz" ] && _used="$_icmd" ;; esac
+                case "$_cmdline" in
+                    *initrd=0x*,[0-9]*)
+                        _icmd="${_cmdline#*initrd=0x*,}"
+                        _icmd="${_icmd%%[!0-9]*}"
+                        case "$_icmd" in [0-9]*) [ "$_icmd" -gt 0 ] && [ "$_icmd" -le "$_sz" ] && _used="$_icmd" ;; esac ;;
+                esac
                 ;;
             stack)
                 _color="#10b981"
@@ -166,13 +213,14 @@ if [ -d /sys/class/mtd/mtd0 ]; then
         [ "$_upct" -gt 100 ] && _upct=100
 
         # Proportion of the 8 MiB chip (in hundredths of a percent for CSS width, min 1.2% so tiny 4K partitions remain visible)
-        _chip_bp=$(( _sz * 10000 / flash_tot ))
-        _chip_pct="$(awk "BEGIN{w=$_chip_bp/100; if(w<1.2) w=1.2; printf \"%.2f\", w}")"
-        _chip_real_pct="$(awk "BEGIN{printf \"%.2f\", $_sz*100/$flash_tot}")"
+        _chip_bp=$(( (_sz * 10000 + flash_tot / 2) / flash_tot ))
+        _chip_w="$_chip_bp"; [ "$_chip_w" -lt 120 ] && _chip_w=120
+        _fmt_pct100 "$_chip_w"; _chip_pct="$_f_out"
+        _fmt_pct100 "$_chip_bp"; _chip_real_pct="$_f_out"
 
-        _sz_fmt="$(awk "BEGIN{if($_sz>=1048576) printf \"%.2f MiB (%d KB)\", $_sz/1048576, $_sz/1024; else printf \"%d KB\", $_sz/1024}")"
-        _used_fmt="$(awk "BEGIN{if($_used>=1048576) printf \"%.2f MiB\", $_used/1048576; else if($_used>=1024) printf \"%.1f KB\", $_used/1024; else printf \"%d B\", $_used}")"
-        _free_fmt="$(awk "BEGIN{if($_free>=1048576) printf \"%.2f MiB\", $_free/1048576; else if($_free>=1024) printf \"%.1f KB\", $_free/1024; else printf \"%d B\", $_free}")"
+        _fmt_sz_full "$_sz"; _sz_fmt="$_f_out"
+        _fmt_bytes "$_used"; _used_fmt="$_f_out"
+        _fmt_bytes "$_free"; _free_fmt="$_f_out"
         _off_hex="$(printf '0x%06X' "$_off")"
 
         flash_map_segs="${flash_map_segs}<div class='flash-seg' style='flex:${_chip_pct} 1 0%;background:${_color}' title='${_name} (${_m}): ${_sz_fmt} — ${_upct}% used (${_used_fmt} / ${_sz_fmt})'><span class='flash-seg-label'>${_name}</span></div>"
@@ -193,9 +241,9 @@ if [ -d /sys/class/mtd/mtd0 ]; then
         </tr>"
     done
 
-    _tot_mb="$(awk "BEGIN{printf \"%.2f MiB\", $flash_tot/1048576}")"
-    _used_mb="$(awk "BEGIN{printf \"%.2f MiB\", $flash_used_tot/1048576}")"
-    _free_mb="$(awk "BEGIN{printf \"%.2f MiB\", ($flash_tot - $flash_used_tot)/1048576}")"
+    _fmt_bytes "$flash_tot"; _tot_mb="$_f_out"
+    _fmt_bytes "$flash_used_tot"; _used_mb="$_f_out"
+    _fmt_bytes "$((flash_tot - flash_used_tot))"; _free_mb="$_f_out"
     _tot_pct=$(( (flash_used_tot * 100 + flash_tot / 2) / flash_tot ))
 
     flash_card_html="
@@ -244,31 +292,29 @@ mmc_health_note=""
 if [ -d "$MMC_BLOCK" ]; then
     # Card identity
     if [ -r "$MMC_BLOCK/device/name" ]; then
-        mmc_name="$(cat "$MMC_BLOCK/device/name" 2>/dev/null)"
+        _read1 "$MMC_BLOCK/device/name"; mmc_name="$_r1"
     fi
     if [ -r "$MMC_BLOCK/device/type" ]; then
-        mmc_type="$(cat "$MMC_BLOCK/device/type" 2>/dev/null)"
+        _read1 "$MMC_BLOCK/device/type"; mmc_type="$_r1"
     fi
 
     # Size in MB (sectors are 512 bytes)
     if [ -r "$MMC_BLOCK/size" ]; then
-        sectors="$(cat "$MMC_BLOCK/size" 2>/dev/null)"
+        _read1 "$MMC_BLOCK/size"; sectors="$_r1"
         case "$sectors" in
             ''|*[!0-9]*) ;;
-            *) mmc_size_mb="$(awk "BEGIN{printf \"%.0f\", $sectors/2048}") MB" ;;
+            *) mmc_size_mb="$(( (sectors + 1024) / 2048 )) MB" ;;
         esac
     fi
 
     # I/O statistics from /sys/block/mmcblk0/stat
     # Fields: read_ios read_merges read_sectors read_ticks write_ios write_merges write_sectors write_ticks in_flight io_ticks time_in_queue
     if [ -r "$MMC_BLOCK/stat" ]; then
-        stat_line="$(cat "$MMC_BLOCK/stat" 2>/dev/null)"
-        # Single pass: read_ios (field 1), write_ios (field 5), in_flight (field 9)
-        eval "$(printf '%s' "$stat_line" | awk '{
-          printf "mmc_read_ios=%d\n",  $1+0
-          printf "mmc_write_ios=%d\n", $5+0
-          printf "in_flight=%d\n",     $9+0
-        }')"
+        _read1 "$MMC_BLOCK/stat"; stat_line="$_r1"
+        set -- $stat_line
+        mmc_read_ios=$(( ${1:-0} + 0 ))
+        mmc_write_ios=$(( ${5:-0} + 0 ))
+        in_flight=$(( ${9:-0} + 0 ))
         _sd_errs=0
         [ -r /tmp/sd-health ] && while IFS='=' read -r _k _v; do [ "$_k" = errors ] && _sd_errs="$_v"; done < /tmp/sd-health
         case "$_sd_errs" in ''|*[!0-9]*) _sd_errs=0 ;; esac
@@ -279,11 +325,11 @@ if [ -d "$MMC_BLOCK" ]; then
 
     # eMMC wear/health (may not exist on removable SD cards)
     if [ -r "$MMC_BLOCK/device/life_time" ]; then
-        life_time="$(cat "$MMC_BLOCK/device/life_time" 2>/dev/null)"
+        _read1 "$MMC_BLOCK/device/life_time"; life_time="$_r1"
         mmc_health_note="eMMC life_time: $life_time"
     fi
     if [ -r "$MMC_BLOCK/device/pre_eol_info" ]; then
-        eol="$(cat "$MMC_BLOCK/device/pre_eol_info" 2>/dev/null)"
+        _read1 "$MMC_BLOCK/device/pre_eol_info"; eol="$_r1"
         case "$eol" in
             0x00|00) mmc_health_note="${mmc_health_note:+$mmc_health_note | }EOL: Normal" ;;
             0x01|01) mmc_health_note="${mmc_health_note:+$mmc_health_note | }EOL: Warning (>80% worn)" ;;

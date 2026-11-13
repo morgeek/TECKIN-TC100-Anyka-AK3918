@@ -16,9 +16,15 @@ record() {
   if [ -r /proc/uptime ]; then
     read -r _up _ < /proc/uptime 2>/dev/null
   fi
+  if [ "$_m" = "autorun_start" ] && [ -d /tmp ]; then
+    : > "$FILE"
+  fi
   [ -d /tmp ] && printf '%-20s %8s s  %s\n' "$_m" "${_up}" "$_details" >> "$FILE"
   if [ -d /mnt/config/log ]; then
     printf '%-20s %8s s  %s\n' "$_m" "${_up}" "$_details" >> "$PERSIST"
+    if [ "$_m" = "boot_complete" ] && [ -f "$PERSIST" ]; then
+      tail -n 40 "$PERSIST" > "$PERSIST.tmp" 2>/dev/null && mv -f "$PERSIST.tmp" "$PERSIST" 2>/dev/null || rm -f "$PERSIST.tmp"
+    fi
   fi
 }
 

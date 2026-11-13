@@ -5,6 +5,7 @@
 TC_CONFIG_ROOT="${TC_CONFIG_ROOT:-/mnt/config}"
 TC_CONFIG_ERROR=""
 TC_COMMIT_COUNT=0
+_TC_TAB='	'
 
 _tc_fail()
 {
@@ -170,7 +171,7 @@ tc_normalize_and_validate()
     password)
       # same rules as the web UI password change (action.d/system.sh set_all_password)
       [ "${#_tc_value}" -ge 4 ] && [ "${#_tc_value}" -le 128 ] || return 1
-      case "$_tc_value" in *[\"\'\$\`\\\ %]*|*"$(printf '\t')"*) return 1 ;; esac ;;
+      case "$_tc_value" in *[\"\'\$\`\\\ %]*|*"$_TC_TAB"*) return 1 ;; esac ;;
     wifi_ssid)
       # a network name for wpa_supplicant.conf (a quoted string): no quote, no backslash
       [ "${#_tc_value}" -ge 1 ] && [ "${#_tc_value}" -le 32 ] || return 1

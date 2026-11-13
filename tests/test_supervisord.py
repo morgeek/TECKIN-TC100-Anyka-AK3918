@@ -259,6 +259,46 @@ class AutoNightParity(unittest.TestCase):
         self.assertIn('IR LED protection', out)
         self.assertIn('off', calls.split())
 
+    def test_dawn_flip_flop_and_ir_lift_hysteresis(self):
+        # F6: IR-LED illumination lowering AE index slightly and brief bright spikes must not bounce night back to day.
+        sc_ae = Scenario(self.d)
+        sc_ae.add('conf', 'DAYNIGHT_SOURCE=ae\nAE_NIGHT_ABOVE=15000\nAE_DAY_BELOW=3000\n'
+                          'NIGHT_HOLD=10\nDAY_HOLD=60\nMIN_SWITCH=180\nIR_LED_MAX_ON=0')
+        t = 0
+        for exp in (
+            [200] * 3 +          # day baseline
+            [20000] * 8 +        # dusk -> switches on at t=22
+            [4000] * 10 +        # IR turns on, exposure drops into deadband (above AE_DAY_BELOW)
+            [500] * 10 +         # brief 20 s bright glitch (< DAY_HOLD=60)
+            [4500] * 4 +         # back into deadband: resets DAY_HOLD
+            [500] * 70           # true dawn: holds >60 s, waits for MIN_SWITCH=180, then off
+        ):
+            t += 2
+            sc_ae.add('now', t)
+            sc_ae.add('ae', self.ae(exp=exp))
+            sc_ae.add('night')
+        out_ae, calls_ae, _, _ = self.compare(sc_ae, 'dawn_ae')
+        self.assertEqual(calls_ae.split(), ['on', 'off'])
+        self.assertIn('waiting 180 s', out_ae)
+
+        # Vendor mode: quick bounce within 15 s due to IR lift locks state for VENDOR_LOCK seconds.
+        sc_v = Scenario(self.d)
+        sc_v.add('conf', 'DAYNIGHT_SOURCE=vendor\nMIN_SWITCH=0\nIR_LED_MAX_ON=0\nVENDOR_LOCK=900')
+        step = 0
+        for t_now, exp, a_gain, w0 in [
+            (20, 1000, 9000, 100), (22, 1000, 9000, 101), (24, 1000, 9000, 102),  # switch on at t=24
+            (26, 200, 256, 5000),  (28, 200, 256, 5001),  (30, 200, 256, 5002),   # bounce <15s -> lock 900s
+            (32, 200, 256, 5003),  (34, 200, 256, 5004),  (36, 200, 256, 5005),   # stays locked
+        ]:
+            step += 1
+            sc_v.add('now', t_now)
+            sc_v.add('ae', self.ae(lumi=40, exp=exp, a=a_gain, d=256, i=256, m='1125'))
+            sc_v.add('awb', '%d 100 100 100 100 100 100 100 100 100 5000' % (w0 + step))
+            sc_v.add('night')
+        out_v, calls_v, _, _ = self.compare(sc_v, 'dawn_vendor')
+        self.assertEqual(calls_v.split(), ['on'])
+        self.assertIn('switching back within 15 s: locked for 900 s', out_v)
+
     def test_garbage_and_missing_inputs_fall_back_to_luma(self):
         sc = Scenario(self.d)
         sc.add('conf', 'DAYNIGHT_SOURCE=ae\nMIN_SWITCH=0\nIR_LED_MAX_ON=0\nAE_NIGHT_ABOVE=abc\nAE_DAY_BELOW=0001\nNIGHT_HOLD=0\n'
