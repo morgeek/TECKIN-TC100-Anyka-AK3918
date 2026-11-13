@@ -1972,13 +1972,29 @@ static int qflush(struct cli *c)
 static int pacing_us;	/* RTSP_PACING_US: delay in us after sending each UDP packet/batch to smooth IDR burst */
 static int sndbuf_kb;	/* RTSP_SNDBUF: socket SO_SNDBUF in KB (e.g. 32 to 64 KB to limit Wi-Fi driver queuing) */
 
+#define UDP_IDR_MIN_S 2.0	/* at most one IDR request per stream every 2 s caused by UDP backpressure */
+
+/* The client waits for the next IDR, natural or requested. The request itself is rate-limited per stream: if an IDR is
+ * bigger than the socket buffer every IDR would hit the backpressure again and every frame would become an IDR for
+ * all the clients of the stream (the UDP client never plays). 1 = ask the encoder now */
+static int udp_idr_ok(int si)
+{
+	static double idr_req_t[2];
+	double tn = now_s();
+
+	if (si != 0 && si != 1) return 0;
+	if (idr_req_t[si] != 0.0 && tn - idr_req_t[si] < UDP_IDR_MIN_S) return 0;
+	idr_req_t[si] = tn;
+	return 1;
+}
+
 /* Transient UDP backpressure (full qdisc/SNDBUF during Wi-Fi stalls): drop without blocking capture or killing the client */
 static int udp_err_ok(struct cli *c)
 {
 	if (errno != EAGAIN && errno != EWOULDBLOCK && errno != ENOBUFS)
 		return 0;
 	if (c && !c->wait_idr) {
-		c->wait_idr = 1; want_idr(c->si);
+		c->wait_idr = 1; if (udp_idr_ok(c->si)) want_idr(c->si);
 		c->dropped++;
 	}
 	return 1;
@@ -2333,6 +2349,10 @@ static int sg_pkt(struct cli *c, uint32_t ts, int marker, const unsigned char *f
 	uint32_t ssrc = S[c->si].ssrc;
 	unsigned char th[4 + 16], *h;
 	int k = 0;
+
+	/* a UDP client in wait_idr (backpressure) gets no more packets of this frame: they would only feed the congestion,
+	 * the picture is lost until the next IDR (what was already collected is still flushed) */
+	if (!c->tcp && c->wait_idr) return 0;
 
 	if (c->tcp) {
 		h = th + 4;

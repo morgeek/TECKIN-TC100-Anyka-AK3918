@@ -56,6 +56,7 @@ Rules that apply to every entry:
 
 - **What:** `src/tc100rtsp/tc100_rtsp.c` now passes `MSG_DONTWAIT | MSG_NOSIGNAL` on UDP `sendto`/`sendmsg`/`sendmmsg` (video, audio, and `RTSP_UDPSG=1`). On transient `EAGAIN`/`EWOULDBLOCK`/`ENOBUFS` (e.g. during a Wi-Fi stall), video marks `wait_idr` + `want_idr` and increments `c->dropped` once instead of blocking capture or closing the client.
 - **Test:** Stream UDP RTSP (`rtsp://.../stream0`) during a Wi-Fi disturbance or rate-limited link; verify `STAT` shows `dropped` incrementing without killing the UDP client or stalling `cap` fps.
+- **Fix (rc42, `[rtsp-udp-nb]`):** the IDR request caused by UDP backpressure is rate-limited to one per stream every 2 s (`UDP_IDR_MIN_S`); the client still waits for the next IDR, natural or requested. Before, an IDR larger than the socket buffer (small `RTSP_SNDBUF`) made every frame an IDR for all clients of the stream. `sg_pkt` also stops queuing the rest of a frame for a UDP client in `wait_idr`. TCP clients unchanged. Extra check: with a small `RTSP_SNDBUF` and a UDP client, the encoder must not switch to all-IDR (frame sizes in `STAT`).
 
 ### WHEP-ONDEMAND start `tc100-whep` on demand (`[whep]`) — `to test`
 
