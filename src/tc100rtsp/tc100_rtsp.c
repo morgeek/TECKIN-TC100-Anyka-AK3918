@@ -1016,10 +1016,24 @@ static void isp_bases_reset(void)
 	awb_fd = -1; awb_hw = -1; tune_dirty = 1;
 }
 
-static void nr3d_auto_sync(int want)
+/* the sensor frame rate in use: the stream rate, the 10 fps of the accepted night parameter set, or the low-light rate */
+static int cap_fps_now(void)
+{
+	int base = stream_fps > 0 && stream_fps < 25 ? stream_fps : 25, f = base;
+
+	if (bw_want && night_style == 1) f = 10;
+	else if (lowlight_on) f = lowlight_fps;
+	return f < base ? f : base;
+}
+
+/* 3D-NR overflows the DRAM bus at 25 fps (NR3D-01: ~25 overflows/s, 0 at 15 fps): in auto mode it is on only at night
+ * or in low light AND when the capture rate in use is <= 15 fps (the night set refused, NIGHT_STYLE=0 or a 20 fps
+ * low-light rate keep it off) */
+static void nr3d_auto_sync(void)
 {
 	static int en = -1, cur = -1;
-	int fd, n;
+	int fd, n, fps = cap_fps_now(), dim = bw_want || lowlight_on;
+	int want = dim && fps <= 15 ? 1 : 0;
 
 	if (en < 0) {
 		const char *e = getenv("RTSP_NR3D_AUTO");
@@ -1036,7 +1050,8 @@ static void nr3d_auto_sync(int want)
 		return;
 	}
 	cur = want;
-	LOG("3D-NR auto: %s\n", want ? "on (night/low-light)" : "off (day)");
+	LOG("3D-NR auto: %s (%s, %d fps%s)\n", want ? "on" : "off", dim ? (bw_want ? "night" : "low light") : "day", fps,
+	    want || !dim ? "" : ": above 15 fps the DRAM bus overflows");
 }
 
 static void style_switch(int night)
@@ -1054,7 +1069,7 @@ static void style_switch(int night)
 	isp_bases_reset();
 	lowlight_on = 0;
 	if (!night) sensor_fps_want = stream_fps;
-	nr3d_auto_sync(night ? 1 : 0);
+	nr3d_auto_sync();
 }
 
 /* R12-02: by day in low light the stock app drops the sensor to 10 fps and lets the exposure run 2.5 x longer
@@ -1117,7 +1132,7 @@ static void ispx_ae_report(double tn)
 	memset(&r, 0, sizeof r);
 	if (ioctl(ispx_fd, ISP_GET_AE_RUN_INFO, &r) < 0) return;
 	lowlight_check(tn, &r);
-	nr3d_auto_sync((bw_want || (lowlight_on && lowlight_fps <= 15)) ? 1 : 0);
+	nr3d_auto_sync();
 	{
 		unsigned int a[AE_WORDS];
 		unsigned int mx = ioctl(ispx_fd, ISP_GET_AE, a) == 0 ? a[0] : 0;	/* 7th field: the exposure limit now (R12-03) */

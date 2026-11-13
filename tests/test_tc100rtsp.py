@@ -1709,6 +1709,15 @@ class Sources(unittest.TestCase):
         self.assertIsNotNone(m)
         self.assertIn('if (!c->tcp && c->wait_idr) return 0;', m.group(0))
 
+    def test_nr3d_auto_needs_capture_fps_at_most_15(self):
+        s = (SRC / 'tc100_rtsp.c').read_text()
+        m = re.search(r'static void nr3d_auto_sync\(void\)\n\{.*?\n\}\n', s, flags=re.S)
+        self.assertIsNotNone(m)
+        self.assertRegex(m.group(0), r'want = dim && fps <= 15')
+        self.assertIn('fps = cap_fps_now()', m.group(0))
+        self.assertEqual(len(re.findall(r'nr3d_auto_sync\(', s)), 3)  # definition + the two callers, no argument
+        self.assertNotIn('nr3d_auto_sync(night', s)
+
 
 if __name__ == '__main__':
     unittest.main()
