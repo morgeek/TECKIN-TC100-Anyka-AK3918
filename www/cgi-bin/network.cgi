@@ -11,21 +11,18 @@ PATH="/bin:/sbin:/usr/bin:/usr/sbin:/mnt/bin:/mnt/sbin"
 NETSTAT_LISTEN_MAX_LINES=220
 NETSTAT_CONNECTIONS_MAX_LINES=320
 
-if [ -r /mnt/scripts/common_functions.sh ]; then
-  . /mnt/scripts/common_functions.sh
-fi
-
-if type install_config >/dev/null 2>&1; then
-  install_config /mnt/config/boot.conf
-  install_config /mnt/config/rtspserver.conf
-  install_config /mnt/config/onvif.conf
-  install_config /mnt/config/ftp.conf
-  install_config /mnt/config/telnetd.conf
-  install_config /mnt/config/dns.conf
-fi
+# ?part=settings: only the DNS / IP / Wi-Fi scan cards (Settings → Network);
+# ?part=diag: only the read-only network state (Tools → Diagnostics). Without
+# it, both (older links). The settings part skips common_functions.sh and probes.
+NET_PART=all
+case "&${QUERY_STRING:-}&" in
+  *"&part=settings&"*) NET_PART=settings ;;
+  *"&part=diag&"*) NET_PART=diag ;;
+esac
 
 DNS_PRIMARY=""
 DNS_SECONDARY=""
+[ ! -f /mnt/config/dns.conf ] && [ -f /mnt/config/dns.conf.dist ] && cp /mnt/config/dns.conf.dist /mnt/config/dns.conf 2>/dev/null || true
 if [ -f /mnt/config/dns.conf ]; then
   . /mnt/config/dns.conf 2>/dev/null
 fi
@@ -34,21 +31,10 @@ IP_MODE="dhcp"
 STATIC_IP=""
 STATIC_NETMASK="255.255.255.0"
 STATIC_GATEWAY=""
-if type install_config >/dev/null 2>&1; then
-  install_config /mnt/config/network.conf
-fi
+[ ! -f /mnt/config/network.conf ] && [ -f /mnt/config/network.conf.dist ] && cp /mnt/config/network.conf.dist /mnt/config/network.conf 2>/dev/null || true
 if [ -f /mnt/config/network.conf ]; then
   . /mnt/config/network.conf 2>/dev/null
 fi
-
-# ?part=settings: only the DNS / IP / Wi-Fi scan cards (Settings → Network);
-# ?part=diag: only the read-only network state (Tools → Diagnostics). Without
-# it, both (older links). The settings part skips the netstat/route probes.
-NET_PART=all
-case "&${QUERY_STRING:-}&" in
-  *"&part=settings&"*) NET_PART=settings ;;
-  *"&part=diag&"*) NET_PART=diag ;;
-esac
 
 print_net_settings() {
 cat << EOF
@@ -177,6 +163,18 @@ if [ "$NET_PART" = settings ]; then
   exit 0
 fi
 
+if [ -r /mnt/scripts/common_functions.sh ]; then
+  . /mnt/scripts/common_functions.sh
+fi
+
+if type install_config >/dev/null 2>&1; then
+  install_config /mnt/config/boot.conf
+  install_config /mnt/config/rtspserver.conf
+  install_config /mnt/config/onvif.conf
+  install_config /mnt/config/ftp.conf
+  install_config /mnt/config/telnetd.conf
+fi
+
 read_cfg() {
   conf="$1"
   key="$2"
@@ -187,9 +185,19 @@ read_cfg() {
     value="$(read_config "$conf" "$key" 2>/dev/null)"
   fi
   if [ -z "$value" ] && [ -r "/mnt/config/$conf" ]; then
-    value="$(awk -F= -v key="$key" '$1==key{print $2; exit}' "/mnt/config/$conf" 2>/dev/null)"
+    while IFS= read -r _rc_l || [ -n "$_rc_l" ]; do
+      case "$_rc_l" in
+        "${key}="*) value="${_rc_l#*=}"; break ;;
+      esac
+    done < "/mnt/config/$conf"
   fi
-  value="$(printf '%s' "$value" | sed 's/\r//g; s/^[[:space:]]*//; s/[[:space:]]*$//')"
+  while :; do
+    case "$value" in
+      [[:space:]]*) value="${value#?}" ;;
+      *[[:space:]]) value="${value%?}" ;;
+      *) break ;;
+    esac
+  done
   [ -n "$value" ] || value="$fallback"
   printf '%s\n' "$value"
 }
@@ -207,14 +215,23 @@ sanitize_port() {
 }
 
 to_lower_ascii() {
-  printf '%s' "$1" | awk '{print tolower($0)}'
+  case "$1" in
+    *[A-Z]*) printf '%s' "$1" | awk '{print tolower($0)}' ;;
+    *) printf '%s' "$1" ;;
+  esac
 }
 
 is_truthy_local() {
-  token="$(printf '%s' "$1" | sed 's/\r//g; s/^[[:space:]]*//; s/[[:space:]]*$//')"
-  token="$(to_lower_ascii "$token")"
-  case "$token" in
-    1|true|on|yes|enabled) return 0 ;;
+  _itl="$1"
+  while :; do
+    case "$_itl" in
+      [[:space:]]*) _itl="${_itl#?}" ;;
+      *[[:space:]]) _itl="${_itl%?}" ;;
+      *) break ;;
+    esac
+  done
+  case "$_itl" in
+    1|[tT][rR][uU][eE]|[oO][nN]|[yY][eE][sS]|[eE][nN][aA][bB][lL][eE]|[eE][nN][aA][bB][lL][eE][dD]) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -247,30 +264,29 @@ capture_limited_output() {
   '
 }
 
-LISTEN_TCP="$(with_timeout 5 netstat -lnt 2>/dev/null)"
-if [ -z "$LISTEN_TCP" ]; then
-  LISTEN_TCP="$(with_timeout 5 netstat -ln 2>/dev/null)"
-fi
-if [ -z "$LISTEN_TCP" ] && [ -r /proc/net/tcp ]; then
-  # Build a netstat-like line set from /proc/net/tcp so is_port_open_tcp awk still works
-  LISTEN_TCP="$(awk '
-    function h2d(h,   v,i,c) {
-      v=0; for(i=1;i<=length(h);i++) {
-        c=substr(h,i,1)
-        if(c>="0"&&c<="9") v=v*16+c-"0"
-        else if(c>="a"&&c<="f") v=v*16+(c-"a")+10
-        else if(c>="A"&&c<="F") v=v*16+(c-"A")+10
-      }; return v
-    }
-    NR>1 && $4=="0A" {
-      split($2,la,":")
-      printf "tcp 0 0 0.0.0.0:%d 0.0.0.0:* LISTEN\n", h2d(la[2])
-    }
-  ' /proc/net/tcp 2>/dev/null)"
+LISTEN_TCP=""
+if [ ! -r /proc/net/tcp ]; then
+  LISTEN_TCP="$(with_timeout 5 netstat -lnt 2>/dev/null)"
+  if [ -z "$LISTEN_TCP" ]; then
+    LISTEN_TCP="$(with_timeout 5 netstat -ln 2>/dev/null)"
+  fi
 fi
 
 is_port_open_tcp() {
   port="$1"
+  case "$port" in ''|*[!0-9]*) return 1 ;; esac
+  if [ -r /proc/net/tcp ] || [ -r /proc/net/tcp6 ]; then
+    for _pn_f in /proc/net/tcp /proc/net/tcp6; do
+      [ -r "$_pn_f" ] || continue
+      while read -r _pn_sl _pn_loc _pn_rem _pn_st _pn_rest; do
+        [ "$_pn_st" = "0A" ] || continue
+        _pn_p="${_pn_loc##*:}"
+        case "$_pn_p" in ''|*[!0-9A-Fa-f]*) continue ;; esac
+        [ "$((0x$_pn_p))" -eq "$port" ] 2>/dev/null && return 0
+      done < "$_pn_f"
+    done
+    return 1
+  fi
   printf '%s\n' "$LISTEN_TCP" | awk -v port="$port" '
     $1 ~ /^tcp/ {
       local_addr=$4
@@ -464,18 +480,37 @@ primary_ip="$(printf '%s\n' "$interfaces_text" | sed -n -e 's/.*inet addr:\([0-9
 default_gateway="$(printf '%s\n' "$routes_text" | awk '$1=="default"{for(i=2;i<NF;i++) if($i=="via"){print $(i+1); exit} print $2; exit} $1=="0.0.0.0"{print $2; exit} $2=="0.0.0.0" && $3!="0.0.0.0"{print $3; exit}')"
 [ -n "$default_gateway" ] || default_gateway="n/a"
 
-dns_servers="$(printf '%s\n' "$dns_text" | awk '
-  /^nameserver[[:space:]]+/ {
-    if (out != "") {
-      out = out " "
-    }
-    out = out $2
-  }
-  END { print out }
-')"
+dns_servers=""
+if [ -n "$dns_text" ]; then
+  _dn_old_ifs="$IFS"
+  IFS='
+'
+  for _dn_l in $dns_text; do
+    IFS="$_dn_old_ifs"
+    set -- $_dn_l
+    if [ "$1" = "nameserver" ] && [ -n "$2" ]; then
+      dns_servers="${dns_servers:+${dns_servers} }$2"
+    fi
+    IFS='
+'
+  done
+  IFS="$_dn_old_ifs"
+fi
 [ -n "$dns_servers" ] || dns_servers="n/a"
 
-listen_tcp_count="$(printf '%s\n' "$LISTEN_TCP" | awk '$1 ~ /^tcp/{count++} END{print count+0}')"
+listen_tcp_count=0
+if [ -r /proc/net/tcp ]; then
+  while read -r _pn_sl _pn_loc _pn_rem _pn_st _pn_rest; do
+    [ "$_pn_st" = "0A" ] && listen_tcp_count=$((listen_tcp_count + 1))
+  done < /proc/net/tcp
+  if [ -r /proc/net/tcp6 ]; then
+    while read -r _pn_sl _pn_loc _pn_rem _pn_st _pn_rest; do
+      [ "$_pn_st" = "0A" ] && listen_tcp_count=$((listen_tcp_count + 1))
+    done < /proc/net/tcp6
+  fi
+elif [ -n "$LISTEN_TCP" ]; then
+  listen_tcp_count="$(printf '%s\n' "$LISTEN_TCP" | awk '$1 ~ /^tcp/{count++} END{print count+0}')"
+fi
 
 cat << EOF
 

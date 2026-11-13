@@ -27,6 +27,7 @@ svc_switch()
 }
 
 # value of KEY in FILE (last line wins, one pair of quotes removed), or $3
+# Optional $4=var stores result in _sw_v without printing.
 svc_kv()
 {
   _sw_v=
@@ -37,13 +38,14 @@ svc_kv()
   fi
   _sw_v=${_sw_v#[\"\']}; _sw_v=${_sw_v%[\"\']}
   [ -n "$_sw_v" ] || _sw_v=$3
-  printf '%s' "$_sw_v"
+  [ "${4:-}" = "var" ] || printf '%s' "$_sw_v"
 }
 
 svc_on()
 {
   svc_switch "$1" || return 1
-  case "$(svc_kv "$SW_FILE" "$SW_KEY" "$SW_DEF")" in 1|true|yes|on|enabled) return 0 ;; esac
+  svc_kv "$SW_FILE" "$SW_KEY" "$SW_DEF" var
+  case "$_sw_v" in 1|true|yes|on|enabled) return 0 ;; esac
   return 1
 }
 

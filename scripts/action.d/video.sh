@@ -43,8 +43,8 @@
           maxqp=$(sanitize_int_range "${F_maxqp0}" 10 51 45)
       fi
       
-      width=$(echo "$raw_size" | cut -d'x' -f1)
-      height=$(echo "$raw_size" | cut -d'x' -f2)
+      width="${raw_size%x*}"
+      height="${raw_size#*x}"
 
       set -- "$stream_idx" width "$width" \
           "$stream_idx" height "$height" \
@@ -86,7 +86,7 @@
       if [ -n "${F_daynightlum}${F_nightdaylum}${F_dn_source}" ]; then
         # scripts/auto-night-daemon.sh reads config/daynight.conf while it runs: the picture luminance (0-255,
         # DAYNIGHT_SOURCE=luma, the default), or the ISP exposure index (ae) / dark flag (isp) with hold times
-        _dn_get() { sed -n "s/^$1=//p" /mnt/config/daynight.conf 2>/dev/null | tail -n 1; }
+        _dn_get() { _dn_v=""; if [ -r /mnt/config/daynight.conf ]; then while IFS= read -r _dn_l || [ -n "$_dn_l" ]; do case "$_dn_l" in "$1="*) _dn_v="${_dn_l#*=}" ;; esac; done < /mnt/config/daynight.conf; fi; printf '%s\n' "$_dn_v"; }
         _ln=$(sanitize_int_range "${F_daynightlum:-$(_dn_get LUMA_NIGHT)}" 0 255 40)
         _ld=$(sanitize_int_range "${F_nightdaylum:-$(_dn_get LUMA_DAY)}" 0 255 100)
         [ "$_ld" -gt "$_ln" ] || _ld=$((_ln + 20))
@@ -289,7 +289,9 @@
       # F_osdtext is already URL-decoded in func.cgi; do not decode '%' again.
       osdtext="$F_osdtext"
       # Recover from legacy invalid escaped values like '\xH' -> '%H'.
-      osdtext=$(printf '%s' "$osdtext" | sed 's/\\x/%/g')
+      case "$osdtext" in
+        *'\x'*) osdtext=$(printf '%s' "$osdtext" | sed 's/\\x/%/g') ;;
+      esac
       if [ -z "$osdtext" ]; then
         osdtext="%H:%M:%S %d.%m.%Y"
       fi

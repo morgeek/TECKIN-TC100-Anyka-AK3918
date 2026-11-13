@@ -99,15 +99,12 @@ get_default_gateway()
       return
   fi
 
-  # Convert hex IP (little endian) to dotted decimal.
+  # Convert hex IP (little endian) to dotted decimal using POSIX parameter expansion (zero forks).
   # Hex: DDCBBAAA -> AAA.BBB.CCC.DDD
-  # Use `cut -c` rather than bash substring expansion (${var:off:len}) — busybox
-  # ash built without ASH_BASH_COMPAT dies with "Bad substitution" on that form,
-  # which kills the whole calling script (mqtt-bridge.sh sources this file).
-  _h_v1="$(printf '%s' "$_gdg_hex_gw" | cut -c7-8)"
-  _h_v2="$(printf '%s' "$_gdg_hex_gw" | cut -c5-6)"
-  _h_v3="$(printf '%s' "$_gdg_hex_gw" | cut -c3-4)"
-  _h_v4="$(printf '%s' "$_gdg_hex_gw" | cut -c1-2)"
+  _h_v1="${_gdg_hex_gw#??????}"
+  _h_t="${_gdg_hex_gw%??}"; _h_v2="${_h_t#????}"
+  _h_t="${_gdg_hex_gw%????}"; _h_v3="${_h_t#??}"
+  _h_v4="${_gdg_hex_gw%??????}"
   printf '%d.%d.%d.%d\n' "0x$_h_v1" "0x$_h_v2" "0x$_h_v3" "0x$_h_v4"
 }
 
@@ -204,15 +201,42 @@ read_kv_config_value()
   conf_path="$1"
   conf_key="$2"
   conf_default="$3"
-  conf_value="$conf_default"
+  conf_value=""
 
   if [ -r "$conf_path" ]; then
-    conf_value="$(awk -F= -v key="$conf_key" '
-      $0 !~ /^[[:space:]]*#/ && $1 == key {print substr($0, index($0, "=") + 1); exit}
-    ' "$conf_path" 2>/dev/null)"
+    while IFS= read -r _rk_line || [ -n "$_rk_line" ]; do
+      while :; do
+        case "$_rk_line" in
+          ' '*|'	'*) _rk_line="${_rk_line#?}" ;;
+          *) break ;;
+        esac
+      done
+      case "$_rk_line" in
+        ''|'#'*) continue ;;
+        "${conf_key}="*)
+          conf_value="${_rk_line#*=}"
+          break
+          ;;
+      esac
+    done < "$conf_path"
   fi
+  while :; do
+    case "$conf_value" in
+      [[:space:]]*) conf_value="${conf_value#?}" ;;
+      *[[:space:]]) conf_value="${conf_value%?}" ;;
+      *) break ;;
+    esac
+  done
+  case "$conf_value" in
+    \"*\") conf_value="${conf_value#\"}"; conf_value="${conf_value%\"}" ;;
+    \'*\') conf_value="${conf_value#\'}"; conf_value="${conf_value%\'}" ;;
+  esac
   [ -n "$conf_value" ] || conf_value="$conf_default"
-  printf '%s' "$conf_value"
+  if [ "${4:-}" = "var" ]; then
+    READ_KV_VAL="$conf_value"
+  else
+    printf '%s' "$conf_value"
+  fi
 }
 
 publish_mqtt_event() {
@@ -479,12 +503,13 @@ auto_night_mode(){
 # or a half-dead tcpsvd showed services as running with their port closed.
 port_listening() {
   case "$1" in ''|*[!0-9]*) return 1 ;; esac
-  _pl_hex="$(printf '%04X' "$1")"
   for _pl_f in /proc/net/tcp /proc/net/tcp6; do
     [ -r "$_pl_f" ] || continue
     while read -r _pl_sl _pl_local _pl_rem _pl_st _pl_rest; do
       [ "$_pl_st" = 0A ] || continue
-      case "$_pl_local" in *":$_pl_hex") return 0 ;; esac
+      _pl_p="${_pl_local##*:}"
+      case "$_pl_p" in ''|*[!0-9A-Fa-f]*) continue ;; esac
+      [ "$((0x$_pl_p))" -eq "$1" ] 2>/dev/null && return 0
     done < "$_pl_f"
   done
   return 1

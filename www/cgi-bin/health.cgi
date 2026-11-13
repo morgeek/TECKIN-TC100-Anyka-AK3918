@@ -37,8 +37,13 @@ if [ -f "$CACHE_FILE" ]; then
   case "$_cache_ts" in ''|*[!0-9]*) _cache_ts=0 ;; esac
   _age=$((_now - _cache_ts))
   if [ "$_age" -ge 0 ] && [ "$_age" -lt "$CACHE_TTL_SECONDS" ]; then
-    # Strip the leading timestamp line and serve the JSON body
-    tail -n +2 "$CACHE_FILE" 2>/dev/null
+    # Strip the leading timestamp line and serve the JSON body (fork-free)
+    {
+      IFS= read -r _
+      while IFS= read -r _hl || [ -n "$_hl" ]; do
+        printf '%s\n' "$_hl"
+      done
+    } < "$CACHE_FILE" 2>/dev/null
     exit 0
   fi
 fi
@@ -47,21 +52,24 @@ fi
 # Falls back to status for scripts that predate the health subcommand.
 probe_service() {
   _svc="$1"
+  _pq="${2:-}"
   _script="/mnt/controlscripts/$_svc"
   if [ ! -x "$_script" ]; then
-    echo "absent"
+    _pf_status=absent
+    [ "$_pq" = var ] || echo "$_pf_status"
     return
   fi
   _out="$("$_script" health 2>/dev/null)"
   case "$_out" in
-    ok:*)   echo "running" ;;
-    warn:*) echo "stopped" ;;
+    ok:*)   _pf_status=running ;;
+    warn:*) _pf_status=stopped ;;
     *)
       # Legacy fallback: script lacks health subcommand, use status
       _out="$("$_script" status 2>/dev/null)"
-      if [ -n "$_out" ]; then echo "running"; else echo "stopped"; fi
+      if [ -n "$_out" ]; then _pf_status=running; else _pf_status=stopped; fi
       ;;
   esac
+  [ "$_pq" = var ] || echo "$_pf_status"
 }
 
 # Prefer the shared fork-free prober (~20 controlscript execs -> ~5); the
@@ -70,7 +78,7 @@ probe_service() {
 if [ -r /mnt/scripts/health-probe.sh ]; then
   . /mnt/scripts/health-probe.sh
 else
-  probe_service_fast() { probe_service "$1"; }
+  probe_service_fast() { probe_service "$1" "${2:-}"; }
 fi
 
 # System stats
@@ -126,7 +134,7 @@ HEALTH_HISTORY_DIR="/tmp/health_history"
 [ -d "$HEALTH_HISTORY_DIR" ] || mkdir -p "$HEALTH_HISTORY_DIR" 2>/dev/null || true
 
 record_health_history() {
-  _rh_svc="$1"; _rh_status="$2"
+  _rh_svc="$1"; _rh_status="$2"; _rh_q="${3:-}"
   _rh_file="${HEALTH_HISTORY_DIR}/${_rh_svc}"
   _rh_restarts=0; _rh_last_change=0
   [ -f "$_rh_file" ] && read -r _rh_restarts _rh_last_change _ < "$_rh_file" 2>/dev/null || true
@@ -141,7 +149,8 @@ record_health_history() {
       printf '0 %s\n' "$_now" > "$_rh_file" 2>/dev/null || true
     fi
   fi
-  printf '%s' "$_rh_restarts"
+  _rh_val="$_rh_restarts"
+  [ "$_rh_q" = var ] || printf '%s' "$_rh_restarts"
 }
 
 # Build JSON — keep "services" as flat string map for backward compat;
@@ -151,8 +160,10 @@ _svc_json=""
 _rst_sep=""
 _rst_json=""
 for _svc in $_core_svcs $_extra_svcs; do
-  _status="$(probe_service_fast "$_svc")"
-  _flaps="$(record_health_history "$_svc" "$_status")"
+  probe_service_fast "$_svc" var
+  _status="$_pf_status"
+  record_health_history "$_svc" "$_status" var
+  _flaps="$_rh_val"
   _svc_json="${_svc_json}${_sep}\"${_svc}\":\"${_status}\""
   _rst_json="${_rst_json}${_rst_sep}\"${_svc}\":${_flaps}"
   _sep=","
@@ -169,8 +180,7 @@ if [ -s /tmp/capability-check.json ]; then
   case "$_capline" in '{"status":'*) _capjson="$_capline" ;; esac
 fi
 
-_json="$(printf '{"ok":true,"ts":%s,"services":{%s},"service_restarts":{%s},"capabilities":%s,"system":{"mem_total_kb":%s,"mem_free_kb":%s,"mem_avail_kb":%s,"load1":"%s","uptime_sec":%s}}' \
-  "$_now" "$_svc_json" "$_rst_json" "$_capjson" "$_memtotal" "$_memfree" "$_memavail" "$_loadavg" "$_uptime_sec")"
+_json="{\"ok\":true,\"ts\":${_now},\"services\":{${_svc_json}},\"service_restarts\":{${_rst_json}},\"capabilities\":${_capjson},\"system\":{\"mem_total_kb\":${_memtotal},\"mem_free_kb\":${_memfree},\"mem_avail_kb\":${_memavail},\"load1\":\"${_loadavg}\",\"uptime_sec\":${_uptime_sec}}}"
 
 # Write cache: first line = timestamp, second line = JSON
 printf '%s\n%s\n' "$_now" "$_json" > "$CACHE_FILE" 2>/dev/null || true

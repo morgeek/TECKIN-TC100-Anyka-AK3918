@@ -16,6 +16,25 @@ IFACE=wlan0
 MAXLINES=1440
 . "${0%/*}/wifi-signal.sh"
 
+_wq_btime=0
+_wq_now() {
+  if [ -n "${WQ_NOW:-}" ]; then
+    _now="$WQ_NOW"
+    return
+  fi
+  if [ "$_wq_btime" -le 0 ] 2>/dev/null && [ -r /proc/stat ]; then
+    while read -r _k _v _; do
+      [ "$_k" = btime ] && { _wq_btime="$_v"; break; }
+    done < /proc/stat
+  fi
+  if [ "$_wq_btime" -gt 0 ] 2>/dev/null && [ -r "${WQ_UPTIME:-/proc/uptime}" ]; then
+    read -r _up _ < "${WQ_UPTIME:-/proc/uptime}"
+    _now=$((_wq_btime + ${_up%%.*}))
+  else
+    _now=$(date +%s)
+  fi
+}
+
 wq_rssi() {
   WIFI_PROC_FILE="${WQ_WIRELESS:-}"
   wifi_signal_read
@@ -28,6 +47,7 @@ wq_rssi() {
 # timeout: a sample stuck in the Wi-Fi driver kept the housekeeper job "running" for hours (.11, 2026-11-03).
 wq_station() {
   if [ -n "$WQ_STATION" ]; then cat "$WQ_STATION" 2>/dev/null
+  elif [ -x /mnt/ext/bin/iw ]; then timeout 5 /mnt/ext/bin/iw dev "$IFACE" station dump 2>/dev/null
   else timeout 5 "$(command -v iw || echo /mnt/ext/bin/iw)" dev "$IFACE" station dump 2>/dev/null; fi | {
     _rt=0; _fl=0; _sg=-
     while read -r _a _b _v _rest; do
@@ -57,14 +77,15 @@ wq_gateway() {
 # packet loss in % over 3 pings to the router (null without a router)
 wq_loss() {
   if [ -n "$WQ_PING" ]; then _out=$(cat "$WQ_PING" 2>/dev/null)
-  else _gw=$(wq_gateway) || { echo null; return; }; _out=$(timeout 8 ping -c 3 -W 1 -w 4 -q "$_gw" 2>/dev/null); fi
+  else _gw=$(wq_gateway) || { _wq_loss_val=null; [ "${1:-}" = var ] || echo null; return; }; _out=$(timeout 8 ping -c 3 -W 1 -w 4 -q "$_gw" 2>/dev/null); fi
   # the digits just before the first "% packet loss" (was printf | sed | head: four forks)
   _p=; case "$_out" in *"% packet loss"*) _p=${_out%%"% packet loss"*}; _p=${_p##*[!0-9]} ;; esac
-  case "$_p" in ''|*[!0-9]*) echo null ;; *) echo "$_p" ;; esac
+  case "$_p" in ''|*[!0-9]*) _wq_loss_val=null ;; *) _wq_loss_val="$_p" ;; esac
+  [ "${1:-}" = var ] || echo "$_wq_loss_val"
 }
 
 wq_sample() {
-  _now=${WQ_NOW:-$(date +%s)}
+  _wq_now
   set -- $(wq_station); _rt=${1:-0}; _fl=${2:-0}; _sg=${3:--}
   # the averaged signal of iw is the one value of the signal while this runs: kept for every reader
   # (scripts/wifi-signal.sh reads $WIFI_AVG_FILE while it is fresh), else the driver's /proc level
@@ -72,22 +93,35 @@ wq_sample() {
     _rssi=$_sg; _u=0; read -r _u _r < "${WQ_UPTIME:-/proc/uptime}" 2>/dev/null
     echo "${_u%.*} $_sg" > "${WIFI_AVG_FILE:-/tmp/wifi-signal.avg}.tmp" && mv -f "${WIFI_AVG_FILE:-/tmp/wifi-signal.avg}.tmp" "${WIFI_AVG_FILE:-/tmp/wifi-signal.avg}"
   else
-    _rssi=$(wq_rssi)
+    WIFI_PROC_FILE="${WQ_WIRELESS:-}"
+    wifi_signal_read
+    _rssi="${WIFI_DBM:-null}"
   fi
-  _prt=""; _pfl=""; [ -r "$STATE" ] && read -r _prt _pfl < "$STATE"
-  echo "$_rt $_fl" > "$STATE"
+  _prt=""; _pfl=""; _pln=""; [ -r "$STATE" ] && read -r _prt _pfl _pln < "$STATE"
   _drt=0; _dfl=0
   case "$_prt" in ''|*[!0-9]*) ;; *) [ "$_rt" -ge "$_prt" ] && _drt=$((_rt - _prt)) ;; esac
   case "$_pfl" in ''|*[!0-9]*) ;; *) [ "$_fl" -ge "$_pfl" ] && _dfl=$((_fl - _pfl)) ;; esac
-  _loss=$(wq_loss)
+  wq_loss var; _loss="$_wq_loss_val"
   echo "$_now $_rssi $_drt $_dfl $_loss" >> "$LOG"
-  _n=$(wc -l < "$LOG")
-  if [ "$_n" -gt $((MAXLINES + 60)) ]; then tail -n "$MAXLINES" "$LOG" > "$LOG.tmp" && mv -f "$LOG.tmp" "$LOG"; fi
+  case "$_pln" in
+    ''|*[!0-9]*)
+      _n=0
+      if [ -r "$LOG" ]; then
+        while IFS= read -r _wq_l || [ -n "$_wq_l" ]; do _n=$((_n + 1)); done < "$LOG"
+      fi
+      ;;
+    *) _n=$((_pln + 1)) ;;
+  esac
+  if [ "$_n" -gt $((MAXLINES + 60)) ]; then
+    tail -n "$MAXLINES" "$LOG" > "$LOG.tmp" && mv -f "$LOG.tmp" "$LOG"
+    _n="$MAXLINES"
+  fi
+  echo "$_rt $_fl $_n" > "$STATE"
   wq_summary "$_now"
 }
 
 wq_summary() {
-  _now=${1:-${WQ_NOW:-$(date +%s)}}
+  if [ -n "${1:-}" ]; then _now="$1"; else _wq_now; fi
   [ -r "$LOG" ] || return 0
   awk -v since=$((_now - 3600)) '
     { last_rssi = $2 }

@@ -261,12 +261,13 @@ FAST_PIDFILE_SERVICES=" button-actions ftp-server health-snapshot mqtt-bridge on
 # or a half-dead tcpsvd showed services as running with their port closed.
 port_listening() {
   case "$1" in ''|*[!0-9]*) return 1 ;; esac
-  _pl_hex="$(printf '%04X' "$1")"
   for _pl_f in /proc/net/tcp /proc/net/tcp6; do
     [ -r "$_pl_f" ] || continue
     while read -r _pl_sl _pl_local _pl_rem _pl_st _pl_rest; do
       [ "$_pl_st" = 0A ] || continue
-      case "$_pl_local" in *":$_pl_hex") return 0 ;; esac
+      _pl_p="${_pl_local##*:}"
+      case "$_pl_p" in ''|*[!0-9A-Fa-f]*) continue ;; esac
+      [ "$((0x$_pl_p))" -eq "$1" ] 2>/dev/null && return 0
     done < "$_pl_f"
   done
   return 1
@@ -533,9 +534,18 @@ generate_allstates_payload() {
   echo ']}'
 }
 
+_emit_cached_allstates() {
+  {
+    IFS= read -r _
+    while IFS= read -r _asl || [ -n "$_asl" ]; do
+      printf '%s\n' "$_asl"
+    done
+  } < "$ALLSTATES_CACHE_FILE"
+}
+
 emit_allstates_response() {
   if allstates_cache_is_fresh; then
-    sed '1d' "$ALLSTATES_CACHE_FILE"
+    _emit_cached_allstates
     return
   fi
 
@@ -561,7 +571,7 @@ emit_allstates_response() {
         fi
       ) </dev/null >/dev/null 2>&1 &
     fi
-    sed '1d' "$ALLSTATES_CACHE_FILE"
+    _emit_cached_allstates
     return
   fi
 
@@ -581,7 +591,7 @@ emit_allstates_response() {
     fi
     rm -f "$tmp_body" "$tmp_cache"
     if [ -s "$ALLSTATES_CACHE_FILE" ]; then
-      sed '1d' "$ALLSTATES_CACHE_FILE"
+      _emit_cached_allstates
       return
     fi
   fi

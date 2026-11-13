@@ -12,7 +12,13 @@ if [ -z "$PRESENCE_LOCK" ]; then PRESENCE_LOCK=/tmp/tc100-presence.lock; fi
 presence_read_file()
 {
   [ -r "$1" ] || return 0
-  awk -F= -v key="$2" '$1 == key { value = substr($0, index($0, "=") + 1) } END { print value }' "$1" 2>/dev/null
+  _prf_v=""
+  while IFS= read -r _prf_l || [ -n "$_prf_l" ]; do
+    case "$_prf_l" in
+      "$2="*) _prf_v="${_prf_l#*=}" ;;
+    esac
+  done < "$1"
+  printf '%s\n' "$_prf_v"
 }
 
 presence_read()
@@ -42,29 +48,30 @@ presence_profile_prefix()
 presence_profile_key()
 {
   case "$1:$2" in
-    present:configured) printf '%s' PRESENCE_PRESENT_CONFIGURED ;;
-    present:privacy) printf '%s' PRESENCE_PRESENT_PRIVACY ;;
-    present:motion) printf '%s' PRESENCE_PRESENT_MOTION ;;
-    present:recording) printf '%s' PRESENCE_PRESENT_RECORDING ;;
-    present:notifications) printf '%s' PRESENCE_PRESENT_NOTIFICATIONS ;;
-    away:configured) printf '%s' PRESENCE_AWAY_CONFIGURED ;;
-    away:privacy) printf '%s' PRESENCE_AWAY_PRIVACY ;;
-    away:motion) printf '%s' PRESENCE_AWAY_MOTION ;;
-    away:recording) printf '%s' PRESENCE_AWAY_RECORDING ;;
-    away:notifications) printf '%s' PRESENCE_AWAY_NOTIFICATIONS ;;
-    night:configured) printf '%s' PRESENCE_NIGHT_CONFIGURED ;;
-    night:privacy) printf '%s' PRESENCE_NIGHT_PRIVACY ;;
-    night:motion) printf '%s' PRESENCE_NIGHT_MOTION ;;
-    night:recording) printf '%s' PRESENCE_NIGHT_RECORDING ;;
-    night:notifications) printf '%s' PRESENCE_NIGHT_NOTIFICATIONS ;;
+    present:configured|present:CONFIGURED) _pk_val=PRESENCE_PRESENT_CONFIGURED ;;
+    present:privacy|present:PRIVACY) _pk_val=PRESENCE_PRESENT_PRIVACY ;;
+    present:motion|present:MOTION) _pk_val=PRESENCE_PRESENT_MOTION ;;
+    present:recording|present:RECORDING) _pk_val=PRESENCE_PRESENT_RECORDING ;;
+    present:notifications|present:NOTIFICATIONS) _pk_val=PRESENCE_PRESENT_NOTIFICATIONS ;;
+    away:configured|away:CONFIGURED) _pk_val=PRESENCE_AWAY_CONFIGURED ;;
+    away:privacy|away:PRIVACY) _pk_val=PRESENCE_AWAY_PRIVACY ;;
+    away:motion|away:MOTION) _pk_val=PRESENCE_AWAY_MOTION ;;
+    away:recording|away:RECORDING) _pk_val=PRESENCE_AWAY_RECORDING ;;
+    away:notifications|away:NOTIFICATIONS) _pk_val=PRESENCE_AWAY_NOTIFICATIONS ;;
+    night:configured|night:CONFIGURED) _pk_val=PRESENCE_NIGHT_CONFIGURED ;;
+    night:privacy|night:PRIVACY) _pk_val=PRESENCE_NIGHT_PRIVACY ;;
+    night:motion|night:MOTION) _pk_val=PRESENCE_NIGHT_MOTION ;;
+    night:recording|night:RECORDING) _pk_val=PRESENCE_NIGHT_RECORDING ;;
+    night:notifications|night:NOTIFICATIONS) _pk_val=PRESENCE_NIGHT_NOTIFICATIONS ;;
     *) return 1 ;;
   esac
+  [ "${3:-}" = var ] || printf '%s' "$_pk_val"
 }
 
 presence_profile_value()
 {
-  _pr_key="$(presence_profile_key "$1" "$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')")" || return 1
-  presence_read "$_pr_key" 0
+  presence_profile_key "$1" "$2" var || return 1
+  presence_read "$_pk_val" 0
 }
 
 presence_valid_mode()

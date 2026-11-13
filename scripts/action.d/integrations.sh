@@ -4,6 +4,23 @@
 # audit log) and helpers; F_* are the request fields. Only the file of the
 # requested command is read, so a request parses this file, not all of them.
 
+# Pure-shell fast paths skip printf|sed pipelines when the value already contains only allowed characters.
+_integ_san_id() {
+  case "$1" in
+    *[!A-Za-z0-9._-]*) _isi_v="$(printf '%s' "$1" | sed 's/[^A-Za-z0-9._-]/-/g')" ;;
+    *) _isi_v="$1" ;;
+  esac
+  [ -n "$_isi_v" ] || _isi_v="$2"
+}
+
+_integ_san_topic() {
+  case "$1" in
+    /*|*/|*[!A-Za-z0-9._/-]*) _ist_v="$(printf '%s' "$1" | sed 's#[^A-Za-z0-9._/-]##g; s#^/*##; s#/*$##')" ;;
+    *) _ist_v="$1" ;;
+  esac
+  [ -n "$_ist_v" ] || _ist_v="$2"
+}
+
   case "$F_cmd" in
 
     refresh_ha_discovery)
@@ -45,34 +62,59 @@
       csrf_check
       install_config /mnt/config/mqtt.conf
 
+      _mc_pw=""; _mc_cid=""; _mc_qos=""; _mc_hi=""; _mc_ttl=""; _mc_cw=""; _mc_crw=""
+      _mc_sbi=""; _mc_sbm=""; _mc_sbx=""; _mc_hap=""; _mc_pe=""; _mc_pb=""; _mc_pc=""; _mc_pi=""; _mc_psp=""
+      if [ -r /mnt/config/mqtt.conf ]; then
+        while IFS= read -r _mc_l || [ -n "$_mc_l" ]; do
+          case "$_mc_l" in
+            MQTT_PASSWORD=*)                        [ -z "$_mc_pw" ]  && _mc_pw="${_mc_l#*=}" ;;
+            MQTT_CLIENT_ID=*)                       [ -z "$_mc_cid" ] && _mc_cid="${_mc_l#*=}" ;;
+            MQTT_QOS=*)                             [ -z "$_mc_qos" ] && _mc_qos="${_mc_l#*=}" ;;
+            MQTT_HEALTH_INTERVAL_SECONDS=*)         [ -z "$_mc_hi" ]  && _mc_hi="${_mc_l#*=}" ;;
+            MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS=*)   [ -z "$_mc_ttl" ] && _mc_ttl="${_mc_l#*=}" ;;
+            MQTT_COMMAND_WAIT_SECONDS=*)            [ -z "$_mc_cw" ]  && _mc_cw="${_mc_l#*=}" ;;
+            MQTT_COMMAND_REPEAT_WINDOW_SECONDS=*)   [ -z "$_mc_crw" ] && _mc_crw="${_mc_l#*=}" ;;
+            MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS=*) [ -z "$_mc_sbi" ] && _mc_sbi="${_mc_l#*=}" ;;
+            MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS=*)   [ -z "$_mc_sbm" ] && _mc_sbm="${_mc_l#*=}" ;;
+            MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER=*)    [ -z "$_mc_sbx" ] && _mc_sbx="${_mc_l#*=}" ;;
+            MQTT_HA_DISCOVERY_PREFIX=*)             [ -z "$_mc_hap" ] && _mc_hap="${_mc_l#*=}" ;;
+            POWER_ESTIMATE_ENABLE=*)                [ -z "$_mc_pe" ]  && _mc_pe="${_mc_l#*=}" ;;
+            POWER_ESTIMATE_BASE_MW=*)               [ -z "$_mc_pb" ]  && _mc_pb="${_mc_l#*=}" ;;
+            POWER_ESTIMATE_CPU_SCALE_MW=*)          [ -z "$_mc_pc" ]  && _mc_pc="${_mc_l#*=}" ;;
+            POWER_ESTIMATE_IR_LED_MW=*)             [ -z "$_mc_pi" ]  && _mc_pi="${_mc_l#*=}" ;;
+            POWER_SENSOR_PATH=*)                    [ -z "$_mc_psp" ] && _mc_psp="${_mc_l#*=}" ;;
+          esac
+        done < /mnt/config/mqtt.conf
+      fi
+
       mqtt_enable=$(normalize_bool "${F_mqtt_enable}")
-      mqtt_host=$(printf '%s' "${F_mqtt_host}")
+      mqtt_host="$F_mqtt_host"
       mqtt_port=$(sanitize_int_range "${F_mqtt_port}" 1 65535 1883)
-      mqtt_user=$(printf '%s' "${F_mqtt_user}")
+      mqtt_user="$F_mqtt_user"
       # The settings form only posts the fields it shows: a missing or empty password keeps the saved one
-      mqtt_password="${F_mqtt_password:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_PASSWORD "")}"
+      mqtt_password="${F_mqtt_password:-$_mc_pw}"
       # mqtt.conf is sourced by the bridge: only the values typed in the form are checked (a saved one is kept as it is)
       refuse_unsafe_value "MQTT user" "$mqtt_user"
       [ -n "${F_mqtt_password:-}" ] && refuse_unsafe_value "MQTT password" "$F_mqtt_password"
-      mqtt_client_id="${F_mqtt_client_id:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_CLIENT_ID tc100-camera)}"
-      mqtt_topic_root=$(printf '%s' "${F_mqtt_topic_root}")
+      mqtt_client_id="${F_mqtt_client_id:-${_mc_cid:-tc100-camera}}"
+      mqtt_topic_root="$F_mqtt_topic_root"
       mqtt_topic_command="${F_mqtt_topic_command:-}"
-      mqtt_qos=$(sanitize_int_range "${F_mqtt_qos:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_QOS 0)}" 0 2 0)
-      mqtt_health_interval_seconds=$(sanitize_int_range "${F_mqtt_health_interval_seconds:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_HEALTH_INTERVAL_SECONDS 120)}" 10 86400 120)
-      mqtt_health_slow_cache_ttl_seconds=$(sanitize_int_range "$(read_kv_or_default /mnt/config/mqtt.conf MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS 180)" 10 86400 180)
-      mqtt_command_wait_seconds=$(sanitize_int_range "${F_mqtt_command_wait_seconds:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_COMMAND_WAIT_SECONDS 12)}" 3 120 12)
-      mqtt_command_repeat_window_seconds=$(sanitize_int_range "${F_mqtt_command_repeat_window_seconds:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_COMMAND_REPEAT_WINDOW_SECONDS 20)}" 0 600 20)
-      mqtt_subscribe_backoff_initial_seconds=$(sanitize_int_range "${F_mqtt_subscribe_backoff_initial_seconds:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS 2)}" 1 60 2)
-      mqtt_subscribe_backoff_max_seconds=$(sanitize_int_range "${F_mqtt_subscribe_backoff_max_seconds:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS 20)}" 1 600 20)
-      mqtt_subscribe_backoff_multiplier=$(sanitize_int_range "${F_mqtt_subscribe_backoff_multiplier:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER 2)}" 1 5 2)
+      mqtt_qos=$(sanitize_int_range "${F_mqtt_qos:-${_mc_qos:-0}}" 0 2 0)
+      mqtt_health_interval_seconds=$(sanitize_int_range "${F_mqtt_health_interval_seconds:-${_mc_hi:-120}}" 10 86400 120)
+      mqtt_health_slow_cache_ttl_seconds=$(sanitize_int_range "${_mc_ttl:-180}" 10 86400 180)
+      mqtt_command_wait_seconds=$(sanitize_int_range "${F_mqtt_command_wait_seconds:-${_mc_cw:-12}}" 3 120 12)
+      mqtt_command_repeat_window_seconds=$(sanitize_int_range "${F_mqtt_command_repeat_window_seconds:-${_mc_crw:-20}}" 0 600 20)
+      mqtt_subscribe_backoff_initial_seconds=$(sanitize_int_range "${F_mqtt_subscribe_backoff_initial_seconds:-${_mc_sbi:-2}}" 1 60 2)
+      mqtt_subscribe_backoff_max_seconds=$(sanitize_int_range "${F_mqtt_subscribe_backoff_max_seconds:-${_mc_sbm:-20}}" 1 600 20)
+      mqtt_subscribe_backoff_multiplier=$(sanitize_int_range "${F_mqtt_subscribe_backoff_multiplier:-${_mc_sbx:-2}}" 1 5 2)
       # the settings form names the checkbox mqtt_discovery
       mqtt_ha_discovery_enable=$(normalize_bool "${F_mqtt_ha_discovery_enable:-$F_mqtt_discovery}")
-      mqtt_ha_discovery_prefix="${F_mqtt_ha_discovery_prefix:-$(read_kv_or_default /mnt/config/mqtt.conf MQTT_HA_DISCOVERY_PREFIX homeassistant)}"
-      power_estimate_enable=$(normalize_bool "${F_power_estimate_enable:-$(read_kv_or_default /mnt/config/mqtt.conf POWER_ESTIMATE_ENABLE 0)}")
-      power_estimate_base_mw=$(sanitize_int_range "${F_power_estimate_base_mw:-$(read_kv_or_default /mnt/config/mqtt.conf POWER_ESTIMATE_BASE_MW 1700)}" 500 10000 1700)
-      power_estimate_cpu_scale_mw=$(sanitize_int_range "${F_power_estimate_cpu_scale_mw:-$(read_kv_or_default /mnt/config/mqtt.conf POWER_ESTIMATE_CPU_SCALE_MW 500)}" 0 5000 500)
-      power_estimate_ir_led_mw=$(sanitize_int_range "${F_power_estimate_ir_led_mw:-$(read_kv_or_default /mnt/config/mqtt.conf POWER_ESTIMATE_IR_LED_MW 700)}" 0 5000 700)
-      power_sensor_path="${F_power_sensor_path:-$(read_kv_or_default /mnt/config/mqtt.conf POWER_SENSOR_PATH auto)}"
+      mqtt_ha_discovery_prefix="${F_mqtt_ha_discovery_prefix:-${_mc_hap:-homeassistant}}"
+      power_estimate_enable=$(normalize_bool "${F_power_estimate_enable:-${_mc_pe:-0}}")
+      power_estimate_base_mw=$(sanitize_int_range "${F_power_estimate_base_mw:-${_mc_pb:-1700}}" 500 10000 1700)
+      power_estimate_cpu_scale_mw=$(sanitize_int_range "${F_power_estimate_cpu_scale_mw:-${_mc_pc:-500}}" 0 5000 500)
+      power_estimate_ir_led_mw=$(sanitize_int_range "${F_power_estimate_ir_led_mw:-${_mc_pi:-700}}" 0 5000 700)
+      power_sensor_path="${F_power_sensor_path:-${_mc_psp:-auto}}"
 
       case "$mqtt_host" in
         ''|*[!A-Za-z0-9._:-]*)
@@ -81,27 +123,22 @@
           ;;
       esac
 
-      mqtt_client_id="$(printf '%s' "$mqtt_client_id" | sed 's/[^A-Za-z0-9._-]/-/g')"
-      [ -n "$mqtt_client_id" ] || mqtt_client_id="tc100-camera"
-
-      mqtt_topic_root="$(printf '%s' "$mqtt_topic_root" | sed 's#[^A-Za-z0-9._/-]##g; s#^/*##; s#/*$##')"
-      [ -n "$mqtt_topic_root" ] || mqtt_topic_root="tc100/camera"
-
-      mqtt_topic_command="$(printf '%s' "$mqtt_topic_command" | sed 's#[^A-Za-z0-9._/-]##g; s#^/*##; s#/*$##')"
-      if [ -z "$mqtt_topic_command" ]; then
-        mqtt_topic_command="${mqtt_topic_root}/command"
-      fi
-
-      mqtt_ha_discovery_prefix="$(printf '%s' "$mqtt_ha_discovery_prefix" | sed 's#[^A-Za-z0-9._/-]##g; s#^/*##; s#/*$##')"
-      [ -n "$mqtt_ha_discovery_prefix" ] || mqtt_ha_discovery_prefix="homeassistant"
+      _integ_san_id "$mqtt_client_id" "tc100-camera"; mqtt_client_id="$_isi_v"
+      _integ_san_topic "$mqtt_topic_root" "tc100/camera"; mqtt_topic_root="$_ist_v"
+      _integ_san_topic "$mqtt_topic_command" "${mqtt_topic_root}/command"; mqtt_topic_command="$_ist_v"
+      _integ_san_topic "$mqtt_ha_discovery_prefix" "homeassistant"; mqtt_ha_discovery_prefix="$_ist_v"
 
       case "$power_sensor_path" in
         ''|auto)
           power_sensor_path="auto"
           ;;
         /*)
-          power_sensor_path="$(printf '%s' "$power_sensor_path" | sed 's#[^A-Za-z0-9._/-]##g')"
-          [ -n "$power_sensor_path" ] || power_sensor_path="auto"
+          case "$power_sensor_path" in
+            *[!A-Za-z0-9._/-]*)
+              power_sensor_path="$(printf '%s' "$power_sensor_path" | sed 's#[^A-Za-z0-9._/-]##g')"
+              [ -n "$power_sensor_path" ] || power_sensor_path="auto"
+              ;;
+          esac
           ;;
         *)
           power_sensor_path="auto"
@@ -175,14 +212,9 @@
           ;;
       esac
 
-      ha_client_id="$(printf '%s' "$ha_client_id" | sed 's/[^A-Za-z0-9._-]/-/g')"
-      [ -n "$ha_client_id" ] || ha_client_id="tc100-camera"
-
-      ha_topic_root="$(printf '%s' "$ha_topic_root" | sed 's#[^A-Za-z0-9._/-]##g; s#^/*##; s#/*$##')"
-      [ -n "$ha_topic_root" ] || ha_topic_root="tc100/camera"
-
-      ha_discovery_prefix="$(printf '%s' "$ha_discovery_prefix" | sed 's#[^A-Za-z0-9._/-]##g; s#^/*##; s#/*$##')"
-      [ -n "$ha_discovery_prefix" ] || ha_discovery_prefix="homeassistant"
+      _integ_san_id "$ha_client_id" "tc100-camera"; ha_client_id="$_isi_v"
+      _integ_san_topic "$ha_topic_root" "tc100/camera"; ha_topic_root="$_ist_v"
+      _integ_san_topic "$ha_discovery_prefix" "homeassistant"; ha_discovery_prefix="$_ist_v"
 
       [ -n "$ha_profile" ] || ha_profile="frigate-balanced"
       if ! select_compat_profile_values "$ha_profile"; then

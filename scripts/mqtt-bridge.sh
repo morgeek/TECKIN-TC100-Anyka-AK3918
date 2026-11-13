@@ -45,12 +45,17 @@ _get_now_ts()
 json_escape()
 {
   # Fast path: most values (hostnames, paths, profile names) have no special chars.
+  # Optional $2=var stores result in JSON_ESCAPE_VAL without printing.
   _je_nl='
 '
   _je_tab='	'
   case "$1" in
     *\\*|*'"'*|*"$_je_nl"*|*"$_je_tab"*) ;;
-    *) printf '%s' "$1"; return ;;
+    *)
+      JSON_ESCAPE_VAL="$1"
+      [ "${2:-}" = var ] || printf '%s' "$JSON_ESCAPE_VAL"
+      return
+      ;;
   esac
   # Slow path: escape backslash, double-quote, newline, tab (no forks).
   _je="$1"
@@ -79,7 +84,8 @@ json_escape()
         ;;
     esac
   done
-  printf '%s' "$_je_out"
+  JSON_ESCAPE_VAL="$_je_out"
+  [ "${2:-}" = var ] || printf '%s' "$JSON_ESCAPE_VAL"
 }
 
 sanitize_int_range()
@@ -98,7 +104,8 @@ sanitize_int_range()
   if [ "$value" -gt "$max" ]; then
     value="$max"
   fi
-  echo "$value"
+  SANITIZE_INT_VAL="$value"
+  [ "${5:-}" = var ] || echo "$value"
 }
 
 is_truthy_local()
@@ -166,7 +173,7 @@ load_config()
     fi
   fi
   [ -n "$MQTT_HOST" ] || MQTT_HOST="127.0.0.1"
-  MQTT_PORT="$(sanitize_int_range "${MQTT_PORT:-1883}" 1 65535 1883)"
+  sanitize_int_range "${MQTT_PORT:-1883}" 1 65535 1883 var; MQTT_PORT="$SANITIZE_INT_VAL"
   MQTT_USER="${MQTT_USER:-}"
   MQTT_PASSWORD="${MQTT_PASSWORD:-}"
   MQTT_CLIENT_ID="${MQTT_CLIENT_ID:-tc100-camera}"
@@ -204,16 +211,16 @@ load_config()
       ;;
   esac
   MQTT_TOPIC_COMMAND="${MQTT_TOPIC_COMMAND:-}"
-  MQTT_QOS="$(sanitize_int_range "${MQTT_QOS:-0}" 0 2 0)"
-  MQTT_HEALTH_INTERVAL_SECONDS="$(sanitize_int_range "${MQTT_HEALTH_INTERVAL_SECONDS:-300}" 10 86400 300)"
-  MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS="$(sanitize_int_range "${MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS:-180}" 10 86400 180)"
-  MQTT_COMMAND_WAIT_SECONDS="$(sanitize_int_range "${MQTT_COMMAND_WAIT_SECONDS:-12}" 3 120 12)"
+  sanitize_int_range "${MQTT_QOS:-0}" 0 2 0 var; MQTT_QOS="$SANITIZE_INT_VAL"
+  sanitize_int_range "${MQTT_HEALTH_INTERVAL_SECONDS:-300}" 10 86400 300 var; MQTT_HEALTH_INTERVAL_SECONDS="$SANITIZE_INT_VAL"
+  sanitize_int_range "${MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS:-180}" 10 86400 180 var; MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS="$SANITIZE_INT_VAL"
+  sanitize_int_range "${MQTT_COMMAND_WAIT_SECONDS:-12}" 3 120 12 var; MQTT_COMMAND_WAIT_SECONDS="$SANITIZE_INT_VAL"
   MQTT_STREAM_ENABLE="${MQTT_STREAM_ENABLE:-1}"
-  MQTT_STREAM_MAX_SECONDS="$(sanitize_int_range "${MQTT_STREAM_MAX_SECONDS:-300}" 30 3600 300)"
-  MQTT_COMMAND_REPEAT_WINDOW_SECONDS="$(sanitize_int_range "${MQTT_COMMAND_REPEAT_WINDOW_SECONDS:-20}" 0 600 20)"
-  MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS="$(sanitize_int_range "${MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS:-2}" 1 60 2)"
-  MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS="$(sanitize_int_range "${MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS:-20}" 1 600 20)"
-  MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER="$(sanitize_int_range "${MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER:-2}" 1 5 2)"
+  sanitize_int_range "${MQTT_STREAM_MAX_SECONDS:-300}" 30 3600 300 var; MQTT_STREAM_MAX_SECONDS="$SANITIZE_INT_VAL"
+  sanitize_int_range "${MQTT_COMMAND_REPEAT_WINDOW_SECONDS:-20}" 0 600 20 var; MQTT_COMMAND_REPEAT_WINDOW_SECONDS="$SANITIZE_INT_VAL"
+  sanitize_int_range "${MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS:-2}" 1 60 2 var; MQTT_SUBSCRIBE_BACKOFF_INITIAL_SECONDS="$SANITIZE_INT_VAL"
+  sanitize_int_range "${MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS:-20}" 1 600 20 var; MQTT_SUBSCRIBE_BACKOFF_MAX_SECONDS="$SANITIZE_INT_VAL"
+  sanitize_int_range "${MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER:-2}" 1 5 2 var; MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER="$SANITIZE_INT_VAL"
   # 1 = forge SUBSCRIBE packets and pipe them to nc (works on this firmware).
   # 0 = fall back to the legacy curl path, which times out here — see
   # subscribe_once_command_curl().
@@ -224,14 +231,14 @@ load_config()
   MQTT_PERSISTENT_SUBSCRIBE="${MQTT_PERSISTENT_SUBSCRIBE:-1}"
   # PINGREQ cadence for the persistent listener; must stay below the 60 s
   # keepalive announced in CONNECT or the broker will disconnect us.
-  MQTT_KEEPALIVE_PING_SECONDS="$(sanitize_int_range "${MQTT_KEEPALIVE_PING_SECONDS:-30}" 5 55 30)"
+  sanitize_int_range "${MQTT_KEEPALIVE_PING_SECONDS:-30}" 5 55 30 var; MQTT_KEEPALIVE_PING_SECONDS="$SANITIZE_INT_VAL"
   # How often the main loop checks the spool. Bounds command latency; the check
   # is a file test, so this is cheap.
-  MQTT_SPOOL_POLL_SECONDS="$(sanitize_int_range "${MQTT_SPOOL_POLL_SECONDS:-3}" 1 30 3)"
+  sanitize_int_range "${MQTT_SPOOL_POLL_SECONDS:-3}" 1 30 3 var; MQTT_SPOOL_POLL_SECONDS="$SANITIZE_INT_VAL"
   # PINGREQs before the listener recycles its connection (30 s x 120 = 1 h).
   # Each PINGRESP appends 2 bytes to the raw capture, so recycling bounds that
   # file instead of letting it grow without limit.
-  MQTT_LISTENER_MAX_PINGS="$(sanitize_int_range "${MQTT_LISTENER_MAX_PINGS:-120}" 2 10000 120)"
+  sanitize_int_range "${MQTT_LISTENER_MAX_PINGS:-120}" 2 10000 120 var; MQTT_LISTENER_MAX_PINGS="$SANITIZE_INT_VAL"
   # 0 disables the MQTT "Live" camera entity in HA discovery. It publishes a
   # file PATH on snapshot/last_path while HA's MQTT camera expects image BYTES,
   # so the entity can never render; point HA at the RTSP/go2rtc stream instead.
@@ -241,9 +248,9 @@ load_config()
   MQTT_HA_DISCOVERY_ENABLE="${MQTT_HA_DISCOVERY_ENABLE:-1}"
   MQTT_HA_DISCOVERY_PREFIX="${MQTT_HA_DISCOVERY_PREFIX:-homeassistant}"
   POWER_ESTIMATE_ENABLE="${POWER_ESTIMATE_ENABLE:-0}"
-  POWER_ESTIMATE_BASE_MW="$(sanitize_int_range "${POWER_ESTIMATE_BASE_MW:-1700}" 500 10000 1700)"
-  POWER_ESTIMATE_CPU_SCALE_MW="$(sanitize_int_range "${POWER_ESTIMATE_CPU_SCALE_MW:-500}" 0 5000 500)"
-  POWER_ESTIMATE_IR_LED_MW="$(sanitize_int_range "${POWER_ESTIMATE_IR_LED_MW:-700}" 0 5000 700)"
+  sanitize_int_range "${POWER_ESTIMATE_BASE_MW:-1700}" 500 10000 1700 var; POWER_ESTIMATE_BASE_MW="$SANITIZE_INT_VAL"
+  sanitize_int_range "${POWER_ESTIMATE_CPU_SCALE_MW:-500}" 0 5000 500 var; POWER_ESTIMATE_CPU_SCALE_MW="$SANITIZE_INT_VAL"
+  sanitize_int_range "${POWER_ESTIMATE_IR_LED_MW:-700}" 0 5000 700 var; POWER_ESTIMATE_IR_LED_MW="$SANITIZE_INT_VAL"
   POWER_SENSOR_PATH="${POWER_SENSOR_PATH:-auto}"
 
   if [ -z "$MQTT_TOPIC_COMMAND" ]; then
@@ -328,14 +335,15 @@ integration_manifest_fingerprint()
   current_hostname=""
   read -r current_hostname < /proc/sys/kernel/hostname 2>/dev/null || current_hostname=""
 
-  {
+  _imf_out="$({
     printf 'hostname=%s\n' "$current_hostname"
     printf 'primary_ip=%s\n' "$current_primary_ip"
     for cfg_path in /mnt/config/boot.conf /mnt/config/rtspserver.conf /mnt/config/onvif.conf /mnt/config/mqtt.conf; do
       printf '[%s]\n' "$cfg_path"
       [ -r "$cfg_path" ] && cat "$cfg_path"
     done
-  } | md5sum | awk '{print $1}'
+  } | md5sum 2>/dev/null)"
+  printf '%s' "${_imf_out%% *}"
 }
 
 run_local_state_cgi_query()
@@ -350,9 +358,24 @@ run_local_state_cgi_query()
   ) | awk 'BEGIN{body=0} body{print} /^$/{body=1}'
 }
 
+_MANIFEST_LAST_HOST=""
+
 publish_integration_manifest()
 {
   publish_mode="${1:-}"
+  _pim_host=""
+  read -r _pim_host < /proc/sys/kernel/hostname 2>/dev/null || _pim_host=""
+  if [ "$publish_mode" != "force" ] && [ -s "$INTEGRATION_MANIFEST_STATE_FILE" ] && [ "$_pim_host" = "${_MANIFEST_LAST_HOST:-}" ]; then
+    _pim_changed=0
+    for _pim_f in /tmp/camera_ip.txt /mnt/config/boot.conf /mnt/config/rtspserver.conf /mnt/config/onvif.conf /mnt/config/mqtt.conf; do
+      if [ -e "$_pim_f" ] && [ "$_pim_f" -nt "$INTEGRATION_MANIFEST_STATE_FILE" ]; then
+        _pim_changed=1
+        break
+      fi
+    done
+    [ "$_pim_changed" -eq 0 ] && return 0
+  fi
+
   manifest_fp="$(integration_manifest_fingerprint)"
   [ -n "$manifest_fp" ] || return 1
 
@@ -361,12 +384,15 @@ publish_integration_manifest()
     read -r last_manifest_fp < "$INTEGRATION_MANIFEST_STATE_FILE"
   fi
   if [ "$publish_mode" != "force" ] && [ "$manifest_fp" = "$last_manifest_fp" ]; then
+    _MANIFEST_LAST_HOST="$_pim_host"
+    printf '%s\n' "$manifest_fp" > "$INTEGRATION_MANIFEST_STATE_FILE" 2>/dev/null || true
     return 0
   fi
 
   manifest_payload="$(run_local_state_cgi_query 'cmd=integrationmanifest&redact=1')" || return 1
   [ -n "$manifest_payload" ] || return 1
   mqtt_publish_topic_suffix "integration/manifest" "$manifest_payload" 1 >/dev/null 2>&1 || return 1
+  _MANIFEST_LAST_HOST="$_pim_host"
   printf '%s\n' "$manifest_fp" > "$INTEGRATION_MANIFEST_STATE_FILE" 2>/dev/null || true
 }
 
@@ -381,28 +407,49 @@ service_script_running_int()
 {
   script_path="$1"
   pidfile_path="$2"
+  _ssri_q="${3:-}"
+  _ssri_val=0
 
-  if [ -n "$pidfile_path" ] && [ -r "$pidfile_path" ]; then
-    read -r pid < "$pidfile_path"
-    case "$pid" in
-      ''|*[!0-9]*) pid=0 ;;
-    esac
-    if [ "$pid" -gt 0 ] && kill -0 "$pid" >/dev/null 2>&1; then
-      echo "1"
-      return
+  if [ -n "$pidfile_path" ]; then
+    if [ -r "$pidfile_path" ]; then
+      read -r pid < "$pidfile_path"
+      case "$pid" in
+        ''|*[!0-9]*) pid=0 ;;
+      esac
+      if [ "$pid" -gt 0 ] && kill -0 "$pid" >/dev/null 2>&1; then
+        _ssri_val=1
+        [ "$_ssri_q" = var ] || echo "1"
+        return
+      fi
     fi
+    case "$script_path" in
+      */motion-detection)
+        if [ ! -e /tmp/tc100_md ]; then
+          _ssri_val=0
+          [ "$_ssri_q" = var ] || echo "0"
+          return
+        fi
+        ;;
+      */ftp-server|*/telnet-server|*/rtsp-h26x|*/onvif)
+        _ssri_val=0
+        [ "$_ssri_q" = var ] || echo "0"
+        return
+        ;;
+    esac
   fi
 
   if [ ! -x "$script_path" ]; then
-    echo "0"
+    _ssri_val=0
+    [ "$_ssri_q" = var ] || echo "0"
     return
   fi
   script_status="$("$script_path" status 2>/dev/null)"
   if [ -n "$script_status" ]; then
-    echo "1"
+    _ssri_val=1
   else
-    echo "0"
+    _ssri_val=0
   fi
+  [ "$_ssri_q" = var ] || echo "$_ssri_val"
 }
 
 normalize_toggle_value()
@@ -432,7 +479,8 @@ read_int_file_value()
     esac
     result="$raw_value"
   fi
-  printf '%s' "$result"
+  READ_INT_VAL="$result"
+  [ "${3:-}" = var ] || printf '%s' "$result"
 }
 
 # Single-pass variant: checks all 6 ports in one awk+printf instead of 6 separate calls.
@@ -1148,41 +1196,63 @@ collect_slow_health_metrics()
     fi
   fi
 
-  ftp_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/ftp.conf PORT 21)" 1 65535 21)"
-  telnet_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/telnetd.conf TELNET_PORT 23)" 1 65535 23)"
-  rtsp_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/rtspserver.conf PORT 554)" 1 65535 554)"
-  onvif_port="$(sanitize_int_range "$(read_kv_config_value /mnt/config/onvif.conf ONVIF_PORT 8081)" 1 65535 8081)"
+  read_kv_config_value /mnt/config/ftp.conf PORT 21 var
+  sanitize_int_range "$READ_KV_VAL" 1 65535 21 var; ftp_port="$SANITIZE_INT_VAL"
+  read_kv_config_value /mnt/config/telnetd.conf TELNET_PORT 23 var
+  sanitize_int_range "$READ_KV_VAL" 1 65535 23 var; telnet_port="$SANITIZE_INT_VAL"
+  read_kv_config_value /mnt/config/rtspserver.conf PORT 554 var
+  sanitize_int_range "$READ_KV_VAL" 1 65535 554 var; rtsp_port="$SANITIZE_INT_VAL"
+  read_kv_config_value /mnt/config/onvif.conf ONVIF_PORT 8081 var
+  sanitize_int_range "$READ_KV_VAL" 1 65535 8081 var; onvif_port="$SANITIZE_INT_VAL"
 
   http_port=80
 
-  slow_motion_enabled="$(service_script_running_int /mnt/controlscripts/motion-detection /var/run/detection-monitor.pid)"
-  slow_ftp_enabled="$(service_script_running_int /mnt/controlscripts/ftp-server /var/run/ftp-server.pid)"
-  slow_telnet_enabled="$(service_script_running_int /mnt/controlscripts/telnet-server /var/run/telnet-server.pid)"
-  slow_rtsp_enabled="$(service_script_running_int /mnt/controlscripts/rtsp-h26x /var/run/v4l2rtspserver.pid)"
-  slow_onvif_enabled="$(service_script_running_int /mnt/controlscripts/onvif /var/run/onvif.pid)"
+  service_script_running_int /mnt/controlscripts/motion-detection /var/run/detection-monitor.pid var
+  slow_motion_enabled="$_ssri_val"
+  service_script_running_int /mnt/controlscripts/ftp-server /var/run/ftp-server.pid var
+  slow_ftp_enabled="$_ssri_val"
+  service_script_running_int /mnt/controlscripts/telnet-server /var/run/telnet-server.pid var
+  slow_telnet_enabled="$_ssri_val"
+  service_script_running_int /mnt/controlscripts/rtsp-h26x /var/run/v4l2rtspserver.pid var
+  slow_rtsp_enabled="$_ssri_val"
+  service_script_running_int /mnt/controlscripts/onvif /var/run/onvif.pid var
+  slow_onvif_enabled="$_ssri_val"
 
-  slow_primary_ip="$(ifconfig 2>/dev/null | awk '
-    /inet addr:[0-9]/{split($2,a,":");if(a[2]!~/^127\./){print a[2];exit}}
-    /inet [0-9]/{if($2!~/^127\./){print $2;exit}}')"
+  slow_primary_ip=""
+  [ -r /tmp/camera_ip.txt ] && read -r slow_primary_ip < /tmp/camera_ip.txt
+  if [ -z "$slow_primary_ip" ]; then
+    slow_primary_ip="$(ifconfig 2>/dev/null | awk '
+      /inet addr:[0-9]/{split($2,a,":");if(a[2]!~/^127\./){print a[2];exit}}
+      /inet [0-9]/{if($2!~/^127\./){print $2;exit}}')"
+  fi
   [ -n "$slow_primary_ip" ] || slow_primary_ip="n/a"
-  slow_dns_server_count="$(awk '/^nameserver[[:space:]]+/{count++} END{print count+0}' /etc/resolv.conf 2>/dev/null)"
-  case "$slow_dns_server_count" in
-    ''|*[!0-9]*) slow_dns_server_count=0 ;;
-  esac
+  slow_dns_server_count=0
+  if [ -r /etc/resolv.conf ]; then
+    while read -r _dk _dv _; do
+      [ "$_dk" = "nameserver" ] && [ -n "$_dv" ] && slow_dns_server_count=$((slow_dns_server_count + 1))
+    done < /etc/resolv.conf
+  fi
 
   storage_total_kb=0
   storage_used_kb=0
   storage_avail_kb=0
   storage_used_percent=0
-  df_line="$(df -k /mnt 2>/dev/null | awk 'NR==2{print $2 " " $3 " " $4 " " $5}')"
-  if [ -z "$df_line" ]; then
-    df_line="$(df -k / 2>/dev/null | awk 'NR==2{print $2 " " $3 " " $4 " " $5}')"
+  _df_out="$(df -k /mnt 2>/dev/null)"
+  [ -n "$_df_out" ] || _df_out="$(df -k / 2>/dev/null)"
+  storage_total_kb=""; storage_used_kb=""; storage_avail_kb=""; storage_used_text=""
+  if [ -n "$_df_out" ]; then
+    _df_rest="${_df_out#*
+}"
+    [ "$_df_rest" = "$_df_out" ] && _df_rest=""
+    # shellcheck disable=SC2086
+    set -- $_df_rest
+    if [ $# -ge 5 ]; then
+      storage_total_kb="$2"
+      storage_used_kb="$3"
+      storage_avail_kb="$4"
+      storage_used_text="$5"
+    fi
   fi
-  set -- $df_line
-  storage_total_kb="$1"
-  storage_used_kb="$2"
-  storage_avail_kb="$3"
-  storage_used_text="$4"
   case "$storage_total_kb" in ''|*[!0-9]*) storage_total_kb=0 ;; esac
   case "$storage_used_kb" in ''|*[!0-9]*) storage_used_kb=0 ;; esac
   case "$storage_avail_kb" in ''|*[!0-9]*) storage_avail_kb=0 ;; esac
@@ -1196,11 +1266,33 @@ collect_slow_health_metrics()
   slow_storage_avail_mb=$((storage_avail_kb / 1024))
   slow_storage_used_percent="$storage_used_percent"
 
-  listen_tcp="$(netstat -lnt 2>/dev/null)"
-  if [ -z "$listen_tcp" ]; then
-    listen_tcp="$(netstat -ln 2>/dev/null)"
+  if [ -r /proc/net/tcp ] || [ -r /proc/net/tcp6 ]; then
+    slow_port_http_open=0
+    slow_port_rtsp_open=0
+    slow_port_onvif_open=0
+    slow_port_ftp_open=0
+    slow_port_telnet_open=0
+    for _pn_f in /proc/net/tcp /proc/net/tcp6; do
+      [ -r "$_pn_f" ] || continue
+      while read -r _pn_sl _pn_loc _pn_rem _pn_st _pn_rest; do
+        [ "$_pn_st" = "0A" ] || continue
+        _pn_p="${_pn_loc##*:}"
+        case "$_pn_p" in ''|*[!0-9A-Fa-f]*) continue ;; esac
+        _pn_d=$((0x$_pn_p))
+        [ "$_pn_d" -eq "$http_port" ] && slow_port_http_open=1
+        [ "$_pn_d" -eq "$rtsp_port" ] && slow_port_rtsp_open=1
+        [ "$_pn_d" -eq "$onvif_port" ] && slow_port_onvif_open=1
+        [ "$_pn_d" -eq "$ftp_port" ] && slow_port_ftp_open=1
+        [ "$_pn_d" -eq "$telnet_port" ] && slow_port_telnet_open=1
+      done < "$_pn_f"
+    done
+  else
+    listen_tcp="$(netstat -lnt 2>/dev/null)"
+    if [ -z "$listen_tcp" ]; then
+      listen_tcp="$(netstat -ln 2>/dev/null)"
+    fi
+    collect_port_states_from_netstat "$listen_tcp" "$http_port" "$rtsp_port" "$onvif_port" "$ftp_port" "$telnet_port"
   fi
-  collect_port_states_from_netstat "$listen_tcp" "$http_port" "$rtsp_port" "$onvif_port" "$ftp_port" "$telnet_port"
 }
 
 save_slow_health_cache()
@@ -1367,8 +1459,11 @@ build_diag_payload()
     0|1) _dg_day="$_dg_v" ;;
     *) [ -f /tmp/tc100_bw ] && _dg_day=0 || _dg_day=1 ;;
   esac
-  _dg_ro=0
+  _dg_ro=0; _dg_sdmount=0
   while read -r _dg_dev _dg_mp _dg_fs _dg_opt _dg_rest; do
+    if [ "$_dg_mp" = /mnt ] || [ "$_dg_mp" = /mnt/sd ]; then
+      [ "$_dg_fs" = vfat ] && _dg_sdmount=1
+    fi
     [ "$_dg_mp" = /mnt ] || continue
     case "$_dg_dev" in /dev/mmc*) case "$_dg_opt" in ro,*|ro) _dg_ro=1 ;; esac ;; esac
   done < /proc/mounts
@@ -1391,7 +1486,7 @@ build_diag_payload()
   fi
   case "$_dg_sdst" in *[!a-z]*) _dg_sdst="" ;; esac
   if [ -z "$_dg_sdst" ]; then
-    if grep -qE ' (/mnt/sd|/mnt) vfat ' /proc/mounts 2>/dev/null; then
+    if [ "$_dg_sdmount" = 1 ]; then
       _dg_sdst="mounted"
     elif [ -f /tmp/flashmode ]; then
       _dg_sdst="flash_only"
@@ -1419,15 +1514,18 @@ build_diag_payload()
   # Why the camera last started (scripts/reboot-tracker.sh, written at boot)
   # and how many unexpected restarts the kept history holds.
   _dg_boot=unknown
-  case "$(cat /tmp/last-reboot-reason 2>/dev/null)" in
+  _dg_lrr=""
+  [ -r /tmp/last-reboot-reason ] && IFS= read -r _dg_lrr < /tmp/last-reboot-reason
+  case "$_dg_lrr" in
     requested*) _dg_boot=requested ;; UNEXPECTED*) _dg_boot=unexpected ;;
     *) [ -f /tmp/flashmode ] && _dg_boot=flash_boot ;;
   esac
   _dg_unexp=0
   for _dg_h in /mnt/config/log/reboot-history.log /mnt/log/reboot-history.log; do
     [ -r "$_dg_h" ] || continue
-    _dg_unexp="$(grep -c UNEXPECTED "$_dg_h" 2>/dev/null)"
-    case "$_dg_unexp" in ''|*[!0-9]*) _dg_unexp=0 ;; esac
+    while IFS= read -r _dg_hl || [ -n "$_dg_hl" ]; do
+      case "$_dg_hl" in *UNEXPECTED*) _dg_unexp=$((_dg_unexp + 1)) ;; esac
+    done < "$_dg_h"
     break
   done
   # Wi-Fi quality over the last hour (scripts/wifi-quality.sh, boot.conf WIFI_QUALITY=1): null when it is off.
@@ -1461,14 +1559,24 @@ build_health_payload()
     ''|*[!0-9]*) cpu=0 ;;
   esac
 
-  mem_used="$(get_current_memory_usage 2>/dev/null)"
-  mem_total="$(get_all_memory 2>/dev/null)"
-  case "$mem_used" in
-    ''|*[!0-9]*) mem_used=0 ;;
-  esac
-  case "$mem_total" in
-    ''|*[!0-9]*) mem_total=0 ;;
-  esac
+  mem_total=0; _hp_free=0; _hp_buf=0; _hp_cache=0; _hp_srec=0; _hp_shmem=0; _hp_avail=0
+  if [ -r /proc/meminfo ]; then
+    while IFS=' :' read -r _hp_k _hp_v _; do
+      case "$_hp_k" in
+        MemTotal) mem_total="$_hp_v" ;;
+        MemAvailable) _hp_avail="$_hp_v" ;;
+        MemFree) _hp_free="$_hp_v" ;;
+        Buffers) _hp_buf="$_hp_v" ;;
+        Cached) _hp_cache="$_hp_v" ;;
+        SReclaimable) _hp_srec="$_hp_v" ;;
+        Shmem) _hp_shmem="$_hp_v" ;;
+      esac
+    done < /proc/meminfo
+  fi
+  case "$mem_total" in ''|*[!0-9]*) mem_total=0 ;; esac
+  [ "$_hp_avail" -gt 0 ] 2>/dev/null || _hp_avail=$((_hp_free + _hp_buf + _hp_cache + _hp_srec - _hp_shmem))
+  mem_used=$((mem_total - _hp_avail))
+  [ "$mem_used" -ge 0 ] 2>/dev/null || mem_used=0
 
   if [ "$mem_total" -gt 0 ]; then
     ram_percent=$((100 * mem_used / mem_total))
@@ -1508,28 +1616,34 @@ build_health_payload()
   onvif_enabled="$slow_onvif_enabled"
 
   if [ -r /sys/class/leds/blue_led/brightness ]; then
-    front_led_on="$(read_int_file_value /sys/class/leds/blue_led/brightness 0)"
+    read_int_file_value /sys/class/leds/blue_led/brightness 0 var
   else
-    front_led_on="$(read_int_file_value /sys/class/leds/blue/brightness 0)"
+    read_int_file_value /sys/class/leds/blue/brightness 0 var
   fi
+  front_led_on="$READ_INT_VAL"
   privacy_on=0; [ -f /tmp/tc100_privacy ] && privacy_on=1
   if [ -r /sys/class/leds/red_led/brightness ]; then
-    red_led_on="$(read_int_file_value /sys/class/leds/red_led/brightness 0)"
+    read_int_file_value /sys/class/leds/red_led/brightness 0 var
   else
-    red_led_on="$(read_int_file_value /sys/class/leds/red/brightness 0)"
+    read_int_file_value /sys/class/leds/red/brightness 0 var
   fi
+  red_led_on="$READ_INT_VAL"
   if [ -r /sys/class/leds/ir/brightness ]; then
-    ir_led_on="$(read_int_file_value /sys/class/leds/ir/brightness 0)"
+    read_int_file_value /sys/class/leds/ir/brightness 0 var
   else
-    ir_led_on="$(read_int_file_value /sys/user-gpio/ir-led 0)"
+    read_int_file_value /sys/user-gpio/ir-led 0 var
   fi
+  ir_led_on="$READ_INT_VAL"
 
   night_mode_on=0
-  if [ "$(read_int_file_value /var/run/vday 1)" -eq 0 ] || [ -f /tmp/tc100_bw ]; then
+  read_int_file_value /var/run/vday 1 var
+  if [ "$READ_INT_VAL" -eq 0 ] || [ -f /tmp/tc100_bw ]; then
     night_mode_on=1
   fi
   auto_night_enabled=0
-  if [ -f /var/run/auto-night-detection.pid ] && kill -0 "$(cat /var/run/auto-night-detection.pid 2>/dev/null)" 2>/dev/null; then
+  _and_pid=""
+  [ -r /var/run/auto-night-detection.pid ] && read -r _and_pid < /var/run/auto-night-detection.pid
+  if [ -n "$_and_pid" ] && kill -0 "$_and_pid" 2>/dev/null; then
     auto_night_enabled=1
   elif [ "$(/mnt/bin/setconf -g n 2>/dev/null)" = "2" ]; then
     auto_night_enabled=1
@@ -1563,14 +1677,27 @@ build_health_payload()
 
   read -r hostname_value < /proc/sys/kernel/hostname 2>/dev/null || hostname_value=""
   [ -n "$hostname_value" ] || hostname_value="TC100 Camera"
-  hostname_json="$(json_escape "$hostname_value")"
-  web_mode_json="$(json_escape "$web_mode")"
-  profile_json="$(json_escape "$profile")"
-  presence_mode="$(sh /mnt/scripts/presence-mode.sh current 2>/dev/null)"
+  json_escape "$hostname_value" var; hostname_json="$JSON_ESCAPE_VAL"
+  json_escape "$web_mode" var; web_mode_json="$JSON_ESCAPE_VAL"
+  json_escape "$profile" var; profile_json="$JSON_ESCAPE_VAL"
+  presence_mode=""
+  if [ -r /mnt/config/presence.conf ]; then
+    while IFS='=' read -r _pm_k _pm_v; do
+      [ "$_pm_k" = "PRESENCE_MODE" ] && presence_mode="$_pm_v"
+    done < /mnt/config/presence.conf
+    presence_mode="${presence_mode#[\"\']}"; presence_mode="${presence_mode%[\"\']}"
+  fi
+  case "$presence_mode" in
+    present|away|night)
+      _pm_chk="$(sh /mnt/scripts/presence-mode.sh current 2>/dev/null)"
+      [ -n "$_pm_chk" ] && presence_mode="$_pm_chk"
+      ;;
+    *) presence_mode=custom ;;
+  esac
   case "$presence_mode" in present|away|night|custom) ;; *) presence_mode=custom ;; esac
-  presence_mode_json="$(json_escape "$presence_mode")"
-  power_sensor_path_json="$(json_escape "$power_sensor_path")"
-  primary_ip_json="$(json_escape "$primary_ip")"
+  json_escape "$presence_mode" var; presence_mode_json="$JSON_ESCAPE_VAL"
+  json_escape "$power_sensor_path" var; power_sensor_path_json="$JSON_ESCAPE_VAL"
+  json_escape "$primary_ip" var; primary_ip_json="$JSON_ESCAPE_VAL"
   build_diag_payload
 
   printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","presence_mode":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"front_led_on":%s,"red_led_on":%s,"privacy_on":%s,"ir_led_on":%s,"night_mode_on":%s,"auto_night_enabled":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s,"diag":%s}' \

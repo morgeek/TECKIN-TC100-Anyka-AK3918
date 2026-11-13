@@ -46,17 +46,27 @@ tz_valid() {
 
 json_str() { printf '%s' "$1" | awk '{ gsub(/[\\"]/, ""); gsub(/[\001-\037]/, ""); printf "%s", $0 }'; }
 
-# Rewrite KEY=value in a shell config file; appends if key absent.
+# Rewrite KEY=value in a shell config file; appends if key absent (pure shell, zero awk fork).
 set_conf() {
     _sc_file="$1" _sc_key="$2" _sc_val="$3"
     [ -f "$_sc_file" ] || return 1
     _sc_tmp="${_sc_file}.wztmp.$$"
-    awk -v k="$_sc_key" -v v="$_sc_val" '
-        BEGIN { FS="="; found=0 }
-        $1 == k { print k "=" v; found=1; next }
-        { print $0 }
-        END { if (!found) print k "=" v }
-    ' "$_sc_file" > "$_sc_tmp" && mv "$_sc_tmp" "$_sc_file"
+    _sc_found=0
+    while IFS= read -r _sc_line || [ -n "$_sc_line" ]; do
+        case "$_sc_line" in
+            "${_sc_key}="*)
+                printf '%s=%s\n' "$_sc_key" "$_sc_val"
+                _sc_found=1
+                ;;
+            *)
+                printf '%s\n' "$_sc_line"
+                ;;
+        esac
+    done < "$_sc_file" > "$_sc_tmp"
+    if [ "$_sc_found" -eq 0 ]; then
+        printf '%s=%s\n' "$_sc_key" "$_sc_val" >> "$_sc_tmp"
+    fi
+    mv -f "$_sc_tmp" "$_sc_file" || { rm -f "$_sc_tmp"; return 1; }
 }
 
 # URL-decode a percent-encoded string (pure awk, no subprocess).
@@ -150,8 +160,13 @@ if [ "$METHOD" = "POST" ]; then
     # awk, not tr: tr is absent on the camera.
     _csrf_stored=""
     [ -r "$CSRF_FILE" ] && read -r _csrf_stored < "$CSRF_FILE"
-    _csrf_stored="$(printf '%s' "$_csrf_stored" | awk '{ gsub(/[^0-9a-fA-F]/, ""); print }')"
-    _csrf_hdr="$(printf '%s' "${HTTP_X_CSRF_TOKEN:-}" | awk '{ gsub(/[^0-9a-fA-F]/, ""); print }')"
+    case "$_csrf_stored" in
+        ''|*[!0-9a-fA-F]*) _csrf_stored="$(printf '%s' "$_csrf_stored" | awk '{ gsub(/[^0-9a-fA-F]/, ""); print }')" ;;
+    esac
+    _csrf_hdr="${HTTP_X_CSRF_TOKEN:-}"
+    case "$_csrf_hdr" in
+        ''|*[!0-9a-fA-F]*) _csrf_hdr="$(printf '%s' "$_csrf_hdr" | awk '{ gsub(/[^0-9a-fA-F]/, ""); print }')" ;;
+    esac
     if [ -z "$_csrf_stored" ] || [ "$_csrf_hdr" != "$_csrf_stored" ]; then
         echo "Status: 403 Forbidden"
         echo "Content-Type: application/json"

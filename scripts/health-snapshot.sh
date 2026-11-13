@@ -60,17 +60,19 @@ _now() {
 
 probe_service() {
   _svc="$1"
+  _pq="${2:-}"
   _script="/mnt/controlscripts/$_svc"
-  [ -x "$_script" ] || { echo "absent"; return; }
+  [ -x "$_script" ] || { _pf_status=absent; [ "$_pq" = var ] || echo "$_pf_status"; return; }
   _out="$("$_script" health 2>/dev/null)"
   case "$_out" in
-    ok:*)   echo "running" ;;
-    warn:*) echo "stopped" ;;
+    ok:*)   _pf_status=running ;;
+    warn:*) _pf_status=stopped ;;
     *)
       _out="$("$_script" status 2>/dev/null)"
-      if [ -n "$_out" ]; then echo "running"; else echo "stopped"; fi
+      if [ -n "$_out" ]; then _pf_status=running; else _pf_status=stopped; fi
       ;;
   esac
+  [ "$_pq" = var ] || echo "$_pf_status"
 }
 
 # The exec-everything sweep above costs ~10 s of CPU on the AK3918 and this
@@ -80,7 +82,7 @@ probe_service() {
 if [ -r /mnt/scripts/health-probe.sh ]; then
   . /mnt/scripts/health-probe.sh
 else
-  probe_service_fast() { probe_service "$1"; }
+  probe_service_fast() { probe_service "$1" "${2:-}"; }
 fi
 
 # Where stability.csv goes now: the card when it is mounted read-write (the card may come and go), else RAM.
@@ -154,7 +156,8 @@ build_snapshot() {
 
   _sep=""; _svc_json=""; _rst_sep=""; _rst_json=""; _unhealthy=0
   for _svc in $_core $_extra; do
-    _status="$(probe_service_fast "$_svc")"
+    probe_service_fast "$_svc" var
+    _status="$_pf_status"
     _rfile="/tmp/health_history/${_svc}"
     _restarts=0
     [ -f "$_rfile" ] && read -r _restarts _ < "$_rfile" 2>/dev/null || true
@@ -174,8 +177,7 @@ build_snapshot() {
     case "$_capline" in '{"status":'*) _capjson="$_capline" ;; esac
   fi
 
-  _json="$(printf '{"ok":true,"ts":%s,"services":{%s},"service_restarts":{%s},"capabilities":%s,"system":{"mem_total_kb":%s,"mem_free_kb":%s,"mem_avail_kb":%s,"load1":"%s","uptime_sec":%s}}' \
-    "$_ts" "$_svc_json" "$_rst_json" "$_capjson" "$_memtotal" "$_memfree" "$_memavail" "$_loadavg" "$_uptime_sec")"
+  _json="{\"ok\":true,\"ts\":${_ts},\"services\":{${_svc_json}},\"service_restarts\":{${_rst_json}},\"capabilities\":${_capjson},\"system\":{\"mem_total_kb\":${_memtotal},\"mem_free_kb\":${_memfree},\"mem_avail_kb\":${_memavail},\"load1\":\"${_loadavg}\",\"uptime_sec\":${_uptime_sec}}}"
 
   # Atomic write: temp file + mv to prevent health.cgi reading a partial file.
   _tmp="${CACHE_FILE}.$$"
@@ -187,8 +189,10 @@ build_snapshot() {
     _stability_elapsed=0
     mkdir -p "${STABILITY_PENDING%/*}" 2>/dev/null || true
     printf '%s,%s,%s,%s,%s\n' "$_ts" "$_uptime_sec" "$_loadavg" "$_memavail" "$_unhealthy" >> "$STABILITY_PENDING"
-    _pending_lines="$(wc -l < "$STABILITY_PENDING" 2>/dev/null)"
-    case "$_pending_lines" in ''|*[!0-9]*) _pending_lines=0 ;; esac
+    _pending_lines=0
+    if [ -r "$STABILITY_PENDING" ]; then
+      while IFS= read -r _pl_l || [ -n "$_pl_l" ]; do _pending_lines=$((_pending_lines + 1)); done < "$STABILITY_PENDING"
+    fi
     [ "$_pending_lines" -ge "$STABILITY_FLUSH_SAMPLES" ] && stability_flush
   fi
 }

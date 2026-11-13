@@ -32,13 +32,16 @@ _pf_wanted() {
   [ -e "${HP_CONF_DIR:-/mnt/config}/autostart/$1" ]
 }
 _pf_down() {
-  if _pf_wanted "$_pf_svc"; then echo "stopped"; else echo "disabled"; fi
+  if _pf_wanted "$_pf_svc"; then _pf_status=stopped; else _pf_status=disabled; fi
+  [ "${_pf_q:-}" = var ] || echo "$_pf_status"
 }
 
 probe_service_fast() {
   _pf_svc="$1"
+  _pf_q="${2:-}"
+  _pf_status=""
   _pf_script="/mnt/controlscripts/$_pf_svc"
-  [ -x "$_pf_script" ] || { echo "absent"; return; }
+  [ -x "$_pf_script" ] || { _pf_status=absent; [ "$_pf_q" = var ] || echo "$_pf_status"; return; }
 
   _pf_file=""
   case "$_pf_svc" in
@@ -68,7 +71,7 @@ probe_service_fast() {
     [ -f "$_pf_file" ] && read -r _pf_pid _ < "$_pf_file" 2>/dev/null
     case "$_pf_pid" in
       ''|*[!0-9]*) _pf_down ;;
-      *) if kill -0 "$_pf_pid" 2>/dev/null; then echo "running"; else _pf_down; fi ;;
+      *) if kill -0 "$_pf_pid" 2>/dev/null; then _pf_status=running; [ "$_pf_q" = var ] || echo "$_pf_status"; else _pf_down; fi ;;
     esac
     return
   fi
@@ -105,7 +108,7 @@ probe_service_fast() {
     case "$_pf_dn" in ''|*[!0-9]*) _pf_dn=0 ;; esac
     if [ "$_pf_dv" = running ] && [ "$_pf_dn" -lt "${HP_DEEP_EVERY:-6}" ]; then
       echo "$((_pf_dn + 1)) running" > "$_pf_df" 2>/dev/null
-      echo "running"; return
+      _pf_status=running; [ "$_pf_q" = var ] || echo "$_pf_status"; return
     fi
   fi
 
@@ -115,16 +118,16 @@ probe_service_fast() {
     rtsp-h26x|onvif)
       if [ "$_pf_rc" -ne 0 ]; then
         [ "$_pf_svc" = rtsp-h26x ] && echo "0 unhealthy" > "$_pf_df" 2>/dev/null
-        echo "unhealthy"; return
+        _pf_status=unhealthy; [ "$_pf_q" = var ] || echo "$_pf_status"; return
       fi ;;
   esac
   [ "$_pf_svc" = rtsp-h26x ] && echo "1 running" > "$_pf_df" 2>/dev/null
   case "$_pf_out" in
-    ok:*)   echo "running" ;;
+    ok:*)   _pf_status=running; [ "$_pf_q" = var ] || echo "$_pf_status" ;;
     warn:*) _pf_down ;;
     *)
       _pf_out="$("$_pf_script" status 2>/dev/null)"
-      if [ -n "$_pf_out" ]; then echo "running"; else _pf_down; fi
+      if [ -n "$_pf_out" ]; then _pf_status=running; [ "$_pf_q" = var ] || echo "$_pf_status"; else _pf_down; fi
       ;;
   esac
 }
