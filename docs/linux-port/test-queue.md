@@ -40,8 +40,9 @@ Rules that apply to every entry:
 
 ### HRTIMER-01 High-resolution timers and NO_HZ_IDLE (`[kernel]`) — `to test`
 
-- **What (`H4`/`H5`):** `patches/kernel-6.6/defconfig_cma` enables `CONFIG_HIGH_RES_TIMERS=y` and `CONFIG_NO_HZ_IDLE=y` (the AK39 timer in patch 0001 already declares `CLOCK_EVT_FEAT_ONESHOT`), and `src/tc100rtsp/tc100_rtsp.c` uses `nanosleep()` in `pace_udp()`.
-- **Test (SD kernel first, before flashing):** Boot on SD (`boot66b.sh`), check `/proc/timer_list` shows `resolution: 1 nsecs` / `Event Handler: hrtimer_interrupt`, and run a 2 h H.265 soak + `RTSP_PACING_US=200` test.
+- **What (`H4`/`H5`):** a kernel with `CONFIG_HIGH_RES_TIMERS=y` and `CONFIG_NO_HZ_IDLE=y` (the AK39 timer in patch 0001 declares `CLOCK_EVT_FEAT_ONESHOT`), and `src/tc100rtsp/tc100_rtsp.c` uses `nanosleep()` in `pace_udp()` (works on both kernels).
+- **Test kernel only (2026-11-13):** 9d37efe had put both options in the base `defconfig_cma`, so every CI kernel (the next RC too) carried a timer mode no camera had ever booted; the read-only review classed it brick-class for a flash (if the one-shot path of patch 0001 misbehaves, the tick dies before the initramfs: SD recovery only), with side effects to watch: exact `usleep_range` before `ispdrv_ae_work()` (exposure writes earlier in the frame) and the `venc_soft_reset` pulse shortened from >= 10 ms to ~0.2 ms (patch 0008). The base config is back to `HZ_PERIODIC`; build the test kernel with the workflow input `test_hrtimers` (packages get `-testkernel` in their version, see the 2026-10 entry below).
+- **Test (SD kernel from a `test_hrtimers` run, nothing flashed):** Boot on SD (`boot66b.sh`), check `/proc/timer_list` shows `resolution: 1 nsecs` / `Event Handler: hrtimer_interrupt`, and run a 2 h H.265 soak + `RTSP_PACING_US=200` test; also check the picture for exposure flicker and the encoder after a reset (`vencreset`). Only after a pass, with the owner's agreement, move the two options into `defconfig_cma` as a change of its own.
 
 ### WIFI-RXAGG rtl8xxxu runtime `ampdu_rx` switch (`[wifi]`) — `to test`
 
