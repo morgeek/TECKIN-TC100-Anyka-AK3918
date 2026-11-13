@@ -162,7 +162,7 @@ class Broker:
         self.conn.shutdown(socket.SHUT_RDWR)
         self.conn.close()
 
-    def wait(self, pred, timeout=10):
+    def wait(self, pred, timeout=30):      # returns as soon as pred holds; 30 s only matters on a loaded CI runner
         end = time.time() + timeout
         while time.time() < end:
             with self.lock:
@@ -383,7 +383,9 @@ class Daemon(unittest.TestCase):
         self.assertTrue(b.wait(lambda b: b.subs))
         b.drop()
         self.assertTrue(b.wait(lambda b: len(b.connects) == 2 and len(b.subs) == 2))
-        self.assertEqual(len(b.pub('cam1/availability')), 2)                        # online again with the new session
+        # online again with the new session: the availability can come just after the subscription (CI race, 1 != 2)
+        self.assertTrue(b.wait(lambda b: len(b.pub('cam1/availability')) >= 2))
+        self.assertEqual(len(b.pub('cam1/availability')), 2)
         b.send_publish('cam1/command', b'x' * 5000)                                 # over 4 KiB: rejected like the shell decoder
         self.assertTrue(b.wait(lambda b: len(b.connects) == 3))
         b.send_publish('cam1/command', b'a\x00b')                                   # a NUL byte: rejected
