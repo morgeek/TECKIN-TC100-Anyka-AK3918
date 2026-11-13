@@ -157,6 +157,13 @@ Rules that apply to every entry:
 - **Pass:** every legitimate client streams as before (no new 401 loops, no dropped connection), the reconnect storm and
   the wrong-password run do not disturb the NVR, a PC behind a NAT talks with `RTSP_TALK_NAT=1` and not without, no
   crash or restart of `tc100_rtsp`.
+- **Re-check of e7e2f9c (verdict safe), known limits not changed:** a Digest `uri=` of `/` (or empty, or
+  `rtsp://host` alone) covers every path — still bound to the method and the per-connection nonce, and stricter than
+  before (no uri check at all); there is no percent-decoding and no `?` boundary in the uri compare, so `uri=/video0`
+  for a request `/video0?x` (or `%30`-style encoding) gets 401 and counts as a failure (fails closed; no known client
+  does it); an authenticated connection may send wrong credentials without being locked (its holder knows the
+  password). `RTSP_PERIP` that is not a plain number 1-9 (typo, `-1`, leading space) is ignored with a log line and
+  keeps the default 3 (fixed after the re-check; it became 1 before).
 
 ### WIFI-RXAGG rtl8xxxu runtime `ampdu_rx` switch (`[wifi]`) — `to test`
 

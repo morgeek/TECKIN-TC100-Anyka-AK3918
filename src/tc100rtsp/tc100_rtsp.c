@@ -3994,7 +3994,14 @@ unsigned char *fpb[2] = { NULL, NULL };
 	for (int i = 0; i < MAXCLI; i++) cl[i].fd = -1;
 	net_init();
 	au_rand_init();
-	{ const char *e = getenv("RTSP_PERIP"); if (e && *e) { perip_max = num(e); if (perip_max < 1) perip_max = 1; if (perip_max > MAXCLI) perip_max = MAXCLI; } }
+	{	/* a value that is not a plain number 1..9 (typo, "-1", " 3") keeps the default 3 instead of becoming 1 */
+		const char *e = getenv("RTSP_PERIP");
+
+		if (e && e[0] >= '1' && e[0] <= '9') {
+			perip_max = num(e);
+			if (perip_max > MAXCLI) perip_max = MAXCLI;
+		} else if (e && *e) LOG("rtsp: RTSP_PERIP=\"%s\" ignored, %d per address\n", e, perip_max);
+	}
 	{ const char *e = getenv("RTSP_TALK_NAT"); talk_nat = e && e[0] == '1'; }
 #ifdef TC100_HOST_TEST
 	{ const char *e = getenv("TC100_TEST_NO_EXEMPT"); no_exempt = e && e[0] == '1'; }
