@@ -10,30 +10,149 @@
 #   set_tamper_config    tamper detection on/off and its limits                     -> config/tamper.conf (its one place)
 #   set_sound_options    Vox (babyphone) and alarm sound tracking                   -> config/sound_detection.conf
 
-_ev_kv() { _ev_v="$(read_kv_config_value "$1" "$2" "$3")"; _ev_v="${_ev_v#\"}"; _ev_v="${_ev_v%\"}"; printf '%s' "$_ev_v"; }
-_ev_b() { case "$1" in 1|true|yes|on) echo 1 ;; *) echo 0 ;; esac; }
+_ev_clean_val() {
+  _ev_v="$1"
+  while :; do
+    case "$_ev_v" in
+      ' '*|'	'*) _ev_v="${_ev_v#?}" ;;
+      *' '|*'	') _ev_v="${_ev_v%?}" ;;
+      *) break ;;
+    esac
+  done
+  case "$_ev_v" in
+    \"*\") _ev_v="${_ev_v#\"}"; _ev_v="${_ev_v%\"}" ;;
+    \'*\') _ev_v="${_ev_v#\'}"; _ev_v="${_ev_v%\'}" ;;
+  esac
+  [ -n "$_ev_v" ] || _ev_v="$2"
+}
+_ev_bool_to() {
+  case "$2" in 1|true|yes|on) eval "$1=1" ;; *) eval "$1=0" ;; esac
+}
+_ev_int_to() {
+  _ev_iv="$2"
+  case "$_ev_iv" in ''|*[!0-9]*|??????????*) _ev_iv="$5" ;; esac
+  while [ "${#_ev_iv}" -gt 1 ] && [ "${_ev_iv#0}" != "$_ev_iv" ]; do _ev_iv="${_ev_iv#0}"; done
+  [ "$_ev_iv" -lt "$3" ] && _ev_iv="$3"
+  [ "$_ev_iv" -gt "$4" ] && _ev_iv="$4"
+  eval "$1=\$_ev_iv"
+}
+_ev_j_to() {
+  case "$2" in
+    *\\*|*\"*) eval "$1=\$(json_escape \"\$2\")" ;;
+    *) eval "$1=\$2" ;;
+  esac
+}
 _ev_fail() { json_body_err "INVALID_VALUE" "$1"; }
 
   case "$F_cmd" in
 
     events_info)
       N=/mnt/config/notify.conf; T=/mnt/config/tamper.conf; S=/mnt/config/sound_detection.conf
-      _ev_auth=0; [ -n "$(_ev_kv $N NTFY_AUTH '')" ] && _ev_auth=1
-      _ev_tg=0; [ -n "$(_ev_kv /mnt/config/telegram.conf apiToken '')" ] && _ev_tg=1
-      _ev_ta=0; [ -f /tmp/cam_tamper ] && grep -q 1 /tmp/cam_tamper 2>/dev/null && _ev_ta=1
+      _ev_wh_en=0; _ev_wh_url=""; _ev_wh_m=POST
+      _ev_nt_en=0; _ev_nt_url="https://ntfy.sh"; _ev_nt_top=""; _ev_nt_pri=default; _ev_nt_auth=""
+      _ev_tg_en=0; _ev_att=1; _ev_cool=15; _ev_evs="motion sound tamper"
+      _ev_seen=" "
+      if [ -r "$N" ]; then
+        while IFS= read -r _ev_l || [ -n "$_ev_l" ]; do
+          while :; do case "$_ev_l" in ' '*|'	'*) _ev_l="${_ev_l#?}" ;; *) break ;; esac; done
+          case "$_ev_l" in ''|'#'*) continue ;; esac
+          _ev_k="${_ev_l%%=*}"
+          [ "$_ev_k" != "$_ev_l" ] || continue
+          case "$_ev_seen" in *" n:$_ev_k "*) continue ;; esac
+          _ev_seen="${_ev_seen}n:$_ev_k "
+          case "$_ev_k" in
+            WEBHOOK_ENABLE) _ev_clean_val "${_ev_l#*=}" 0; _ev_wh_en="$_ev_v" ;;
+            WEBHOOK_URL) _ev_clean_val "${_ev_l#*=}" ""; _ev_wh_url="$_ev_v" ;;
+            WEBHOOK_METHOD) _ev_clean_val "${_ev_l#*=}" POST; _ev_wh_m="$_ev_v" ;;
+            NTFY_ENABLE) _ev_clean_val "${_ev_l#*=}" 0; _ev_nt_en="$_ev_v" ;;
+            NTFY_URL) _ev_clean_val "${_ev_l#*=}" "https://ntfy.sh"; _ev_nt_url="$_ev_v" ;;
+            NTFY_TOPIC) _ev_clean_val "${_ev_l#*=}" ""; _ev_nt_top="$_ev_v" ;;
+            NTFY_PRIORITY) _ev_clean_val "${_ev_l#*=}" default; _ev_nt_pri="$_ev_v" ;;
+            NTFY_AUTH) _ev_clean_val "${_ev_l#*=}" ""; _ev_nt_auth="$_ev_v" ;;
+            TELEGRAM_NOTIFY_ENABLE) _ev_clean_val "${_ev_l#*=}" 0; _ev_tg_en="$_ev_v" ;;
+            NOTIFY_ATTACH_SNAPSHOT) _ev_clean_val "${_ev_l#*=}" 1; _ev_att="$_ev_v" ;;
+            NOTIFY_COOLDOWN_SECONDS) _ev_clean_val "${_ev_l#*=}" 15; _ev_cool="$_ev_v" ;;
+            NOTIFY_EVENTS) _ev_clean_val "${_ev_l#*=}" "motion sound tamper"; _ev_evs="$_ev_v" ;;
+          esac
+        done < "$N"
+      fi
+      _ev_auth=0; [ -n "$_ev_nt_auth" ] && _ev_auth=1
+      _ev_tg=0
+      if [ -r /mnt/config/telegram.conf ]; then
+        while IFS= read -r _ev_l || [ -n "$_ev_l" ]; do
+          while :; do case "$_ev_l" in ' '*|'	'*) _ev_l="${_ev_l#?}" ;; *) break ;; esac; done
+          case "$_ev_l" in ''|'#'*) continue ;; apiToken=*) _ev_clean_val "${_ev_l#*=}" ""; [ -n "$_ev_v" ] && _ev_tg=1; break ;; esac
+        done < /mnt/config/telegram.conf
+      fi
+      _ev_ta=0
+      if [ -r /tmp/cam_tamper ]; then
+        while IFS= read -r _ev_l || [ -n "$_ev_l" ]; do
+          case "$_ev_l" in *1*) _ev_ta=1; break ;; esac
+        done < /tmp/cam_tamper
+      fi
+      _ev_t_en=0; _ev_t_hold=6; _ev_t_drop=50; _ev_t_lum=15
+      if [ -r "$T" ]; then
+        while IFS= read -r _ev_l || [ -n "$_ev_l" ]; do
+          while :; do case "$_ev_l" in ' '*|'	'*) _ev_l="${_ev_l#?}" ;; *) break ;; esac; done
+          case "$_ev_l" in ''|'#'*) continue ;; esac
+          _ev_k="${_ev_l%%=*}"
+          [ "$_ev_k" != "$_ev_l" ] || continue
+          case "$_ev_seen" in *" t:$_ev_k "*) continue ;; esac
+          _ev_seen="${_ev_seen}t:$_ev_k "
+          case "$_ev_k" in
+            ENABLE) _ev_clean_val "${_ev_l#*=}" 0; _ev_t_en="$_ev_v" ;;
+            TAMPER_HOLD_SEC) _ev_clean_val "${_ev_l#*=}" 6; _ev_t_hold="$_ev_v" ;;
+            TAMPER_JPEG_DROP_PCT) _ev_clean_val "${_ev_l#*=}" 50; _ev_t_drop="$_ev_v" ;;
+            TAMPER_LUMA_MIN) _ev_clean_val "${_ev_l#*=}" 15; _ev_t_lum="$_ev_v" ;;
+          esac
+        done < "$T"
+      fi
+      _ev_s_en=0; _ev_s_vox=0; _ev_s_vh=5; _ev_s_al=0; _ev_s_ah=15; _ev_s_ml=1
+      if [ -r "$S" ]; then
+        while IFS= read -r _ev_l || [ -n "$_ev_l" ]; do
+          while :; do case "$_ev_l" in ' '*|'	'*) _ev_l="${_ev_l#?}" ;; *) break ;; esac; done
+          case "$_ev_l" in ''|'#'*) continue ;; esac
+          _ev_k="${_ev_l%%=*}"
+          [ "$_ev_k" != "$_ev_l" ] || continue
+          case "$_ev_seen" in *" s:$_ev_k "*) continue ;; esac
+          _ev_seen="${_ev_seen}s:$_ev_k "
+          case "$_ev_k" in
+            ENABLE) _ev_clean_val "${_ev_l#*=}" 0; _ev_s_en="$_ev_v" ;;
+            VOX_MODE) _ev_clean_val "${_ev_l#*=}" 0; _ev_s_vox="$_ev_v" ;;
+            VOX_HOLD_SECONDS) _ev_clean_val "${_ev_l#*=}" 5; _ev_s_vh="$_ev_v" ;;
+            ALARM_DETECT) _ev_clean_val "${_ev_l#*=}" 0; _ev_s_al="$_ev_v" ;;
+            ALARM_HOLD_SECONDS) _ev_clean_val "${_ev_l#*=}" 15; _ev_s_ah="$_ev_v" ;;
+            MIN_LOUD_SECONDS) _ev_clean_val "${_ev_l#*=}" 1; _ev_s_ml="$_ev_v" ;;
+          esac
+        done < "$S"
+      fi
+      _ev_bool_to _ev_wh_en "$_ev_wh_en"
+      _ev_j_to _ev_wh_url_j "$_ev_wh_url"
+      _ev_j_to _ev_wh_m_j "$_ev_wh_m"
+      _ev_bool_to _ev_nt_en "$_ev_nt_en"
+      _ev_j_to _ev_nt_url_j "$_ev_nt_url"
+      _ev_j_to _ev_nt_top_j "$_ev_nt_top"
+      _ev_j_to _ev_nt_pri_j "$_ev_nt_pri"
+      _ev_bool_to _ev_tg_en "$_ev_tg_en"
+      _ev_bool_to _ev_att "$_ev_att"
+      _ev_int_to _ev_cool "$_ev_cool" 0 3600 15
+      _ev_j_to _ev_evs_j "$_ev_evs"
+      _ev_bool_to _ev_t_en "$_ev_t_en"
+      _ev_int_to _ev_t_hold "$_ev_t_hold" 2 120 6
+      _ev_int_to _ev_t_drop "$_ev_t_drop" 10 90 50
+      _ev_int_to _ev_t_lum "$_ev_t_lum" 0 100 15
+      _ev_bool_to _ev_s_en "$_ev_s_en"
+      _ev_bool_to _ev_s_vox "$_ev_s_vox"
+      _ev_int_to _ev_s_vh "$_ev_s_vh" 1 600 5
+      _ev_bool_to _ev_s_al "$_ev_s_al"
+      _ev_int_to _ev_s_ah "$_ev_s_ah" 5 120 15
+      _ev_int_to _ev_s_ml "$_ev_s_ml" 1 10 1
       printf '{"ok":true,"notify":{"webhook_enable":%s,"webhook_url":"%s","webhook_method":"%s","ntfy_enable":%s,"ntfy_url":"%s","ntfy_topic":"%s","ntfy_priority":"%s","ntfy_auth_set":%s,"telegram_enable":%s,"telegram_ready":%s,"attach":%s,"cooldown":%s,"events":"%s"},' \
-        "$(_ev_b "$(_ev_kv $N WEBHOOK_ENABLE 0)")" "$(json_escape "$(_ev_kv $N WEBHOOK_URL '')")" "$(json_escape "$(_ev_kv $N WEBHOOK_METHOD POST)")" \
-        "$(_ev_b "$(_ev_kv $N NTFY_ENABLE 0)")" "$(json_escape "$(_ev_kv $N NTFY_URL https://ntfy.sh)")" "$(json_escape "$(_ev_kv $N NTFY_TOPIC '')")" \
-        "$(json_escape "$(_ev_kv $N NTFY_PRIORITY default)")" "$_ev_auth" "$(_ev_b "$(_ev_kv $N TELEGRAM_NOTIFY_ENABLE 0)")" "$_ev_tg" \
-        "$(_ev_b "$(_ev_kv $N NOTIFY_ATTACH_SNAPSHOT 1)")" "$(sanitize_int_range "$(_ev_kv $N NOTIFY_COOLDOWN_SECONDS 15)" 0 3600 15)" \
-        "$(json_escape "$(_ev_kv $N NOTIFY_EVENTS 'motion sound tamper')")"
+        "$_ev_wh_en" "$_ev_wh_url_j" "$_ev_wh_m_j" "$_ev_nt_en" "$_ev_nt_url_j" "$_ev_nt_top_j" "$_ev_nt_pri_j" "$_ev_auth" "$_ev_tg_en" "$_ev_tg" "$_ev_att" "$_ev_cool" "$_ev_evs_j"
       printf '"tamper":{"enable":%s,"hold":%s,"drop_pct":%s,"luma_min":%s,"active":%s},' \
-        "$(_ev_b "$(_ev_kv $T ENABLE 0)")" "$(sanitize_int_range "$(_ev_kv $T TAMPER_HOLD_SEC 6)" 2 120 6)" \
-        "$(sanitize_int_range "$(_ev_kv $T TAMPER_JPEG_DROP_PCT 50)" 10 90 50)" "$(sanitize_int_range "$(_ev_kv $T TAMPER_LUMA_MIN 15)" 0 100 15)" "$_ev_ta"
+        "$_ev_t_en" "$_ev_t_hold" "$_ev_t_drop" "$_ev_t_lum" "$_ev_ta"
       printf '"sound":{"enable":%s,"vox_mode":%s,"vox_hold":%s,"alarm_detect":%s,"alarm_hold":%s,"min_loud":%s}}\n' \
-        "$(_ev_b "$(_ev_kv $S ENABLE 0)")" "$(_ev_b "$(_ev_kv $S VOX_MODE 0)")" "$(sanitize_int_range "$(_ev_kv $S VOX_HOLD_SECONDS 5)" 1 600 5)" \
-        "$(_ev_b "$(_ev_kv $S ALARM_DETECT 0)")" "$(sanitize_int_range "$(_ev_kv $S ALARM_HOLD_SECONDS 15)" 5 120 15)" \
-        "$(sanitize_int_range "$(_ev_kv $S MIN_LOUD_SECONDS 1)" 1 10 1)"
+        "$_ev_s_en" "$_ev_s_vox" "$_ev_s_vh" "$_ev_s_al" "$_ev_s_ah" "$_ev_s_ml"
     ;;
 
     set_notify_config)

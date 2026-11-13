@@ -68,15 +68,28 @@ cpu_total=$((cpu_active + cpu_idle + cpu_iowait))
 cpu_temp=""
 for _tz in /sys/class/thermal/thermal_zone*/temp; do
   [ -f "$_tz" ] || continue
-  _raw="$(cat "$_tz" 2>/dev/null)"
+  _raw=""
+  read -r _raw < "$_tz" 2>/dev/null || true
   if [ -n "$_raw" ] && [ "$_raw" -gt 0 ] 2>/dev/null; then
     cpu_temp="$((_raw / 1000)).$(( (_raw % 1000) / 100 ))°C"
     break
   fi
 done
 
-# kB -> "12.3 MB"
-mb() { awk -v k="$1" 'BEGIN { printf "%.1f MB", k / 1024 }'; }
+# kB -> "12.3 MB" (pure-shell fixed-point, zero awk forks)
+mb_to() {
+  case "$2" in ''|*[!0-9]*) _k=0 ;; *) _k="$2" ;; esac
+  _mb_t=$(( (_k * 10 + 512) / 1024 ))
+  eval "$1=\"\$((_mb_t / 10)).\$((_mb_t % 10)) MB\""
+}
+mb() {
+  mb_to _mb_res "$1"
+  printf '%s' "$_mb_res"
+}
+mb_to mem_available_mb "$mem_available"
+mb_to mem_total_mb "$mem_total"
+mb_to mem_used_mb "$mem_used"
+mb_to mem_cached_mb "$mem_cached_total"
 mem_avail_pct=0
 [ "$mem_total" -gt 0 ] 2>/dev/null && mem_avail_pct=$((100 * mem_available / mem_total))
 cpu_busy_pct=0
@@ -102,9 +115,9 @@ cat << EOF
             <header class='card-header'><p class='card-header-title'>Memory</p></header>
             <div class='card-content'>
                 <dl class='v2-facts'>
-                    <dt>Available</dt><dd>$(mb "$mem_available") of $(mb "$mem_total") ($mem_avail_pct %)</dd>
-                    <dt>Used by programs</dt><dd>$(mb "$mem_used")</dd>
-                    <dt>Cache (reclaimable)</dt><dd>$(mb "$mem_cached_total")</dd>
+                    <dt>Available</dt><dd>$mem_available_mb of $mem_total_mb ($mem_avail_pct %)</dd>
+                    <dt>Used by programs</dt><dd>$mem_used_mb</dd>
+                    <dt>Cache (reclaimable)</dt><dd>$mem_cached_mb</dd>
                     <dt>Open files</dt><dd>$open_files</dd>
                 </dl>
             </div>

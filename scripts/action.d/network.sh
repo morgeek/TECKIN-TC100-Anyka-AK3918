@@ -40,9 +40,13 @@
         validate_ip_or_empty() {
             addr="$1"
             [ -z "$addr" ] && return 0
-            printf '%s' "$addr" | awk -F. 'NF==4 && $1+0==$1 && $2+0==$2 && $3+0==$3 && $4+0==$4 &&
-                $1>=0 && $1<=255 && $2>=0 && $2<=255 && $3>=0 && $3<=255 && $4>=0 && $4<=255
-                {exit 0} {exit 1}'
+            case "$addr" in *[!0-9.]*|.*|*.|*..*) return 1 ;; esac
+            _vio_oifs="$IFS"; IFS='.'; set -f; set -- $addr; set +f; IFS="$_vio_oifs"
+            [ $# -eq 4 ] || return 1
+            for _vio_o in "$1" "$2" "$3" "$4"; do
+                case "$_vio_o" in ''|????*) return 1 ;; 0) ;; 0*) return 1 ;; esac
+                [ "$_vio_o" -ge 0 ] && [ "$_vio_o" -le 255 ] || return 1
+            done
         }
         dns_primary="$F_dns_primary"
         dns_secondary="$F_dns_secondary"
@@ -84,9 +88,13 @@
         validate_ip_or_empty() {
             addr="$1"
             [ -z "$addr" ] && return 0
-            printf '%s' "$addr" | awk -F. 'NF==4 && $1+0==$1 && $2+0==$2 && $3+0==$3 && $4+0==$4 &&
-                $1>=0 && $1<=255 && $2>=0 && $2<=255 && $3>=0 && $3<=255 && $4>=0 && $4<=255
-                {exit 0} {exit 1}'
+            case "$addr" in *[!0-9.]*|.*|*.|*..*) return 1 ;; esac
+            _vio_oifs="$IFS"; IFS='.'; set -f; set -- $addr; set +f; IFS="$_vio_oifs"
+            [ $# -eq 4 ] || return 1
+            for _vio_o in "$1" "$2" "$3" "$4"; do
+                case "$_vio_o" in ''|????*) return 1 ;; 0) ;; 0*) return 1 ;; esac
+                [ "$_vio_o" -ge 0 ] && [ "$_vio_o" -le 255 ] || return 1
+            done
         }
         ip_mode="$F_ip_mode"
         static_ip="$F_static_ip"
@@ -183,11 +191,16 @@
       # Frigate address of Settings, else REC_CLIENT, else the router. Loss, RTT min / average / max and the jitter
       # (mean difference between successive RTTs, as RFC 3550)
       _nl_h="${F_host}"
-      if [ -z "$_nl_h" ]; then
-        _nl_u="$(sed -n 's/^FRIGATE_URL=//p' /mnt/config/frigate_live.conf 2>/dev/null | head -n 1)"
-        _nl_h="${_nl_u#*://}"; _nl_h="${_nl_h%%[:/]*}"
+      if [ -z "$_nl_h" ] && [ -r /mnt/config/frigate_live.conf ]; then
+        while IFS= read -r _nl_l || [ -n "$_nl_l" ]; do
+          case "$_nl_l" in FRIGATE_URL=*) _nl_u="${_nl_l#FRIGATE_URL=}"; _nl_h="${_nl_u#*://}"; _nl_h="${_nl_h%%[:/]*}"; break ;; esac
+        done < /mnt/config/frigate_live.conf
       fi
-      [ -n "$_nl_h" ] || _nl_h="$(sed -n 's/^REC_CLIENT=\(.*\)$/\1/p' /mnt/config/boot.conf 2>/dev/null | tr -d '"' | head -n 1)"
+      if [ -z "$_nl_h" ] && [ -r /mnt/config/boot.conf ]; then
+        while IFS= read -r _nl_l || [ -n "$_nl_l" ]; do
+          case "$_nl_l" in REC_CLIENT=*) _nl_h="${_nl_l#REC_CLIENT=}"; _nl_h="${_nl_h#\"}"; _nl_h="${_nl_h%\"}"; break ;; esac
+        done < /mnt/config/boot.conf
+      fi
       [ -n "$_nl_h" ] || _nl_h="$(ip route 2>/dev/null | sed -n 's/^default via \([0-9.]*\).*/\1/p' | head -n 1)"
       case "$_nl_h" in ''|*[!A-Za-z0-9.-]*|-*) json_body_err "INVALID_HOST" "No recorder address (set the Frigate address in Settings, or give host=)"; exit 0 ;; esac
       [ ${#_nl_h} -le 253 ] || { json_body_err "INVALID_HOST" "Host name too long"; exit 0; }
@@ -206,24 +219,50 @@
         # The rescue access point (scripts/wifi-rescue.sh): on (WIFI_RESCUE, its one switch), up now, its name and password.
         _wr="$(sh /mnt/scripts/wifi-rescue.sh status 2>/dev/null)"
         _wr_on=0; ( . /mnt/scripts/service-switch.sh && svc_on wifi-rescue ) 2>/dev/null && _wr_on=1
-        _wr_v() { printf '%s\n' "$_wr" | sed -n "s/^$1=//p" | head -n 1 | awk '{ gsub(/[\\"]/, ""); gsub(/[\001-\037]/, ""); printf "%s", $0 }'; }
-        _wr_ap="$(_wr_v ap)"; case "$_wr_ap" in 1) ;; *) _wr_ap=0 ;; esac
+        _wr_ap=0; _wr_ssid=""; _wr_psk_val=""
+        _wr_nl='
+'
+        _wr_oifs="$IFS"; IFS="$_wr_nl"; set -f
+        for _wr_l in $_wr; do
+          case "$_wr_l" in
+            ap=*) _wr_ap="${_wr_l#ap=}" ;;
+            ssid=*) [ -z "$_wr_ssid" ] && _wr_ssid="${_wr_l#ssid=}" ;;
+            psk=*) [ -z "$_wr_psk_val" ] && _wr_psk_val="${_wr_l#psk=}" ;;
+          esac
+        done
+        set +f; IFS="$_wr_oifs"
+        case "$_wr_ap" in 1) ;; *) _wr_ap=0 ;; esac
+        case "$_wr_ssid$_wr_psk_val" in
+          *\"*|*\\*|*[[:cntrl:]]*)
+            _wr_ssid="$(printf '%s' "$_wr_ssid" | awk '{ gsub(/[\\"]/, ""); gsub(/[\001-\037]/, ""); printf "%s", $0 }')"
+            _wr_psk_val="$(printf '%s' "$_wr_psk_val" | awk '{ gsub(/[\\"]/, ""); gsub(/[\001-\037]/, ""); printf "%s", $0 }')" ;;
+        esac
         # audit W6: the password only on request (reveal=1) with the page's CSRF token: a read-only GET any script of
         # the page could make no longer carries it
-        _wr_psk=""; _wr_set=0; [ -n "$(_wr_v psk)" ] && _wr_set=1
-        if [ "${F_reveal}" = 1 ]; then csrf_check; _wr_psk="$(_wr_v psk)"; fi
+        _wr_psk=""; _wr_set=0; [ -n "$_wr_psk_val" ] && _wr_set=1
+        if [ "${F_reveal}" = 1 ]; then csrf_check; _wr_psk="$_wr_psk_val"; fi
         printf '{"status":"success","enabled":%s,"ap":%s,"ssid":"%s","psk":"%s","psk_set":%s,"address":"10.42.0.1"}\n' \
-            "$_wr_on" "$_wr_ap" "$(_wr_v ssid)" "$_wr_psk" "$_wr_set"
+            "$_wr_on" "$_wr_ap" "$_wr_ssid" "$_wr_psk" "$_wr_set"
     ;;
 
     wifi_country_info)
         # The country whose Wi-Fi rules the radio follows (boot.conf WIFI_COUNTRY, scripts/wifi-country.sh): the
         # setting, what the kernel applies now ("00" = world rules) and whether the rules database is there.
         _wc="$(sh /mnt/scripts/wifi-country.sh status 2>/dev/null)"
-        _wc_v() { printf '%s\n' "$_wc" | sed -n "s/^$1=\([0-9A-Z]*\)$/\1/p" | head -n 1; }
-        _wc_db="$(_wc_v regdb)"; [ "$_wc_db" = 1 ] || _wc_db=0
+        _wc_cfg=""; _wc_eff=""; _wc_db=0
+        _wc_nl='
+'
+        _wc_oifs="$IFS"; IFS="$_wc_nl"; set -f
+        for _wc_l in $_wc; do
+          case "$_wc_l" in
+            configured=*) _wc_tmp="${_wc_l#configured=}"; case "$_wc_tmp" in *[!0-9A-Z]*) ;; *) [ -z "$_wc_cfg" ] && _wc_cfg="$_wc_tmp" ;; esac ;;
+            effective=*) _wc_tmp="${_wc_l#effective=}"; case "$_wc_tmp" in *[!0-9A-Z]*) ;; *) [ -z "$_wc_eff" ] && _wc_eff="$_wc_tmp" ;; esac ;;
+            regdb=1) _wc_db=1 ;;
+          esac
+        done
+        set +f; IFS="$_wc_oifs"
         printf '{"status":"success","country":"%s","effective":"%s","regdb":%s}\n' \
-            "$(_wc_v configured)" "$(_wc_v effective)" "$_wc_db"
+            "$_wc_cfg" "$_wc_eff" "$_wc_db"
     ;;
 
     wifi_set_country)
@@ -260,12 +299,21 @@
         fi
         if [ -z "$_ssid" ]; then
             for _wpa_conf in "$WIFI_CONFIG_PATH" /mnt/config/wpa_supplicant.conf /etc/wpa_supplicant.conf; do
-                [ -f "$_wpa_conf" ] || continue
-                _ssid="$(awk -F'"' '/^[ \t]*ssid=/ { print $2; exit }' "$_wpa_conf")"
+                [ -r "$_wpa_conf" ] || continue
+                while IFS= read -r _wl || [ -n "$_wl" ]; do
+                    while :; do case "$_wl" in ' '*|'	'*) _wl="${_wl#?}" ;; *) break ;; esac; done
+                    case "$_wl" in
+                        ssid=\"*) _ssid="${_wl#ssid=\"}"; _ssid="${_ssid%%\"*}"; break ;;
+                        ssid=*) _ssid="${_wl#ssid=}"; break ;;
+                    esac
+                done < "$_wpa_conf"
                 [ -n "$_ssid" ] && break
             done
         fi
-        _ssid_safe="$(printf '%s' "$_ssid" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+        case "$_ssid" in
+            *\\*|*\"*) _ssid_safe="$(printf '%s' "$_ssid" | sed 's/\\/\\\\/g; s/"/\\"/g')" ;;
+            *) _ssid_safe="$_ssid" ;;
+        esac
         printf '{"status":"success","ssid":"%s"}\n' "$_ssid_safe"
     ;;
 

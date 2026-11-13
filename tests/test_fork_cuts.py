@@ -290,5 +290,160 @@ class ForkCuts(unittest.TestCase):
             self.assertEqual(r.stdout.strip(), "auto|20|")
 
 
+POSIX_SH = [ASH, "ash"] if ASH else (["/bin/dash"] if Path("/bin/dash").exists() else ["/bin/sh"])
+
+
+def psh(code, env=None):
+    e = dict(os.environ)
+    e.update(env or {})
+    return subprocess.run(POSIX_SH + ["-c", code], capture_output=True, text=True, env=e, timeout=20)
+
+
+class WebActionForkCuts(unittest.TestCase):
+    def test_sysusageinfo_mb_to_matches_awk_without_awk(self):
+        src = (ROOT / "www/cgi-bin/sysusageinfo.cgi").read_text(encoding="utf-8")
+        mb_to = shfunc("www/cgi-bin/sysusageinfo.cgi", "mb_to")
+        mb_fn = shfunc("www/cgi-bin/sysusageinfo.cgi", "mb")
+        self.assertNotIn("awk", mb_to)
+        self.assertNotIn("awk", mb_fn)
+        self.assertNotIn("$(mb ", src)
+        r = psh(
+            f"{mb_to}\n{mb_fn}\n"
+            'for v in 0 512 1024 1536 20480 ""; do mb_to out "$v"; printf "%s|%s\\n" "$out" "$(mb "$v")"; done\n'
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = r.stdout.strip().splitlines()
+        self.assertEqual(
+            lines,
+            [
+                "0.0 MB|0.0 MB",
+                "0.5 MB|0.5 MB",
+                "1.0 MB|1.0 MB",
+                "1.5 MB|1.5 MB",
+                "20.0 MB|20.0 MB",
+                "0.0 MB|0.0 MB",
+            ],
+        )
+
+    def test_events_info_reads_once_without_ev_kv_or_grep(self):
+        import json as _json
+        src = (ROOT / "scripts/action.d/events.sh").read_text(encoding="utf-8")
+        info = src[src.index("    events_info)"):src.index("    set_notify_config)")]
+        self.assertNotIn("_ev_kv", info)
+        self.assertNotIn("grep", info)
+        self.assertNotIn("$(json_escape", info)
+        self.assertNotIn("$(sanitize_int_range", info)
+        json_escape = shfunc("www/cgi-bin/func.cgi", "json_escape")
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d)
+            (cfg / "notify.conf").write_text(
+                '# comment\n'
+                'WEBHOOK_ENABLE=1\n'
+                'WEBHOOK_URL="https://example.com/a"b"\n'
+                'WEBHOOK_METHOD="PUT"\n'
+                "NTFY_URL='https://ntfy.sh/a\\b'\n"
+                'NTFY_AUTH="Bearer tok"\n'
+                'NOTIFY_COOLDOWN_SECONDS=9999\n'
+            )
+            (cfg / "telegram.conf").write_text('apiToken="123:ABC"\n')
+            (cfg / "tamper.conf").write_text('ENABLE=1\nTAMPER_HOLD_SEC=1\n')
+            (cfg / "sound_detection.conf").write_text('ENABLE=on\nVOX_MODE=1\nMIN_LOUD_SECONDS=4\n')
+            tamper = cfg / "cam_tamper"
+            tamper.write_text("1\n")
+            patched = (
+                src.replace("/mnt/config", str(cfg))
+                .replace("/tmp/cam_tamper", str(tamper))
+            )
+            r = psh(f"{json_escape}\nF_cmd=events_info\n{patched}")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            j = _json.loads(r.stdout)
+            self.assertEqual(j["notify"]["webhook_enable"], 1)
+            self.assertEqual(j["notify"]["webhook_url"], 'https://example.com/a"b')
+            self.assertEqual(j["notify"]["webhook_method"], "PUT")
+            self.assertEqual(j["notify"]["ntfy_url"], r"https://ntfy.sh/a\b")
+            self.assertEqual(j["notify"]["ntfy_auth_set"], 1)
+            self.assertEqual(j["notify"]["telegram_ready"], 1)
+            self.assertEqual(j["notify"]["cooldown"], 3600)
+            self.assertEqual(j["tamper"]["active"], 1)
+            self.assertEqual(j["tamper"]["hold"], 2)
+            self.assertEqual(j["sound"]["enable"], 1)
+            self.assertEqual(j["sound"]["min_loud"], 4)
+
+    def test_network_action_pure_shell_paths(self):
+        import json as _json
+        src = (ROOT / "scripts/action.d/network.sh").read_text(encoding="utf-8")
+        # 1. validate_ip_or_empty without awk
+        fn_block = src[src.index("        validate_ip_or_empty()"):src.index("        dns_primary=")]
+        self.assertNotIn("awk", fn_block)
+        r = psh(
+            f"{fn_block}\n"
+            'for ip in "" 0.0.0.0 192.168.1.255 01.2.3.4 256.1.1.1 1.2.3 1.2.3.4.5 a.b.c.d; do '
+            'validate_ip_or_empty "$ip" && echo ok || echo bad; done\n'
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip().splitlines(), ["ok", "ok", "ok", "bad", "bad", "bad", "bad", "bad"])
+
+        # 2. wifi_rescue_info & wifi_country_info preserve values including glob characters
+        wri = src[src.index("    wifi_rescue_info)"):src.index("    wifi_country_info)")]
+        wci = src[src.index("    wifi_country_info)"):src.index("    wifi_set_country)")]
+        self.assertNotIn("_wr_v", wri)
+        self.assertNotIn("_wc_v", wci)
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            (p / "wifi-rescue.sh").write_text("#!/bin/sh\nprintf 'ap=1\\nssid=Home*5G\\npsk=pass?[1]\\n'\n")
+            (p / "wifi-country.sh").write_text("#!/bin/sh\nprintf 'configured=FR\\neffective=FR\\nregdb=1\\n'\n")
+            (p / "svc.sh").write_text("svc_on() { return 0; }\n")
+            wri_p = (
+                wri.replace("/mnt/scripts/wifi-rescue.sh", str(p / "wifi-rescue.sh"))
+                .replace("/mnt/scripts/service-switch.sh", str(p / "svc.sh"))
+                + "\n    esac"
+            )
+            r1 = psh(f'csrf_check() {{ :; }}\nF_reveal=1\ncase wifi_rescue_info in\n{wri_p}\n')
+            self.assertEqual(r1.returncode, 0, r1.stderr)
+            j1 = _json.loads(r1.stdout)
+            self.assertEqual((j1["enabled"], j1["ap"], j1["ssid"], j1["psk"], j1["psk_set"]), (1, 1, "Home*5G", "pass?[1]", 1))
+
+            wci_p = wci.replace("/mnt/scripts/wifi-country.sh", str(p / "wifi-country.sh")) + "\n    esac"
+            r2 = psh(f'case wifi_country_info in\n{wci_p}\n')
+            self.assertEqual(r2.returncode, 0, r2.stderr)
+            j2 = _json.loads(r2.stdout)
+            self.assertEqual((j2["country"], j2["effective"], j2["regdb"]), ("FR", "FR", 1))
+
+        # 3. wifi_get_ssid reads wpa_supplicant.conf without awk
+        wgs = src[src.index("    wifi_get_ssid)"):src.index("    wifi_set_config)")]
+        self.assertNotIn("/^[ \\t]*ssid=/", wgs)
+        with tempfile.TemporaryDirectory() as d:
+            wpa = Path(d) / "wpa.conf"
+            wpa.write_text('ctrl_interface=/var/run/wpa_supplicant\nnetwork={\n\tssid="Cafe*WiFi"\n\tpsk="secret"\n}\n')
+            wgs_p = (
+                wgs.replace("/mnt/config/wpa_supplicant.conf", str(wpa))
+                .replace("/etc/wpa_supplicant.conf", "/nonexistent")
+                + "\n    esac"
+            )
+            r3 = psh(f'command() {{ return 1; }}\nWIFI_CONFIG_PATH=/nonexistent\ncase wifi_get_ssid in\n{wgs_p}\n')
+            self.assertEqual(r3.returncode, 0, r3.stderr)
+            self.assertEqual(_json.loads(r3.stdout), {"status": "success", "ssid": "Cafe*WiFi"})
+
+    def test_state_and_stream_and_config_exchange_fork_cuts(self):
+        state = (ROOT / "www/cgi-bin/state.cgi").read_text(encoding="utf-8")
+        im = state[state.index("  integrationmanifest)"):state.index("  healthsnapshot)")]
+        self.assertNotIn("$(json_escape", im)
+        self.assertNotIn("$(read_conf_value", im)
+        fy = state[state.index("  frigateyaml)"):state.index("    ;;", state.index("  frigateyaml)"))]
+        self.assertNotIn("$(read_conf_value", fy)
+
+        stream = (ROOT / "scripts/action.d/stream.sh").read_text(encoding="utf-8")
+        rsi = stream[stream.index("    rtsp_server_info)"):stream.index("    set_rtsp_server)")]
+        self.assertNotIn("_rs_cfg", rsi)
+        self.assertNotIn("awk", rsi)
+
+        ce = (ROOT / "www/cgi-bin/config_exchange.cgi").read_text(encoding="utf-8")
+        self.assertNotIn("$(_ce_truthy", ce)
+        self.assertNotIn("| wc -w", ce)
+
+        net = (ROOT / "www/cgi-bin/network.cgi").read_text(encoding="utf-8")
+        self.assertNotIn("_autostart()", net)
+
+
 if __name__ == "__main__":
     unittest.main()

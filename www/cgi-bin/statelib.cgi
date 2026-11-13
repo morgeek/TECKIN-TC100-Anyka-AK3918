@@ -401,7 +401,7 @@ get_sd_usage() {
         ;;
     esac
   done <<EOF
-$(df -k "$_sd_dir" 2>/dev/null | tail -n +2)
+$(df -k "$_sd_dir" 2>/dev/null)
 EOF
 }
 

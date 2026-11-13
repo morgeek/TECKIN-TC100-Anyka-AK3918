@@ -1007,13 +1007,9 @@ if [ -n "$F_cmd" ]; then
       manifest_hostname="$(hostname 2>/dev/null)"
     fi
     [ -n "$manifest_hostname" ] || manifest_hostname="TC100 Camera"
-    manifest_redact="$(truthy_flag "$F_redact")"
+    case "$F_redact" in 1|true|on|yes|enabled|TRUE|YES|ON) manifest_redact=1 ;; *) manifest_redact=0 ;; esac
 
     detect_primary_ip
-
-    manifest_camera_slug="$(slugify_value "$manifest_hostname")"
-    [ -n "$manifest_camera_slug" ] || manifest_camera_slug="$(slugify_value "$(read_conf_value /mnt/config/mqtt.conf MQTT_CLIENT_ID tc100-camera)")"
-    [ -n "$manifest_camera_slug" ] || manifest_camera_slug="tc100_camera"
 
     manifest_web_mode="http"   # fixed: kept in the JSON for Home Assistant consumers
     build_web_base_url "$primary_ip"
@@ -1036,6 +1032,9 @@ if [ -n "$F_cmd" ]; then
     load_conf_file /mnt/config/onvif.conf
     load_conf_file /mnt/config/mqtt.conf
     read_rtsp_stream_summary
+    manifest_camera_slug="$(slugify_value "$manifest_hostname")"
+    [ -n "$manifest_camera_slug" ] || manifest_camera_slug="$(slugify_value "${C_MQTT_CLIENT_ID:-tc100-camera}")"
+    [ -n "$manifest_camera_slug" ] || manifest_camera_slug="tc100_camera"
     rtsp_username="${C_USERNAME:-root}"
     rtsp_password="${C_USERPASSWORD:-pass}"
     case "${C_RTSP_SUBSTREAM:-1}" in 1|true|on|yes|enabled) rtsp_substream_enabled=1 ;; *) rtsp_substream_enabled=0 ;; esac
@@ -1114,46 +1113,46 @@ if [ -n "$F_cmd" ]; then
 
     _read_now_ts
     manifest_time_utc="$(_format_iso8601_utc "$now_ts")"
-    manifest_time_utc_json="$(json_escape "$manifest_time_utc")"
-    manifest_hostname_json="$(json_escape "$manifest_hostname")"
-    manifest_camera_slug_json="$(json_escape "$manifest_camera_slug")"
-    primary_ip_json="$(json_escape "$primary_ip")"
-    web_mode_json="$(json_escape "$manifest_web_mode")"
-    web_base_url_json="$(json_escape "$web_base_url")"
-    web_snapshot_url_json="$(json_escape "$web_snapshot_url")"
-    web_healthsnapshot_url_json="$(json_escape "$web_healthsnapshot_url")"
-    web_manifest_url_json="$(json_escape "$web_manifest_url")"
-    web_motion_events_url_json="$(json_escape "$web_motion_events_url")"
-    web_motion_thumbnail_url_json="$(json_escape "$web_motion_thumbnail_url")"
-    rtsp_username_json="$(json_escape "$rtsp_manifest_username")"
-    rtsp_password_json="$(json_escape "$rtsp_manifest_password")"
-    rtsp_auth_warning_json="$(json_escape "$rtsp_auth_warning")"
-    rtsp_main_url_json="$(json_escape "$rtsp_main_url")"
-    rtsp_sub_url_json="$(json_escape "$rtsp_sub_url")"
-    codec0_json="$(json_escape "$codec0_name")"
-    codec1_json="$(json_escape "$codec1_name")"
-    frigate_record_url_json="$(json_escape "$frigate_record_url")"
-    frigate_detect_url_json="$(json_escape "$frigate_detect_url")"
-    frigate_detect_source_json="$(json_escape "$frigate_detect_source")"
-    onvif_device_service_url_json="$(json_escape "$onvif_device_service_url")"
-    onvif_stream_policy_json="$(json_escape "$onvif_stream_policy_value")"
-    mqtt_broker_host_json="$(json_escape "$mqtt_broker_host")"
-    mqtt_username_json="$(json_escape "$mqtt_manifest_username")"
-    mqtt_password_json="$(json_escape "$mqtt_manifest_password")"
-    mqtt_client_id_json="$(json_escape "$mqtt_client_id")"
-    mqtt_topic_root_json="$(json_escape "$mqtt_topic_root")"
-    mqtt_command_topic_json="$(json_escape "$mqtt_command_topic")"
-    mqtt_discovery_prefix_json="$(json_escape "$mqtt_discovery_prefix")"
-    mqtt_availability_topic_json="$(json_escape "$mqtt_availability_topic")"
-    mqtt_health_topic_json="$(json_escape "$mqtt_health_topic")"
-    mqtt_motion_state_topic_json="$(json_escape "$mqtt_motion_state_topic")"
-    mqtt_event_topic_json="$(json_escape "$mqtt_event_topic")"
-    mqtt_snapshot_last_path_topic_json="$(json_escape "$mqtt_snapshot_last_path_topic")"
-    mqtt_integration_manifest_topic_json="$(json_escape "$mqtt_integration_manifest_topic")"
-    mqtt_integration_selftest_topic_json="$(json_escape "$mqtt_integration_selftest_topic")"
-    mqtt_command_result_topic_json="$(json_escape "$mqtt_command_result_topic")"
-    mqtt_command_last_result_topic_json="$(json_escape "$mqtt_command_last_result_topic")"
-    mqtt_repair_last_result_topic_json="$(json_escape "$mqtt_repair_last_result_topic")"
+    json_esc_to manifest_time_utc_json "$manifest_time_utc"
+    json_esc_to manifest_hostname_json "$manifest_hostname"
+    json_esc_to manifest_camera_slug_json "$manifest_camera_slug"
+    json_esc_to primary_ip_json "$primary_ip"
+    json_esc_to web_mode_json "$manifest_web_mode"
+    json_esc_to web_base_url_json "$web_base_url"
+    json_esc_to web_snapshot_url_json "$web_snapshot_url"
+    json_esc_to web_healthsnapshot_url_json "$web_healthsnapshot_url"
+    json_esc_to web_manifest_url_json "$web_manifest_url"
+    json_esc_to web_motion_events_url_json "$web_motion_events_url"
+    json_esc_to web_motion_thumbnail_url_json "$web_motion_thumbnail_url"
+    json_esc_to rtsp_username_json "$rtsp_manifest_username"
+    json_esc_to rtsp_password_json "$rtsp_manifest_password"
+    json_esc_to rtsp_auth_warning_json "$rtsp_auth_warning"
+    json_esc_to rtsp_main_url_json "$rtsp_main_url"
+    json_esc_to rtsp_sub_url_json "$rtsp_sub_url"
+    json_esc_to codec0_json "$codec0_name"
+    json_esc_to codec1_json "$codec1_name"
+    json_esc_to frigate_record_url_json "$frigate_record_url"
+    json_esc_to frigate_detect_url_json "$frigate_detect_url"
+    json_esc_to frigate_detect_source_json "$frigate_detect_source"
+    json_esc_to onvif_device_service_url_json "$onvif_device_service_url"
+    json_esc_to onvif_stream_policy_json "$onvif_stream_policy_value"
+    json_esc_to mqtt_broker_host_json "$mqtt_broker_host"
+    json_esc_to mqtt_username_json "$mqtt_manifest_username"
+    json_esc_to mqtt_password_json "$mqtt_manifest_password"
+    json_esc_to mqtt_client_id_json "$mqtt_client_id"
+    json_esc_to mqtt_topic_root_json "$mqtt_topic_root"
+    json_esc_to mqtt_command_topic_json "$mqtt_command_topic"
+    json_esc_to mqtt_discovery_prefix_json "$mqtt_discovery_prefix"
+    json_esc_to mqtt_availability_topic_json "$mqtt_availability_topic"
+    json_esc_to mqtt_health_topic_json "$mqtt_health_topic"
+    json_esc_to mqtt_motion_state_topic_json "$mqtt_motion_state_topic"
+    json_esc_to mqtt_event_topic_json "$mqtt_event_topic"
+    json_esc_to mqtt_snapshot_last_path_topic_json "$mqtt_snapshot_last_path_topic"
+    json_esc_to mqtt_integration_manifest_topic_json "$mqtt_integration_manifest_topic"
+    json_esc_to mqtt_integration_selftest_topic_json "$mqtt_integration_selftest_topic"
+    json_esc_to mqtt_command_result_topic_json "$mqtt_command_result_topic"
+    json_esc_to mqtt_command_last_result_topic_json "$mqtt_command_last_result_topic"
+    json_esc_to mqtt_repair_last_result_topic_json "$mqtt_repair_last_result_topic"
 
     printf '{"generated_at_utc":"%s","hostname":"%s","camera_slug":"%s","primary_ip":"%s","web":{"mode":"%s","enabled":%s,"base_url":"%s","snapshot_url":"%s","healthsnapshot_url":"%s","integration_manifest_url":"%s","motion_events_url":"%s","motion_thumbnail_url":"%s"},"rtsp":{"username":"%s","password":"%s","port":%s,"auth_embedded":%s,"auth_warning":"%s","audio_enabled":%s,"substream_enabled":%s,"main":{"path":"video0_unicast","url":"%s","codec":"%s","width":%s,"height":%s,"fps":%s},"sub":{"path":"video1_unicast","url":"%s","codec":"%s","width":%s,"height":%s,"fps":%s},"frigate":{"record_url":"%s","detect_url":"%s","detect_source":"%s"}},"onvif":{"port":%s,"device_service_url":"%s","stream_policy":"%s"},"mqtt":{"enabled":%s,"broker_host":"%s","broker_port":%s,"username":"%s","password":"%s","client_id":"%s","discovery_enabled":%s,"discovery_prefix":"%s","topic_root":"%s","command_topic":"%s","availability_topic":"%s","health_topic":"%s","motion_state_topic":"%s","event_topic":"%s","snapshot_last_path_topic":"%s","integration_manifest_topic":"%s","integration_selftest_topic":"%s","command_result_topic":"%s","command_last_result_topic":"%s","repair_last_result_topic":"%s"}}\n' \
       "$manifest_time_utc_json" "$manifest_hostname_json" "$manifest_camera_slug_json" "$primary_ip_json" \
@@ -1512,7 +1511,7 @@ if [ -n "$F_cmd" ]; then
     # record.retain.days / record.events keys (those are hard config-load
     # failures now). Use cmd=frigateyaml&redact=1 to blank credentials for sharing. The camera password is never written
     # in clear: the URLs carry {FRIGATE_RTSP_PASSWORD}, which Frigate replaces from its environment (audit 2026-11-03).
-    fy_redact="$(truthy_flag "$F_redact")"
+    case "$F_redact" in 1|true|on|yes|enabled|TRUE|YES|ON) fy_redact=1 ;; *) fy_redact=0 ;; esac
     if [ -r /proc/sys/kernel/hostname ]; then
       read -r fy_hostname < /proc/sys/kernel/hostname
     else
@@ -1525,8 +1524,9 @@ if [ -n "$F_cmd" ]; then
     detect_primary_ip
     load_conf_file /mnt/config/rtspserver.conf   # read_rtsp_stream_summary reads the C_* variables it sets
     read_rtsp_stream_summary
-    fy_user="$(read_conf_value /mnt/config/rtspserver.conf USERNAME root)"
-    fy_sub_enabled="$(truthy_flag "$(read_conf_value /mnt/config/boot.conf RTSP_SUBSTREAM 1)")"
+    fy_user="${C_USERNAME:-root}"
+    load_conf_file /mnt/config/boot.conf
+    case "${C_RTSP_SUBSTREAM:-1}" in 1|true|on|yes|enabled|TRUE|YES|ON) fy_sub_enabled=1 ;; *) fy_sub_enabled=0 ;; esac
 
     if [ "$fy_redact" = "1" ]; then
       fy_auth="USERNAME:PASSWORD@"
@@ -1547,17 +1547,19 @@ if [ -n "$F_cmd" ]; then
     fy_detect_fps="$fy_detect_source_fps"
     [ "$fy_detect_fps" -gt 5 ] && fy_detect_fps=5
 
-    fy_mqtt_enabled="$(truthy_flag "$(read_conf_value /mnt/config/mqtt.conf MQTT_ENABLE 0)")"
-    fy_mqtt_host="$(read_conf_value /mnt/config/mqtt.conf MQTT_HOST 127.0.0.1)"
-    fy_mqtt_port="$(sanitize_int "$(read_conf_value /mnt/config/mqtt.conf MQTT_PORT 1883)" 1883)"
-    fy_mqtt_user="$(read_conf_value /mnt/config/mqtt.conf MQTT_USER "")"
+    load_conf_file /mnt/config/mqtt.conf
+    case "${C_MQTT_ENABLE:-0}" in 1|true|on|yes|enabled|TRUE|YES|ON) fy_mqtt_enabled=1 ;; *) fy_mqtt_enabled=0 ;; esac
+    fy_mqtt_host="${C_MQTT_HOST:-127.0.0.1}"
+    fy_mqtt_port="${C_MQTT_PORT:-1883}"
+    case "$fy_mqtt_port" in ''|*[!0-9]*) fy_mqtt_port=1883 ;; esac
+    fy_mqtt_user="${C_MQTT_USER:-}"
 
     printf '# Frigate config for %s (%s)\n' "$fy_hostname" "$fy_slug"
     printf '# Generated by TC100 state.cgi?cmd=frigateyaml. Merge these sections\n'
     printf '# into your Frigate config.yml. Requires Frigate 0.14+.\n'
     printf '#\n'
     printf '# Streams: main=video0_unicast (%sx%s@%s, %s), sub=video1_unicast (%sx%s@%s, %s), substream_enabled=%s\n' \
-      "$width0" "$height0" "$fps0" "$(codec_name "$codec0")" "$width1" "$height1" "$fps1" "$(codec_name "$codec1")" "$fy_sub_enabled"
+      "$width0" "$height0" "$fps0" "$codec0_name" "$width1" "$height1" "$fps1" "$codec1_name" "$fy_sub_enabled"
     if [ "$fy_redact" = "1" ]; then
       printf '# NOTE: credentials redacted — replace USERNAME/PASSWORD below.\n'
     elif [ -n "$fy_user" ]; then

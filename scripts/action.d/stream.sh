@@ -8,20 +8,40 @@
 
     rtsp_server_info)
       # one server, tc100_rtsp; its clients are the established connections to the RTSP port
-      _rs_num() { case "$1" in ''|*[!0-9]*) printf 'null' ;; *) printf '%s' "$1" ;; esac; }
-      _rs_cfg() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" /mnt/config/boot.conf 2>/dev/null | tail -n 1; }
-      _rs_sub="$(_rs_cfg RTSP_SUBSTREAM)"; [ "$_rs_sub" = 0 ] || _rs_sub=1
-      _rs_talk="$(_rs_cfg RTSP_LITE_TALK)"; case "$_rs_talk" in 0|no|off|false) _rs_talk=0 ;; *) _rs_talk=1 ;; esac
+      _rs_sub=1; _rs_talk=""; _rs_idle=""; _rs_after=""; _rs_when=""
+      if [ -r /mnt/config/boot.conf ]; then
+        while IFS= read -r _rs_l || [ -n "$_rs_l" ]; do
+          case "$_rs_l" in
+            RTSP_SUBSTREAM=*|RTSP_LITE_TALK=*|IDLE_FPS=*|IDLE_AFTER=*|IDLE_WHEN=*)
+              _rs_v="${_rs_l#*=}"; _rs_v="${_rs_v#\"}"; _rs_v="${_rs_v%\"}"
+              case "$_rs_l" in
+                RTSP_SUBSTREAM=*) _rs_sub="$_rs_v" ;;
+                RTSP_LITE_TALK=*) _rs_talk="$_rs_v" ;;
+                IDLE_FPS=*) _rs_idle="$_rs_v" ;;
+                IDLE_AFTER=*) _rs_after="$_rs_v" ;;
+                IDLE_WHEN=*) _rs_when="$_rs_v" ;;
+              esac ;;
+          esac
+        done < /mnt/config/boot.conf
+      fi
+      [ "$_rs_sub" = 0 ] || _rs_sub=1
+      case "$_rs_talk" in 0|no|off|false) _rs_talk=0 ;; *) _rs_talk=1 ;; esac
       _rs_port="$(LD_LIBRARY_PATH=/mnt/lib /mnt/bin/rwconf /mnt/config/rtspserver.conf r " " PORT 2>/dev/null)"
       case "$_rs_port" in ''|*[!0-9]*) _rs_port=554 ;; esac
       _rs_hex="$(printf '%04X' "$_rs_port")"
-      _rs_clients="$(awk -v p=":$_rs_hex" 'NR > 1 && $4 == "01" && substr($2, length($2) - 4) == p { n++ } END { print n + 0 }' /proc/net/tcp 2>/dev/null)"
-      _rs_idle="$(_rs_cfg IDLE_FPS)"; case "$_rs_idle" in ''|*[!0-9]*) _rs_idle=0 ;; esac
-      _rs_after="$(_rs_cfg IDLE_AFTER)"; case "$_rs_after" in ''|*[!0-9]*) _rs_after=10 ;; esac
+      _rs_clients=null
+      if [ -r /proc/net/tcp ]; then
+        _rs_clients=0
+        while read -r _rs_sl _rs_loc _rs_rem _rs_st _rs_rest; do
+          [ "$_rs_st" = "01" ] && case "$_rs_loc" in *":$_rs_hex") _rs_clients=$((_rs_clients + 1)) ;; esac
+        done < /proc/net/tcp
+      fi
+      case "$_rs_idle" in ''|*[!0-9]*) _rs_idle=0 ;; esac
+      case "$_rs_after" in ''|*[!0-9]*) _rs_after=10 ;; esac
       _rs_md=0; [ -e /tmp/tc100_md ] && _rs_md=1
-      _rs_when="$(_rs_cfg IDLE_WHEN)"; case "$_rs_when" in unwatched|night) ;; *) _rs_when=still ;; esac
+      case "$_rs_when" in unwatched|night) ;; *) _rs_when=still ;; esac
       printf '{"ok":true,"server":"tc100_rtsp","substream":%s,"talk":%s,"port":%s,"clients":%s,"idle_fps":%s,"idle_after":%s,"idle_when":"%s","motion_detection":%s}\n' \
-        "$_rs_sub" "$_rs_talk" "$_rs_port" "$(_rs_num "$_rs_clients")" "$_rs_idle" "$_rs_after" "$_rs_when" "$_rs_md"
+        "$_rs_sub" "$_rs_talk" "$_rs_port" "$_rs_clients" "$_rs_idle" "$_rs_after" "$_rs_when" "$_rs_md"
     ;;
 
     set_rtsp_server)
@@ -30,7 +50,15 @@
       _rs_talk="$(normalize_bool "${F_rtsp_talk:-0}")"
       install_config /mnt/config/boot.conf
       # the sub-stream is chosen when tc100_rtsp starts; two-way audio (RTSP_LITE_TALK) is read while it runs
-      _rs_old_sub="$(sed -n 's/^RTSP_SUBSTREAM="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /mnt/config/boot.conf 2>/dev/null | tail -n 1)"
+      _rs_old_sub=""; _rs_has_iw=0
+      if [ -r /mnt/config/boot.conf ]; then
+        while IFS= read -r _rs_l || [ -n "$_rs_l" ]; do
+          case "$_rs_l" in
+            RTSP_SUBSTREAM=*) _rs_old_sub="${_rs_l#*=}"; _rs_old_sub="${_rs_old_sub#\"}"; _rs_old_sub="${_rs_old_sub%\"}" ;;
+            IDLE_WHEN=*) _rs_has_iw=1 ;;
+          esac
+        done < /mnt/config/boot.conf
+      fi
       case "$_rs_old_sub" in 0|no|off|false) _rs_old_sub=0 ;; *) _rs_old_sub=1 ;; esac
       rewrite_config /mnt/config/boot.conf RTSP_SUBSTREAM "$_rs_sub"
       rewrite_config /mnt/config/boot.conf RTSP_LITE_TALK "$_rs_talk"
@@ -41,7 +69,7 @@
       fi
       if [ -n "${F_rtsp_idle_when}" ]; then   # item 31: when the lower rate applies
         case "${F_rtsp_idle_when}" in unwatched|night) _rs_w="${F_rtsp_idle_when}" ;; *) _rs_w=still ;; esac
-        grep -q '^IDLE_WHEN=' /mnt/config/boot.conf 2>/dev/null || echo "IDLE_WHEN=still" >> /mnt/config/boot.conf
+        [ "$_rs_has_iw" = 1 ] || echo "IDLE_WHEN=still" >> /mnt/config/boot.conf
         rewrite_config /mnt/config/boot.conf IDLE_WHEN "$_rs_w"
       fi
       if [ "$_rs_old_sub" != "$_rs_sub" ]; then

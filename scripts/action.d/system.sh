@@ -509,7 +509,10 @@
                 fi
             else
                 # Limit to 10 presets
-                preset_count=$(find "$presets_dir" -maxdepth 1 -name '*.json' 2>/dev/null | wc -l)
+                preset_count=0
+                for _pf in "$presets_dir"/*.json; do
+                  [ -f "$_pf" ] && preset_count=$((preset_count + 1))
+                done
                 preset_file="$presets_dir/$preset_name.json"
 
                 if [ -f "$preset_file" ]; then

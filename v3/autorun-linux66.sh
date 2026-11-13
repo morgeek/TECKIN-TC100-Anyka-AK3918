@@ -314,7 +314,9 @@ fi
 # 9. Day/night. The IR-cut coil is pulsed once to the position the state file says (day after boot), then the
 #    automatic switching starts unless it was switched off (Services, or "Day" / "Night" under the picture:
 #    no config/autostart/auto-night-detection, or daynight=3 in rtspserver.conf).
-sh /mnt/bin/setconf -k e -v "$(cat /var/run/ircut 2>/dev/null || echo 1)" </dev/null >/dev/null 2>&1
+_ic=""
+[ -r /var/run/ircut ] && read -r _ic < /var/run/ircut 2>/dev/null
+sh /mnt/bin/setconf -k e -v "${_ic:-1}" </dev/null >/dev/null 2>&1
 DN=
 if [ -r /mnt/config/rtspserver.conf ]; then
   while IFS='=' read -r _k _v; do [ "$_k" = daynight ] && { DN=$_v; break; }; done < /mnt/config/rtspserver.conf
@@ -358,7 +360,9 @@ fi
 #      then every hour. The time zone comes from config/timezone.conf (Services/Système page).
 #      ENABLE_NTP=0 in boot.conf turns it off.
 if [ "$BC_ENABLE_NTP" != 0 ]; then
-  S=$(head -n 1 /mnt/config/ntp_srv.conf 2>/dev/null); [ -n "$S" ] || S=pool.ntp.org
+  S=""
+  [ -r /mnt/config/ntp_srv.conf ] && read -r S < /mnt/config/ntp_srv.conf 2>/dev/null
+  [ -n "$S" ] || S=pool.ntp.org
   ntpd -p "$S" </dev/null >/dev/null 2>&1 &
   # NTP blocked (UDP 123): the Date header of the router's web page after 2 minutes (scripts/time-fallback.sh,
   # TIME_HTTP_FALLBACK=0 turns it off)
@@ -489,16 +493,33 @@ esac
     [ -n "$IP" ] && [ "$IP" != 10.42.0.1 ] && break
     IP=; sleep 5; i=$((i + 1))
   done
-  grep -q ' /mnt/sd vfat ' /proc/mounts || exit 0
+  _sd_on=0
+  while read -r _m_dev _m_mp _m_fs _; do
+    [ "$_m_mp $_m_fs" = "/mnt/sd vfat" ] && { _sd_on=1; break; }
+  done < /proc/mounts
+  [ "$_sd_on" = 1 ] || exit 0
   mkdir -p /mnt/sd/tc100-3
+  _ver=""; [ -r /mnt/VERSION ] && read -r _ver < /mnt/VERSION 2>/dev/null
   if [ -n "$IP" ]; then
+    [ -r /proc/sys/kernel/hostname ] && read -r _ahost < /proc/sys/kernel/hostname 2>/dev/null || _ahost="$(hostname)"
     printf 'TC100 %s\r\nWeb page: http://%s/  (or http://%s/)\r\nRTSP: rtsp://%s:554/video0_unicast\r\nWritten %s\r\n' \
-      "$(cat /mnt/VERSION 2>/dev/null)" "$IP" "$(hostname)" "$IP" "$(date '+%Y-%m-%d %H:%M')"
+      "$_ver" "$IP" "${_ahost:-$(hostname)}" "$IP" "$(date '+%Y-%m-%d %H:%M')"
   else
     S=$(sh /mnt/scripts/wifi-rescue.sh status 2>/dev/null)
-    printf 'TC100 %s: no Wi-Fi network after 12 minutes (wrong or missing wifi.txt?).\r\n' "$(cat /mnt/VERSION 2>/dev/null)"
+    _wr_ssid=""; _wr_psk=""
+    _wr_nl='
+'
+    _wr_oifs="$IFS"; IFS="$_wr_nl"; set -f
+    for _wr_l in $S; do
+      case "$_wr_l" in
+        ssid=*) _wr_ssid="${_wr_l#ssid=}" ;;
+        psk=*) _wr_psk="${_wr_l#psk=}" ;;
+      esac
+    done
+    set +f; IFS="$_wr_oifs"
+    printf 'TC100 %s: no Wi-Fi network after 12 minutes (wrong or missing wifi.txt?).\r\n' "$_ver"
     printf 'Connect a phone or computer to the camera'"'"'s own Wi-Fi:\r\n  name: %s\r\n  password: %s\r\n' \
-      "$(echo "$S" | sed -n 's/^ssid=//p')" "$(echo "$S" | sed -n 's/^psk=//p')"
+      "$_wr_ssid" "$_wr_psk"
     printf 'then open http://10.42.0.1/ and set the Wi-Fi in Settings -> Network.\r\n'
     printf 'Or: power off, put a wifi.txt (SSID=..., PASSWORD=...) at the root of this card, power on.\r\n'
   fi > /mnt/sd/tc100-3/ADRESSE.txt

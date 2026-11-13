@@ -175,43 +175,56 @@ if type install_config >/dev/null 2>&1; then
   install_config /mnt/config/telnetd.conf
 fi
 
-read_cfg() {
-  conf="$1"
-  key="$2"
-  fallback="$3"
+read_cfg_to() {
+  _rc_out="$1"
+  _rc_conf="$2"
+  _rc_key="$3"
+  _rc_fallback="$4"
 
-  value=""
-  if type read_config >/dev/null 2>&1; then
-    value="$(read_config "$conf" "$key" 2>/dev/null)"
-  fi
-  if [ -z "$value" ] && [ -r "/mnt/config/$conf" ]; then
+  _rc_value=""
+  if [ -r "/mnt/config/$_rc_conf" ]; then
     while IFS= read -r _rc_l || [ -n "$_rc_l" ]; do
       case "$_rc_l" in
-        "${key}="*) value="${_rc_l#*=}"; break ;;
+        \[*\]) break ;;
+        "${_rc_key}="*) _rc_value="${_rc_l#*=}" ;;
       esac
-    done < "/mnt/config/$conf"
+    done < "/mnt/config/$_rc_conf"
+  fi
+  if [ -z "$_rc_value" ] && type read_config >/dev/null 2>&1; then
+    _rc_value="$(read_config "$_rc_conf" "$_rc_key" 2>/dev/null)"
   fi
   while :; do
-    case "$value" in
-      [[:space:]]*) value="${value#?}" ;;
-      *[[:space:]]) value="${value%?}" ;;
+    case "$_rc_value" in
+      [[:space:]]*) _rc_value="${_rc_value#?}" ;;
+      *[[:space:]]) _rc_value="${_rc_value%?}" ;;
       *) break ;;
     esac
   done
-  [ -n "$value" ] || value="$fallback"
-  printf '%s\n' "$value"
+  [ -n "$_rc_value" ] || _rc_value="$_rc_fallback"
+  eval "$_rc_out=\$_rc_value"
+}
+
+read_cfg() {
+  read_cfg_to _rc_res "$1" "$2" "$3"
+  printf '%s\n' "$_rc_res"
+}
+
+sanitize_port_to() {
+  _sp_out="$1"
+  _sp_val="$2"
+  _sp_fallback="$3"
+  case "$_sp_val" in
+    ''|*[!0-9]*) _sp_val="$_sp_fallback" ;;
+  esac
+  if [ "$_sp_val" -lt 1 ] || [ "$_sp_val" -gt 65535 ]; then
+    _sp_val="$_sp_fallback"
+  fi
+  eval "$_sp_out=\$_sp_val"
 }
 
 sanitize_port() {
-  value="$1"
-  fallback="$2"
-  case "$value" in
-    ''|*[!0-9]*) value="$fallback" ;;
-  esac
-  if [ "$value" -lt 1 ] || [ "$value" -gt 65535 ]; then
-    value="$fallback"
-  fi
-  printf '%s\n' "$value"
+  sanitize_port_to _sp_res "$1" "$2"
+  printf '%s\n' "$_sp_res"
 }
 
 to_lower_ascii() {
@@ -315,9 +328,9 @@ emit_port_row() {
   note="$4"
 
   if is_port_open_tcp "$port"; then
-    runtime_state="open"
+    _epr_badge="<span class='services-status-tag is-running'>OPEN</span>"
   else
-    runtime_state="closed"
+    _epr_badge="<span class='services-status-tag is-stopped'>CLOSED</span>"
   fi
 
   expected_label="optional"
@@ -327,15 +340,15 @@ emit_port_row() {
     expected_label="disabled"
   fi
 
-  printf "<tr><td>%s</td><td>%s/tcp</td><td>%s</td><td>%s</td><td>%s</td></tr>\n" \
-    "$service_name" "$port" "$(status_badge "$runtime_state")" "$expected_label" "$note"
+  open_ports_rows="${open_ports_rows}<tr><td>${service_name}</td><td>${port}/tcp</td><td>${_epr_badge}</td><td>${expected_label}</td><td>${note}</td></tr>
+"
 }
 
-rtsp_port="$(sanitize_port "$(read_cfg rtspserver.conf PORT 554)" 554)"
-onvif_port="$(sanitize_port "$(read_cfg onvif.conf ONVIF_PORT 8081)" 8081)"
-ftp_port="$(sanitize_port "$(read_cfg ftp.conf PORT 21)" 21)"
-telnet_port="$(sanitize_port "$(read_cfg telnetd.conf TELNET_PORT 23)" 23)"
-security_hardening_mode="$(read_cfg boot.conf SECURITY_HARDENING_MODE 0)"
+read_cfg_to _nc_v rtspserver.conf PORT 554; sanitize_port_to rtsp_port "$_nc_v" 554
+read_cfg_to _nc_v onvif.conf ONVIF_PORT 8081; sanitize_port_to onvif_port "$_nc_v" 8081
+read_cfg_to _nc_v ftp.conf PORT 21; sanitize_port_to ftp_port "$_nc_v" 21
+read_cfg_to _nc_v telnetd.conf TELNET_PORT 23; sanitize_port_to telnet_port "$_nc_v" 23
+read_cfg_to security_hardening_mode boot.conf SECURITY_HARDENING_MODE 0
 
 # The camera serves the web UI over plain HTTP on port 80 only (HTTPS: reverse proxy on the owner network).
 http_port=80
@@ -345,10 +358,9 @@ http_note="Web UI (plain HTTP)"
 # A port is "expected" open only when its service starts at boot; otherwise
 # it is "optional" (ONVIF/FTP/Telnet were always "expected", so a stopped
 # optional service read as a fault).
-_autostart() { [ -e "/mnt/config/autostart/$1" ] && echo 1 || echo ""; }
-onvif_expected="$(_autostart onvif)"
-ftp_expected="$(_autostart ftp-server)"
-telnet_expected="$(_autostart telnet-server)"
+onvif_expected=""; [ -e "/mnt/config/autostart/onvif" ] && onvif_expected=1
+ftp_expected=""; [ -e "/mnt/config/autostart/ftp-server" ] && ftp_expected=1
+telnet_expected=""; [ -e "/mnt/config/autostart/telnet-server" ] && telnet_expected=1
 ftp_note="File transfer service"
 telnet_note="Shell access service"
 if is_truthy_local "$security_hardening_mode"; then
@@ -358,14 +370,12 @@ if is_truthy_local "$security_hardening_mode"; then
   telnet_note="Blocked by SECURITY_HARDENING_MODE=1"
 fi
 
-open_ports_rows="$(cat <<EOF
-$(emit_port_row "HTTP web UI" "$http_port" "$http_expected" "$http_note")
-$(emit_port_row "RTSP" "$rtsp_port" 1 "Main/sub streams")
-$(emit_port_row "ONVIF" "$onvif_port" "$onvif_expected" "NVR/Home Assistant discovery")
-$(emit_port_row "FTP" "$ftp_port" "$ftp_expected" "$ftp_note")
-$(emit_port_row "Telnet" "$telnet_port" "$telnet_expected" "$telnet_note")
-EOF
-)"
+open_ports_rows=""
+emit_port_row "HTTP web UI" "$http_port" "$http_expected" "$http_note"
+emit_port_row "RTSP" "$rtsp_port" 1 "Main/sub streams"
+emit_port_row "ONVIF" "$onvif_port" "$onvif_expected" "NVR/Home Assistant discovery"
+emit_port_row "FTP" "$ftp_port" "$ftp_expected" "$ftp_note"
+emit_port_row "Telnet" "$telnet_port" "$telnet_expected" "$telnet_note"
 
 # ── interfaces ────────────────────────────────────────────────────────────────
 interfaces_text="$(with_timeout 5 ifconfig 2>/dev/null)"

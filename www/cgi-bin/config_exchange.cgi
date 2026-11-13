@@ -360,7 +360,8 @@ _ce_build_rows() {
 # Values come from /mnt/config (a key missing there falls back to the .dist file; a key found nowhere is left out).
 # include_secrets=1 (F_include_secrets) adds the rows of category credential.
 _ce_export() {
-  _ce_row_table | LC_ALL=C awk -v root="$CONFIG_ROOT" -v inc="$(_ce_truthy "${F_include_secrets:-0}")" '
+  case "${F_include_secrets:-0}" in 1|true|on|yes|enabled) _ce_inc=1 ;; *) _ce_inc=0 ;; esac
+  _ce_row_table | LC_ALL=C awk -v root="$CONFIG_ROOT" -v inc="$_ce_inc" '
     function strip(v) {
       if (length(v) >= 2 && ((substr(v, 1, 1) == "\"" && substr(v, length(v), 1) == "\"") || (substr(v, 1, 1) == "\047" && substr(v, length(v), 1) == "\047")))
         v = substr(v, 2, length(v) - 2)
@@ -558,8 +559,8 @@ _ce_import() {
   LC_ALL=C awk -v require=object -f "$JSONFLAT" "$_ce_json" > "$_ce_flat" 2>/dev/null || _ce_fail "Malformed JSON configuration" "INVALID_JSON"
   _ce_build_rows || _ce_fail "Unsupported JSON values" "INVALID_JSON"
 
-  _ce_exclude_network="$(_ce_truthy "${F_exclude_network:-0}")"
-  _ce_exclude_credentials="$(_ce_truthy "${F_exclude_credentials:-0}")"
+  case "${F_exclude_network:-0}" in 1|true|on|yes|enabled) _ce_exclude_network=1 ;; *) _ce_exclude_network=0 ;; esac
+  case "${F_exclude_credentials:-0}" in 1|true|on|yes|enabled) _ce_exclude_credentials=1 ;; *) _ce_exclude_credentials=0 ;; esac
   _ce_files=""; _ce_values=0; _ce_skipped=0; _ce_wifi=0; _ce_pw=0; _ce_wifi_changed=0; _ce_pw_value=""
   while IFS='|' read -r _ce_rel _ce_mode _ce_section _ce_key _ce_type _ce_category _ce_encoded; do
     [ -n "$_ce_rel" ] || continue
@@ -713,8 +714,9 @@ _ce_restore() {
     ( sleep 3; . /mnt/scripts/common_functions.sh; all_password "$_rs_pw" ) >/dev/null 2>&1 &
   fi
   [ "$(_ce_wc)" = "$_rs_wc_old" ] || ( sh /mnt/scripts/wifi-country.sh apply </dev/null >/dev/null 2>&1 & )
+  set -f; set -- $_rs_files $_rs_marks; set +f
   printf '{"ok":true,"files":%d,"changed_files":%d,"note":"ssh keys and the host name take effect at the next restart"}\n' \
-    "$(echo $_rs_files $_rs_marks | wc -w)" "$_rs_changed"
+    "$#" "$_rs_changed"
 }
 
 case "$F_cmd" in
@@ -748,7 +750,7 @@ case "$F_cmd" in
     _ce_now="$(date +%Y%m%d_%H%M%S)"
     output_json_header
     _ce_tag=""
-    [ "$(_ce_truthy "${F_include_secrets:-0}")" = 1 ] && _ce_tag="_with_secrets"
+    case "${F_include_secrets:-0}" in 1|true|on|yes|enabled) _ce_tag="_with_secrets" ;; esac
     echo "Content-Disposition: attachment; filename=tc100_config_${_ce_now}${_ce_tag}.json"
     echo ""
     _ce_export
@@ -779,7 +781,9 @@ case "$F_cmd" in
     _target="${_target%/}"
 
     # Validate target host/IP format (IPv4 or hostname:port)
-    _thost="$(printf '%s' "$_target" | sed -E 's#^https?://([^/:]+).*#\1#')"
+    _thost="${_target#http://}"
+    _thost="${_thost#https://}"
+    _thost="${_thost%%[:/]*}"
     case "$_thost" in
       ''|*[!a-zA-Z0-9.-]*)
         json_body_err "INVALID_TARGET" "Invalid target address"
@@ -816,7 +820,13 @@ case "$F_cmd" in
         printf '{"ok":false,"error":"The target camera refused the user or password"}\n'
         exit 0 ;;
     esac
-    _tok="$(printf '%s' "$_tok_resp" | sed -n 's/.*"csrf_token":"\([0-9a-fA-F]*\)".*/\1/p' | head -n 1)"
+    _tok=""
+    case "$_tok_resp" in
+      *'"csrf_token":"'*)
+        _tok="${_tok_resp#*\"csrf_token\":\"}"
+        _tok="${_tok%%\"*}"
+        case "$_tok" in *[!0-9a-fA-F]*) _tok="" ;; esac ;;
+    esac
     if [ "$_tok_ret" -ne 0 ] || [ -z "$_tok" ]; then
       rm -f "$_push_tmp" 2>/dev/null
       printf '{"ok":false,"error":"The target camera did not answer (code %d) or is not a TC100 with a recent firmware"}\n' "$_tok_ret"
