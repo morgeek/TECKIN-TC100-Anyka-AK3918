@@ -4002,3 +4002,16 @@ smart on (rc40 setting). Overflow counter 3895 before the reboot (from the owner
   night (high gain), not with the unit or the frame rate alone: the `auto` rule (3D-NR only at <= 15 fps) is the wrong
   way round for this data. fps / main size restored (25, 1080); `NR3D=1` left on the .11 for tonight's measurement (at
   night the low-light mode drops to 10 fps; a forced 25 fps run at night is scheduled on the .24).
+
+### Night 2026-11-13/14, .24 (rc41, `vendor`, `AWB_DAY_CNT=200000`, `NR3D=1`; checked 23:36-23:48 UTC)
+- **`AWB_DAY_CNT=200000`, evening: as wanted.** 19:48-23:18 UTC a dimly lit room (luma 42-58, lum 22 783-34 175,
+  counts **390 000-618 000**): day mode kept, colour (owner's rule: colour while there is light). Lamps on before that:
+  counts 470 000-1 856 000, day. **23:28 UTC night** when the room went dark (lum 2902, counts 21 185, then 17 277 under
+  IR): one switch, no bounce. The lowest dim-lamp count (390 000) stays twice above the 200 000 threshold; the dark room
+  of 2026-11-12 (60-66 k) is far below.
+- **NR3D-02 at night: +0 overflow in 10 min at 10 fps** (NR3D=1 all day: `nr3d_overflow=0` since 09:52 UTC; 6068
+  frames, 0 dropped, 647 kbit/s VBR). **A night at 25 fps cannot be forced with `RTSP_LOWLIGHT_FPS=0`:** the night ISP
+  parameter set has its own sensor rate (10 fps, exposure up to 2812 lines; tc100_rtsp.c `lowlight_check`: "not at
+  night (the night set has its own rate)"). rtsp.env restored (backup `rtsp.env.bak-nr3d25n`), service restarted,
+  client back. So the .11 overflows of 2026-11-12 night "at 25 fps" were not in the night parameter set: to be traced
+  (day set in the dark? manual fps?) before changing the `auto` rule.
