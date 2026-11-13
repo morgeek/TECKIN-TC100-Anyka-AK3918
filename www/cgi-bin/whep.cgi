@@ -30,14 +30,24 @@ whep_enabled()
   return 0
 }
 
-# the daemon runs: its pid file names a live process (shell built-ins only, this is polled)
-_pid=""
+# the daemon runs: its pid file names a live process that really is tc100-whep (a pid reused after the daemon's idle exit
+# does not count; the stale file is removed). Shell built-ins only, this is polled.
+whep_alive()
+{
+  _pid=""
+  [ -r /var/run/whep.pid ] && read -r _pid < /var/run/whep.pid 2>/dev/null
+  case "$_pid" in ''|*[!0-9]*) return 1 ;; esac
+  if kill -0 "$_pid" 2>/dev/null; then
+    _comm=""
+    read -r _comm < "/proc/$_pid/comm" 2>/dev/null
+    [ "$_comm" = tc100-whep ] && return 0
+  fi
+  rm -f /var/run/whep.pid
+  return 1
+}
+
 _alive=0
-[ -r /var/run/whep.pid ] && read -r _pid < /var/run/whep.pid 2>/dev/null
-case "$_pid" in
-  ''|*[!0-9]*) ;;
-  *) kill -0 "$_pid" 2>/dev/null && _alive=1 ;;
-esac
+whep_alive && _alive=1
 
 if [ "$_alive" = 0 ]; then
   case "$QUERY_STRING" in stop=*) reply 503 "Service Unavailable" application/json '{"enabled":0}' ;; esac
@@ -48,10 +58,7 @@ if [ "$_alive" = 0 ]; then
       ;;
     POST)
       sh /mnt/controlscripts/whep start >/dev/null 2>&1 || true
-      _pid=""
-      [ -r /var/run/whep.pid ] && read -r _pid < /var/run/whep.pid 2>/dev/null
-      case "$_pid" in ''|*[!0-9]*) reply 503 "Service Unavailable" application/json '{"enabled":0}' ;; esac
-      kill -0 "$_pid" 2>/dev/null || reply 503 "Service Unavailable" application/json '{"enabled":0}'
+      whep_alive || reply 503 "Service Unavailable" application/json '{"enabled":0}'
       ;;
     *)
       reply 503 "Service Unavailable" application/json '{"enabled":0}'

@@ -1016,10 +1016,24 @@ static void isp_bases_reset(void)
 	awb_fd = -1; awb_hw = -1; tune_dirty = 1;
 }
 
-static void nr3d_auto_sync(int want)
+/* the sensor frame rate in use: the stream rate, the 10 fps of the accepted night parameter set, or the low-light rate */
+static int cap_fps_now(void)
+{
+	int base = stream_fps > 0 && stream_fps < 25 ? stream_fps : 25, f = base;
+
+	if (bw_want && night_style == 1) f = 10;
+	else if (lowlight_on) f = lowlight_fps;
+	return f < base ? f : base;
+}
+
+/* 3D-NR overflows the DRAM bus at 25 fps (NR3D-01: ~25 overflows/s, 0 at 15 fps): in auto mode it is on only at night
+ * or in low light AND when the capture rate in use is <= 15 fps (the night set refused, NIGHT_STYLE=0 or a 20 fps
+ * low-light rate keep it off) */
+static void nr3d_auto_sync(void)
 {
 	static int en = -1, cur = -1;
-	int fd, n;
+	int fd, n, fps = cap_fps_now(), dim = bw_want || lowlight_on;
+	int want = dim && fps <= 15 ? 1 : 0;
 
 	if (en < 0) {
 		const char *e = getenv("RTSP_NR3D_AUTO");
@@ -1036,7 +1050,8 @@ static void nr3d_auto_sync(int want)
 		return;
 	}
 	cur = want;
-	LOG("3D-NR auto: %s\n", want ? "on (night/low-light)" : "off (day)");
+	LOG("3D-NR auto: %s (%s, %d fps%s)\n", want ? "on" : "off", dim ? (bw_want ? "night" : "low light") : "day", fps,
+	    want || !dim ? "" : ": above 15 fps the DRAM bus overflows");
 }
 
 static void style_switch(int night)
@@ -1054,7 +1069,7 @@ static void style_switch(int night)
 	isp_bases_reset();
 	lowlight_on = 0;
 	if (!night) sensor_fps_want = stream_fps;
-	nr3d_auto_sync(night ? 1 : 0);
+	nr3d_auto_sync();
 }
 
 /* R12-02: by day in low light the stock app drops the sensor to 10 fps and lets the exposure run 2.5 x longer
@@ -1117,7 +1132,7 @@ static void ispx_ae_report(double tn)
 	memset(&r, 0, sizeof r);
 	if (ioctl(ispx_fd, ISP_GET_AE_RUN_INFO, &r) < 0) return;
 	lowlight_check(tn, &r);
-	nr3d_auto_sync((bw_want || (lowlight_on && lowlight_fps <= 15)) ? 1 : 0);
+	nr3d_auto_sync();
 	{
 		unsigned int a[AE_WORDS];
 		unsigned int mx = ioctl(ispx_fd, ISP_GET_AE, a) == 0 ? a[0] : 0;	/* 7th field: the exposure limit now (R12-03) */
@@ -1972,13 +1987,29 @@ static int qflush(struct cli *c)
 static int pacing_us;	/* RTSP_PACING_US: delay in us after sending each UDP packet/batch to smooth IDR burst */
 static int sndbuf_kb;	/* RTSP_SNDBUF: socket SO_SNDBUF in KB (e.g. 32 to 64 KB to limit Wi-Fi driver queuing) */
 
+#define UDP_IDR_MIN_S 2.0	/* at most one IDR request per stream every 2 s caused by UDP backpressure */
+
+/* The client waits for the next IDR, natural or requested. The request itself is rate-limited per stream: if an IDR is
+ * bigger than the socket buffer every IDR would hit the backpressure again and every frame would become an IDR for
+ * all the clients of the stream (the UDP client never plays). 1 = ask the encoder now */
+static int udp_idr_ok(int si)
+{
+	static double idr_req_t[2];
+	double tn = now_s();
+
+	if (si != 0 && si != 1) return 0;
+	if (idr_req_t[si] != 0.0 && tn - idr_req_t[si] < UDP_IDR_MIN_S) return 0;
+	idr_req_t[si] = tn;
+	return 1;
+}
+
 /* Transient UDP backpressure (full qdisc/SNDBUF during Wi-Fi stalls): drop without blocking capture or killing the client */
 static int udp_err_ok(struct cli *c)
 {
 	if (errno != EAGAIN && errno != EWOULDBLOCK && errno != ENOBUFS)
 		return 0;
 	if (c && !c->wait_idr) {
-		c->wait_idr = 1; want_idr(c->si);
+		c->wait_idr = 1; if (udp_idr_ok(c->si)) want_idr(c->si);
 		c->dropped++;
 	}
 	return 1;
@@ -2333,6 +2364,10 @@ static int sg_pkt(struct cli *c, uint32_t ts, int marker, const unsigned char *f
 	uint32_t ssrc = S[c->si].ssrc;
 	unsigned char th[4 + 16], *h;
 	int k = 0;
+
+	/* a UDP client in wait_idr (backpressure) gets no more packets of this frame: they would only feed the congestion,
+	 * the picture is lost until the next IDR (what was already collected is still flushed) */
+	if (!c->tcp && c->wait_idr) return 0;
 
 	if (c->tcp) {
 		h = th + 4;

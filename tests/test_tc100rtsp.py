@@ -1692,6 +1692,32 @@ class Sources(unittest.TestCase):
             s = re.sub(r'/\*.*?\*/|//[^\n]*', '', (SRC / name).read_text(), flags=re.S)  # code only
             self.assertIsNone(re.search(r'\b(sscanf|fscanf|strtol|strtoul|atoi|atol|log10|sqrt|lrint)\s*\(', s), name)
 
+    def test_udp_backpressure_idr_request_is_rate_limited(self):
+        """UDP EAGAIN: the client waits for an IDR, but the encoder is asked for one at most every UDP_IDR_MIN_S per stream;
+        sg_pkt stops queuing the rest of a frame for a UDP client in wait_idr (TCP unchanged)"""
+        s = (SRC / 'tc100_rtsp.c').read_text()
+        m = re.search(r'static int udp_err_ok\(struct cli \*c\)\n\{.*?\n\}\n', s, flags=re.S)
+        self.assertIsNotNone(m)
+        body = m.group(0)
+        self.assertIn('c->wait_idr = 1; if (udp_idr_ok(c->si)) want_idr(c->si);', body)
+        self.assertEqual(body.count('want_idr('), 1)
+        m2 = re.search(r'static int udp_idr_ok\(int si\)\n\{.*?\n\}\n', s, flags=re.S)
+        self.assertIsNotNone(m2)
+        self.assertIn('UDP_IDR_MIN_S', m2.group(0))
+        self.assertRegex(s, r'#define UDP_IDR_MIN_S\s+[0-9.]+')
+        m = re.search(r'static int sg_pkt\(.*?\n\{.*?\n\tif \(c->tcp\) \{', s, flags=re.S)
+        self.assertIsNotNone(m)
+        self.assertIn('if (!c->tcp && c->wait_idr) return 0;', m.group(0))
+
+    def test_nr3d_auto_needs_capture_fps_at_most_15(self):
+        s = (SRC / 'tc100_rtsp.c').read_text()
+        m = re.search(r'static void nr3d_auto_sync\(void\)\n\{.*?\n\}\n', s, flags=re.S)
+        self.assertIsNotNone(m)
+        self.assertRegex(m.group(0), r'want = dim && fps <= 15')
+        self.assertIn('fps = cap_fps_now()', m.group(0))
+        self.assertEqual(len(re.findall(r'nr3d_auto_sync\(', s)), 3)  # definition + the two callers, no argument
+        self.assertNotIn('nr3d_auto_sync(night', s)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -56,10 +56,12 @@ Rules that apply to every entry:
 
 - **What:** `src/tc100rtsp/tc100_rtsp.c` now passes `MSG_DONTWAIT | MSG_NOSIGNAL` on UDP `sendto`/`sendmsg`/`sendmmsg` (video, audio, and `RTSP_UDPSG=1`). On transient `EAGAIN`/`EWOULDBLOCK`/`ENOBUFS` (e.g. during a Wi-Fi stall), video marks `wait_idr` + `want_idr` and increments `c->dropped` once instead of blocking capture or closing the client.
 - **Test:** Stream UDP RTSP (`rtsp://.../stream0`) during a Wi-Fi disturbance or rate-limited link; verify `STAT` shows `dropped` incrementing without killing the UDP client or stalling `cap` fps.
+- **Fix (rc42, `[rtsp-udp-nb]`):** the IDR request caused by UDP backpressure is rate-limited to one per stream every 2 s (`UDP_IDR_MIN_S`); the client still waits for the next IDR, natural or requested. Before, an IDR larger than the socket buffer (small `RTSP_SNDBUF`) made every frame an IDR for all clients of the stream. `sg_pkt` also stops queuing the rest of a frame for a UDP client in `wait_idr`. TCP clients unchanged. Extra check: with a small `RTSP_SNDBUF` and a UDP client, the encoder must not switch to all-IDR (frame sizes in `STAT`).
 
 ### WHEP-ONDEMAND start `tc100-whep` on demand (`[whep]`) — `to test`
 
 - **What (`H10`):** `v3/autorun-linux66.sh` no longer starts `whep` at boot. When `WHEP!=0` in `boot.conf` and `/mnt/ext/bin/tc100-whep` is present, `www/cgi-bin/whep.cgi` answers `200 {"viewers":0,"ondemand":1}` to `GET` without spawning the daemon, and starts `/mnt/controlscripts/whep start` (`-I 300`, auto-exit after 5 min with 0 viewers) on the first `POST` SDP offer. Set `WHEP=0` to disable completely.
+- **Fix (rc42, `[whep]`):** two POSTs at once no longer start two daemons: `controlscripts/whep start` takes a lock (`/tmp/whep-start.lock`, `mkdir`, about 10 s wait, a lock of a dead owner is removed) and re-checks the status once it has it; the pid file is written only after the daemon is up (a daemon that cannot bind never overwrites the pid of the live one); `whep.cgi` and `status` trust a pid only if the process is really `tc100-whep` (`/proc/<pid>/comm`, `cmdline`), otherwise the stale file is removed (a pid reused after the 300 s idle exit no longer gives 503/502). `TC100_NET_ALLOW` is still passed. Extra check: open the live view in two browser tabs at the same moment after an idle exit, then `ps` must show one `tc100-whep` and `/var/run/whep.pid` must name it.
 - **Test:** After boot, verify `ps` has no `tc100-whep` (1–4 MB RAM saved), open the web UI live view, verify `tc100-whep` starts on the WebRTC `POST` and streams video cleanly.
 
 ### NR3D-01 3D noise reduction: runtime switch, crop-size reference, overflow counter (`[nr3d]`) — `partly passed` (2026-11-12, .11 rc41: patch 0017 allocates & streams 1080p cleanly, `nr3d_overflow=0` at 15 fps, overflows at 25 fps)
@@ -70,8 +72,10 @@ Rules that apply to every entry:
   - **15 fps (1080p, `-f 15`):** **`0 overflows / 5s`** — confirms 3D-NR + 1080p works cleanly once DRAM/ISP frame budget is at 15 fps (e.g. night/low-light `15 fps` or `20 fps` to test; 2 h soak + night noise comparison still to do).
   - **`NR3D=auto` default (`[nr3d]`):** `boot.conf.dist` sets `NR3D=auto`; `autorun-linux66.sh` allocates the reference
     at boot for `1|auto`, `rtsp-launch.sh` exports `RTSP_NR3D_AUTO=1`, and `tc100_rtsp` toggles `ak39_vi.nr3d` live
-    (`1` in night mode `bw_want` or low light `lowlight_on` when `lowlight_fps <= 15`, `0` in bright 25 fps). Set
-    `NR3D=0` in `boot.conf` to turn off.
+    (`1` only at night (`bw_want`) or in low light (`lowlight_on`) **and** when the capture rate in use is <= 15 fps: the
+    accepted night set runs at 10 fps, low light at `LOWLIGHT_FPS_VALUE` 10/15 (20 stays off); `0` by day at 25 fps, and at night
+    with `NIGHT_STYLE=0` or a refused night set, which stay at 25 fps; rc42 fix, the log line gives the reason and the fps:
+    `3D-NR auto: on|off (night|low light|day, N fps)`). Set `NR3D=0` in `boot.conf` to turn off.
 
 - **What (plans-2026-11-12 section 2; kernel patches 0006, 0016 and 0017, `v3/autorun-linux66.sh`, `config/boot.conf.dist`):**
   - **Patch 0017 (`[nr3d]` UV in encoder CMA tail):** `ak39_venc` exports `ak39_venc_aux_alloc()` / `ak39_venc_aux_free()`
