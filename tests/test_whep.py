@@ -234,9 +234,19 @@ sleep 30
         self.assertNotEqual(r.returncode, 0)
         self.assertFalse((self.tmp / 'whep.pid').exists())
 
+    def test_a_lock_left_without_owner_is_taken_over(self):
+        # a start killed between mkdir and writing its pid left a lock with no pid: before, every later start waited
+        # 10 s and failed until a reboot (review 2026-11-13)
+        (self.tmp / 'lock').mkdir()
+        r = subprocess.run(SHELL + [str(self.ctl), 'start'], env={'PATH': os.environ['PATH']}, capture_output=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((self.tmp / 'starts').read_text().split(), ['started'])
+        self.assertFalse((self.tmp / 'lock').exists(), 'the lock is released')
+
     def test_sources(self):
         cs = read('controlscripts/whep')
         self.assertIn('mkdir "$LOCKDIR"', cs)
+        self.assertIn("trap 'unlock; exit 143' INT TERM", cs)
         self.assertIn('TC100_NET_ALLOW="$(netacl_allow_list 2>/dev/null)" "$BIN"', cs)
         self.assertNotIn('It starts at boot', cs)
         self.assertIn('/proc/$_pid/comm', read('www/cgi-bin/whep.cgi'))

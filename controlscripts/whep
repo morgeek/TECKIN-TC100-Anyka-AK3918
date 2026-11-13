@@ -38,10 +38,14 @@ bc()
 # serialise the starts: mkdir is atomic; a lock whose owner is gone is removed; about 10 s at most
 lock()
 {
-  _n=0
+  _n=0; _e=0
   while ! mkdir "$LOCKDIR" 2>/dev/null; do
     _o=$(cat "$LOCKDIR/pid" 2>/dev/null)
-    case "$_o" in ''|*[!0-9]*) ;; *) kill -0 "$_o" 2>/dev/null || { rm -rf "$LOCKDIR"; continue; } ;; esac
+    case "$_o" in
+      ''|*[!0-9]*)	# no owner written: only normal for an instant after mkdir; after ~2 s the starter was killed
+        _e=$((_e + 1)); [ "$_e" -ge 8 ] && { rm -rf "$LOCKDIR"; _e=0; continue; } ;;
+      *) _e=0; kill -0 "$_o" 2>/dev/null || { rm -rf "$LOCKDIR"; continue; } ;;
+    esac
     _n=$((_n + 1))
     [ "$_n" -ge 40 ] && return 1
     sleep 0.25 2>/dev/null || sleep 1
@@ -56,9 +60,11 @@ start()
 {
   [ -n "$(status)" ] && return 0
   lock || { echo "tc100-whep: another start is running" >&2; return 1; }
+  trap 'unlock; exit 143' INT TERM	# a start that is stopped must not leave the lock behind
   _start_locked
   _rc=$?
   unlock
+  trap - INT TERM
   return $_rc
 }
 
