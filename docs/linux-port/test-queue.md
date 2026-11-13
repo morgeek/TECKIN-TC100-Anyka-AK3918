@@ -3873,6 +3873,18 @@ night log across reboots (a night is lost at every update).
 - **Same statistics block on both units:** `statistics DMA area at 0x82e61dd4, 4800 bytes (white balance counts read
   from word 1160)` (the sheet assumed word 1032): the per-unit leftover-memory hypothesis needs a dump to be tested.
 - Step 3 (A/B with `awb_live=1`, white paper, daylight then tungsten) needs the owner.
+- **Field 11 of `cam_awb` explained (code reading, patch 0006, 2026-11-13):** it is `current_colortemp_index`, the
+  number (0-9) of the statistics **region** the algorithm picked (`_get_abnormal_color_temp_index`: arg-max of
+  `total_cnt[0..9]`, ties to the higher index), kept until the new region has been the maximum for
+  `colortemp_stable_cnt_thresh` frames. It is **not** one of the 7 colour temperatures: the illuminant applied (colour
+  matrix, hue) is `colortemp_envi[index]` from the tuning file. So 8 is a valid value.
+- **With `awb_live=0` the index does not come from the counts shown:** `ak_isp_vp_get_awb_stat_info` returns the live
+  block (word 1160) in `total_cnt`, but the algorithm (and so `current_colortemp_index`, the gains, the matrix) runs on
+  `awb_stat_info_para`, filled from word 1032, which the code itself calls "fixed, random-looking data" (R12-09). That
+  is why the index moves (3 / 5 / 8 on the .24) and differs per unit (1 on the .11) whatever the counts say. The
+  diagnosis of this sheet (arg-max of the shown bins = A) only holds with `awb_live=1`.
+- For the fix: print `colortemp_envi[index]` (the illuminant) next to the index in `/tmp/cam_awb`, and with
+  `awb_live=0` print the counts the algorithm really used (word 1032) as well, or the two cannot be compared.
 
 ### NR3D-02 soak, .24 (checked 2026-11-13 12:14 UTC)
 - **NR3D-02 passed on the .24 by day (2 h soak).** 1080p 25 fps, `NR3D=1`, one RTSP client, from 10:01 to 12:14 UTC:

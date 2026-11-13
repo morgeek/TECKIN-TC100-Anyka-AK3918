@@ -470,6 +470,30 @@ class LogPersist(unittest.TestCase):
         self.assertEqual((self.d / 'called').read_text().strip(), 'shutdown web UI: test')
         self.assertTrue((self.d / 'rt' / '.reboot-intent').exists())
 
+    def test_reboot_tracker_intent_keeps_the_day_night_log(self):
+        # a night of /tmp/logs/daynight.log was lost to the rc41 update reboot (.24, 2026-11-13)
+        (self.d / 'rt').mkdir()
+        dn = self.d / 'daynight.log'
+        dn.write_text(''.join('%02d:%02d mode=night src=vendor luma=100\n' % (h, m) for h in range(24) for m in (0, 30)))
+        fake = self.d / 'fake-persist.sh'
+        fake.write_text('cp %s/rt/daynight-last.log %s/seen-by-persist 2>/dev/null\n' % (self.d, self.d))
+        r = sh('%s %s intent "web update to 3.0.1-rc42"' % (' '.join(SH), ROOT / 'scripts/reboot-tracker.sh'),
+               dict(REBOOT_TRACKER_DIR=str(self.d / 'rt'), REBOOT_TRACKER_MARK=str(self.d / 'ram' / 'm'),
+                    LOG_PERSIST_SH=str(fake), DAYNIGHT_LOG=str(dn), DAYNIGHT_KEEP_LINES='20'))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        kept = (self.d / 'rt' / 'daynight-last.log').read_text().splitlines()
+        self.assertEqual(kept, dn.read_text().splitlines()[-20:])
+        self.assertFalse((self.d / 'rt' / '.daynight-last.tmp').exists())
+        self.assertTrue((self.d / 'seen-by-persist').exists())       # written before the logs are saved
+        # no log (first boot, or the daemon off): nothing written, no error
+        dn.unlink()
+        (self.d / 'rt' / 'daynight-last.log').unlink()
+        r = sh('%s %s intent "web UI: test"' % (' '.join(SH), ROOT / 'scripts/reboot-tracker.sh'),
+               dict(REBOOT_TRACKER_DIR=str(self.d / 'rt'), REBOOT_TRACKER_MARK=str(self.d / 'ram' / 'm'),
+                    LOG_PERSIST_SH=str(fake), DAYNIGHT_LOG=str(dn)))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse((self.d / 'rt' / 'daynight-last.log').exists())
+
 
 class MemoryGuardDefaults(unittest.TestCase):
     def run_migration(self, conf):

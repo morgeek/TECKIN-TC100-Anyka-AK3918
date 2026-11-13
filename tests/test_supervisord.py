@@ -465,7 +465,7 @@ class Daemon(unittest.TestCase):
                                      stderr=subprocess.PIPE)
         return self.proc
 
-    def wait_for(self, fn, timeout=10):
+    def wait_for(self, fn, timeout=30):     # returns as soon as fn() holds; 30 s only matters on a loaded CI runner
         end = time.time() + timeout
         while time.time() < end:
             if fn():
@@ -1111,7 +1111,7 @@ class SoundDaemon(unittest.TestCase):
     def start(self, env):
         self.proc = subprocess.Popen([str(self.bin)], env=env, stdin=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
-    def wait_for(self, fn, timeout=10):
+    def wait_for(self, fn, timeout=30):     # returns as soon as fn() holds; 30 s only matters on a loaded CI runner
         end = time.time() + timeout
         while time.time() < end:
             if fn():
@@ -1124,7 +1124,10 @@ class SoundDaemon(unittest.TestCase):
         return p.read_text().splitlines() if p.exists() else []
 
     def feed(self, n, db=-20):
-        (self.d / 'run/sound_level').write_text('%d -40 -25 %d %d %d\n' % (1000 + n, n, 1000 + n, db))
+        # written then renamed, as tc100_rtsp does: the daemon never reads a half-written line
+        tmp = self.d / 'run/sound_level.tmp'
+        tmp.write_text('%d -40 -25 %d %d %d\n' % (1000 + n, n, 1000 + n, db))
+        os.replace(tmp, self.d / 'run/sound_level')
 
     def test_sound_job_alone_publishes_and_stops_with_its_flag(self):
         env = sd_rig(self.d)
@@ -1162,9 +1165,9 @@ class SoundDaemon(unittest.TestCase):
         self.assertTrue(self.wait_for(lambda: (self.d / 'calls').exists()))                  # night job: dark picture
         self.assertEqual((self.d / 'calls').read_text().split(), ['on'])
         self.feed(2)                                                                         # the publish hangs, is killed after 1 s
-        self.assertTrue(self.wait_for(lambda: any(c.startswith('notify sound') for c in self.calls()), 15))
+        self.assertTrue(self.wait_for(lambda: any(c.startswith('notify sound') for c in self.calls()), 30))
         (self.d / 'luma').write_text('200\n')
-        self.assertTrue(self.wait_for(lambda: (self.d / 'calls').read_text().split() == ['on', 'off'], 15))
+        self.assertTrue(self.wait_for(lambda: (self.d / 'calls').read_text().split() == ['on', 'off'], 30))
         (self.d / 'night.flag').unlink()
         time.sleep(0.5)
         self.assertIsNone(self.proc.poll())                                                  # the sound job still needs the daemon

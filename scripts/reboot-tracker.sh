@@ -67,6 +67,14 @@ rt_intent()
   case "$1" in
     "web UI"*|"reset button"*) sh "${BOOT_GUARD_SH:-/mnt/v3/linux66-sd/boot-guard}" clear >/dev/null 2>&1 ;;
   esac
+  # the day / night log lives in RAM (/tmp/logs): its last lines go next to the reboot history, so a night is not lost
+  # to an update reboot on a camera without SD card (flash mode: saved to the flash slot just below, ~200 lines of
+  # ~110 bytes, a few KB packed; read it in /mnt/config/log/daynight-last.log). Before the flush on purpose.
+  _dn="${DAYNIGHT_LOG:-/tmp/logs/daynight.log}"
+  if [ -s "$_dn" ]; then
+    tail -n "${DAYNIGHT_KEEP_LINES:-200}" "$_dn" > "$LOGDIR/.daynight-last.tmp" 2>/dev/null &&
+      mv -f "$LOGDIR/.daynight-last.tmp" "$LOGDIR/daynight-last.log" 2>/dev/null
+  fi
   # settings changed in the last minute are saved to the flash first (cfg-persist saves a change once it has been
   # stable for 30 s: a reboot sooner lost it, R10-01). Only in flash mode, only when something changed; waited for up
   # to 20 s and never interrupted (the two slots keep the previous settings if the power goes during a write).
