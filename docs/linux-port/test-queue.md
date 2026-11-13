@@ -506,6 +506,48 @@ Rules that apply to every entry:
   no extra 401 prompt.
 - **Pass:** (a)-(d) as above, `/tmp/log/httpfront.log` without new errors.
 
+### AWB-01 Why the ISP white balance goes blue on live statistics: live checks, then a fix (`[awb-fix]`) — `to test` (owner, live, no reboot, nothing flashed)
+
+- **Diagnosis (read-only Fable analysis of patch 0006 and the recorded data, 2026-11-13; key facts checked):**
+  - Every recorded `/tmp/cam_awb` line, on both cameras, by day and by night, fills **only bins 0 and 5** (bins 1-2
+    tiny, 3-4 zero): `1894122 1083 8 0 0 3502` (.24), `272604 30 1 0 0 233` (.11), `17306 8 8 0 0 4572`, ...
+    (`cam_awb` format: `cnt0..cnt9 ct rex=N bex=N u=N v=N`, field 11 = the kernel's colour-temperature index;
+    tc100_rtsp.c ~1143-1154). Colour temperatures: A=0, TL84=1, D50=2, D65=3, A_1=4, TL84_1=5, D50_1=6 (start: D65).
+  - With `awb_live=1` the arg-max picks bin 0 = illuminant **A** (tungsten): the A colour matrix and hue are applied in
+    daylight and the gains come from a small set of (probably warm, non-white) pixels: the "lavender walls" of R15-01.
+    Why bins 1-4 never fill is not established: region registers packed differently on the EV300 (`_set_awb_attr`),
+    overlapping regions with first-match priority, or statistics taken after the WB gains.
+  - The R12-09 dump means (203 / 183 / 80) show sums of 8-bit values in R, G, B order: a B/R swap is unlikely.
+  - Secondary: the compiled `_calc_awb_gain` (the second one; the first is under `#if 0`) truncates (`sum >> 8`, then
+    `max / (chan >> 8)`): blue over-driven by up to ~58 % on a small bin. Gains and the user-space extra gains
+    (`_awb_ex_ctrl`) are only updated when the current bin passes `total_cnt_thresh` (patch 0006 ~6956): otherwise both
+    freeze ("the software white balance changes little").
+  - With `awb_live=0` the algorithm reads words 1032-1071, which are not counts; if that block is leftover memory it can
+    differ per unit (possible reason for the .24 green). Nothing prints the ISP's r/g/b gains today.
+- **Switch:** `echo 0 > /sys/module/ak_isp/parameters/awb_live` (default) and `rm -f /mnt/config/awb.off`.
+- **Live checks (white paper or a white wall in view; one camera at a time, then the other):**
+  1. Baseline: `cat /sys/module/ak_isp/parameters/awb_live; cat /tmp/cam_awb; sleep 3; cat /tmp/cam_awb` (note
+     field 11).
+  2. **Statistics before or after the gains:** static scene, `awb_live=0`: note the bins, `touch /mnt/config/awb.off`,
+     wait ~10 s (rex / bex go back to 256), read `cam_awb` again, `rm /mnt/config/awb.off`. Bins changing by a large
+     factor = statistics after the gains; unchanged = before.
+  3. **A/B:** `echo 1 > /sys/module/ak_isp/parameters/awb_live`, read `cam_awb` every 2 s for 30 s in daylight, then
+     under a tungsten lamp; finish with `echo 0`. Field 11 going to 0 (or 5) under both lights with bins 1-4 near 0 =
+     the bin cause confirmed; rex / bex stuck at 128 or 1536 while u / v stay far from 0 = the frozen-gain cause; field
+     11 following the light with bins 2-3 filling by day = bin cause refuted (look at the gain arithmetic). Then
+     `dmesg | grep -i 'division by zero'` (the gain code divides by a bin count guarded only by the threshold).
+  4. **Fixed block per unit:** `dmesg | grep 'statistics DMA area'` on both cameras; if a dump of words 1032-1071 is
+     possible, compare .11 and .24 (different = leftover memory, the .24 green explained).
+  5. Paste the `cam_awb` lines of steps 1-3 under this entry (no secret in them) and say what the paper looked like.
+- **Fix (for the implementer, after these results; default off):** `ak_isp.awb_fix` (0644 bitmask, read per frame):
+  bit 0 exact gains (64-bit division on the un-shifted sums, zero-count guard); bit 1 keep the colour matrix / hue at
+  D65 and accept a bin only above N % of the frame; bit 2 apply `_awb_ex_ctrl` even below the threshold; bit 3 (only if
+  step 2 shows statistics after the gains) closed-loop gains. If bins 1-4 stay empty with sane regions, compare the
+  `_set_awb_attr` region packing with a stock register dump. For the .24, a mode with explicit fixed gains instead of
+  the 1032 block. tc100_rtsp: add the R/G/B sums and the kernel r/g/b gains to `/tmp/cam_awb` (already in the ioctl
+  struct). Test on both cameras (SD kernel): paper R/G/B within ±5 % under daylight and tungsten, field 11 follows the
+  light, no kernel message.
+
 ### KRN-01 `ak_isp.awb_live` writable at run time (`[awb-live-rw]`, patch 0006) — `passed` (2026-11-12, .11 rc40: 0644 writable live, 5 s with `awb_live=1`, zero `division by zero` in `dmesg`, restored to 0)
 
 - **What:** `module_param(awb_live, int, 0644)` instead of `0444` (audit 2026-11-06 D3). The white balance code reads
