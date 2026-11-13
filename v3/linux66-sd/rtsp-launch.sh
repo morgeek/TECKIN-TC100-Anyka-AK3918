@@ -116,6 +116,12 @@ export RTSP_AUDIO_AEC="${RTSP_AUDIO_AEC:-0}"
 # camera qualification passes; set to 1 in rtsp.env to try it, or 0 to force inline send.
 # Read once when tc100_rtsp starts: restart the RTSP server after changing it.
 export RTSP_SENDER_THREAD="${RTSP_SENDER_THREAD:-0}"
+# RTSP_TALK_NAT (single key: /mnt/config/rtsp.env, read by tc100_rtsp itself, default 0): UDP backchannel (two-way audio)
+# RTP is accepted only from the port the client gave in SETUP. 1 = any port of the same client address (a client behind
+# a NAT that rewrites the source port). Read once at start: restart the RTSP server after changing it.
+# RTSP_PERIP (single key: /mnt/config/rtsp.env, read by tc100_rtsp itself, default 3, clamped 1..4): concurrent RTSP connections
+# from one client address (127/8 exempt). A new one over the limit replaces that address's unauthenticated connection, else
+# is refused. Lower it (2) against a flooding host; raise it (4) for many players behind one address (NAT).
 ( cd /tmp && {
   set -a; [ -f /mnt/config/rtsp.env ] && . /mnt/config/rtsp.env; set +a
   _rtsp_env_global_modes="${RTSP_VBR:-}${RTSP_SMART:-}"

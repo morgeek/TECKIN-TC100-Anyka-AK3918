@@ -6,6 +6,7 @@ Needs gcc only (no ffmpeg): the recorder is fed synthetic H.264 / H.265 access u
 files are checked with a small ISO box reader below. Run: python3 tests/test_tc100rtsp.py
 """
 import base64
+import hashlib
 import math
 import os
 import re
@@ -896,9 +897,291 @@ class IdleClients(Server):
 
     def test_a_playing_client_is_never_evicted(self):
         src = (SRC / 'tc100_rtsp.c').read_text()
-        accept = src[src.index('full: the client idle the longest'):]
-        self.assertIn('if (!cl[k].playing && nowt - cl[k].last >= 2', accept[:400])
+        accept = src[src.index('static int cli_victim'):]
+        self.assertIn('cl[k].authed || cl[k].playing', accept[:600])                # unauthenticated first, never a playing one
+        self.assertIn('!cl[k].playing && nowt - cl[k].last >= 2', accept[:1400])
         self.assertIn('if (c->authed) c->last = time(NULL);', src)          # a 401 does not count as activity
+
+
+BASIC = 'Authorization: Basic ' + base64.b64encode(b'root:pw').decode()
+
+
+def rtsp_raw(s, req, timeout=3.0):
+    """send one request (text), return (status, headers, body) of the answer; None when the peer closed"""
+    s.sendall(req.encode() if isinstance(req, str) else req)
+    s.settimeout(timeout)
+    buf = b''
+    try:
+        while b'\r\n\r\n' not in buf:
+            d = s.recv(4096)
+            if not d:
+                return None
+            buf += d
+    except (ConnectionResetError, socket.timeout):
+        return None
+    head, _, rest = buf.partition(b'\r\n\r\n')
+    lines = head.decode().split('\r\n')
+    hd = {}
+    for ln in lines[1:]:
+        k, _, v = ln.partition(':')
+        hd.setdefault(k.lower(), v.strip())
+    return int(lines[0].split()[1]), hd, rest
+
+
+def digest_hdr(method, uri, nonce, pw='pw', user='root'):
+    md5 = lambda t: hashlib.md5(t.encode()).hexdigest()
+    resp = md5('%s:%s:%s' % (md5('%s:TC100:%s' % (user, pw)), nonce, md5('%s:%s' % (method, uri))))
+    return 'Authorization: Digest username="%s", realm="TC100", nonce="%s", uri="%s", response="%s"' % (user, nonce, uri, resp)
+
+
+def nonce_of(hd):
+    return re.search(r'nonce="([0-9a-f]+)"', hd['www-authenticate']).group(1)
+
+
+def conn_from(port, src=None):
+    s = socket.socket()
+    s.settimeout(3)
+    if src:
+        s.bind((src, 0))
+    s.connect(('127.0.0.1', port))
+    return s
+
+
+def alias_ok(addr):
+    t = socket.socket()
+    try:
+        t.bind((addr, 0))
+        return True
+    except OSError:
+        return False
+    finally:
+        t.close()
+
+
+class DigestAuth(Server):
+    """Review 2026-11-13: random nonce per connection, uri= compared with the request URL, failures counted per address
+    (127/8 exempt: the WHEP gateway, live.cgi), Content-Length bodies consumed"""
+
+    def req(self, method, uri, *h, cseq=1):
+        return '\r\n'.join(['%s %s RTSP/1.0' % (method, uri), 'CSeq: %d' % cseq] + list(h)) + '\r\n\r\n'
+
+    def test_nonce_differs_between_connections_and_is_random_hex(self):
+        seen = set()
+        for _ in range(3):
+            s = conn_from(self.PORT)
+            code, hd, _ = rtsp_raw(s, self.req('DESCRIBE', self.URL))
+            self.assertEqual(code, 401)
+            n = nonce_of(hd)
+            self.assertEqual(len(n), 32)
+            seen.add(n)
+            s.close()
+        self.assertEqual(len(seen), 3)
+
+    def test_wrong_uri_refused_right_uri_accepted_nonce_reused(self):
+        s = conn_from(self.PORT)
+        code, hd, _ = rtsp_raw(s, self.req('DESCRIBE', self.URL))
+        n = nonce_of(hd)
+        # a response made for another URL (the speaker track) does not authorise this request line
+        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL, digest_hdr('DESCRIBE', self.URL + '/track3', n), cseq=2))[0], 401)
+        # the same URL with its rtsp://host:port prefix, then path only, same nonce each time
+        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL, digest_hdr('DESCRIBE', self.URL, n), cseq=3))[0], 200)
+        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL, digest_hdr('DESCRIBE', '/video0', n), cseq=4))[0], 200)
+        # a request for another stream with the response of the first one is refused
+        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', 'rtsp://127.0.0.1:18554/video1', digest_hdr('DESCRIBE', self.URL, n), cseq=5))[0], 401)
+        # a nonce of another connection is refused
+        s2 = conn_from(self.PORT)
+        n2 = nonce_of(rtsp_raw(s2, self.req('DESCRIBE', self.URL))[1])
+        self.assertNotEqual(n, n2)
+        self.assertEqual(rtsp_raw(s2, self.req('DESCRIBE', self.URL, digest_hdr('DESCRIBE', self.URL, n)))[0], 401)
+        # wrong password, then the right one
+        self.assertEqual(rtsp_raw(s2, self.req('DESCRIBE', self.URL, digest_hdr('DESCRIBE', self.URL, n2, pw='no')))[0], 401)
+        self.assertEqual(rtsp_raw(s2, self.req('DESCRIBE', self.URL, digest_hdr('DESCRIBE', self.URL, n2)))[0], 200)
+        s.close()
+        s2.close()
+
+    def test_vlc_form_uri_of_the_base_url_accepted_siblings_refused(self):
+        s = conn_from(self.PORT)
+        n = nonce_of(rtsp_raw(s, self.req('DESCRIBE', self.URL))[1])
+        tr = 'Transport: RTP/AVP/TCP;unicast;interleaved=0-1'
+        # live555: SETUP on .../track1 carries uri= of the base URL (trailing slash)
+        h = digest_hdr('SETUP', self.URL + '/', n)
+        self.assertEqual(rtsp_raw(s, self.req('SETUP', self.URL + '/track1', tr, h, cseq=2))[0], 200)
+        # a parent only at a '/' boundary, never another stream
+        h = digest_hdr('DESCRIBE', 'rtsp://127.0.0.1:18554/video1', n)
+        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL, h, cseq=3))[0], 401)
+        h = digest_hdr('DESCRIBE', '/video', n)
+        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL, h, cseq=4))[0], 401)
+        h = digest_hdr('DESCRIBE', '/video1/', n)
+        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', '/video0/track1', h, cseq=5))[0], 401)
+        s.close()
+
+    def test_basic_still_works_and_a_wrong_password_does_not(self):
+        s = conn_from(self.PORT)
+        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL, BASIC))[0], 200)
+        bad = 'Authorization: Basic ' + base64.b64encode(b'root:pw2').decode()
+        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL, bad))[0], 401)
+        s.close()
+
+    def test_loopback_is_never_locked(self):
+        s = conn_from(self.PORT)
+        bad = 'Authorization: Basic ' + base64.b64encode(b'root:no').decode()
+        for i in range(30):
+            self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL, bad))[0], 401)
+        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL, BASIC))[0], 200)
+        s.close()
+
+    def test_content_length_body_is_consumed(self):
+        s = conn_from(self.PORT)
+        body = 'OPTIONS rtsp://x/ RTSP/1.0\r\nCSeq: 77\r\n\r\n'
+        head = 'GET_PARAMETER %s RTSP/1.0\r\nCSeq: 1\r\nContent-Length: %d\r\n%s\r\n\r\n' % (self.URL, len(body), BASIC)
+        s.sendall(head.encode() + body[:10].encode())          # the body arrives in two parts
+        time.sleep(0.3)
+        s.sendall(body[10:].encode() + self.req('OPTIONS', self.URL, cseq=2).encode())
+        time.sleep(0.5)
+        s.settimeout(1)
+        data = s.recv(8192).decode()
+        self.assertEqual(data.count('RTSP/1.0 '), 2, data)
+        self.assertIn('CSeq: 1', data)
+        self.assertIn('CSeq: 2', data)
+        self.assertNotIn('CSeq: 77', data)
+        s.close()
+
+    def test_a_body_larger_than_the_buffer_closes_the_client(self):
+        s = conn_from(self.PORT)
+        r = rtsp_raw(s, 'ANNOUNCE %s RTSP/1.0\r\nCSeq: 1\r\nContent-Length: 100000\r\n%s\r\n\r\n' % (self.URL, BASIC))
+        self.assertIsNone(r)
+        s.close()
+
+
+class NoExempt(DigestAuth):
+    """the tests that need 127.0.0.1 to count like a LAN address (test build only: TC100_TEST_NO_EXEMPT=1)"""
+    env = {'TC100_TEST_NO_EXEMPT': '1', 'RTSP_PERIP': '2'}
+
+    def test_loopback_is_never_locked(self):
+        pass
+
+    def test_an_authenticated_connection_is_not_cut_off_by_the_lockout_of_its_address(self):
+        a = conn_from(self.PORT)
+        self.assertEqual(rtsp_raw(a, self.req('DESCRIBE', self.URL, BASIC))[0], 200)
+        b = conn_from(self.PORT)
+        bad = 'Authorization: Basic ' + base64.b64encode(b'root:no').decode()
+        for i in range(21):
+            self.assertEqual(rtsp_raw(b, self.req('DESCRIBE', self.URL, bad))[0], 401)
+        self.assertEqual(rtsp_raw(b, self.req('DESCRIBE', self.URL, BASIC))[0], 401)       # locked
+        self.assertEqual(rtsp_raw(a, self.req('GET_PARAMETER', self.URL, BASIC, cseq=2))[0], 200)   # the keepalive still passes
+        a.close()
+        b.close()
+
+    def test_two_connections_per_address_unauthenticated_goes_first(self):
+        a = conn_from(self.PORT)
+        self.assertEqual(rtsp_raw(a, self.req('DESCRIBE', self.URL, BASIC))[0], 200)
+        s1 = conn_from(self.PORT)                       # silent: not authenticated
+        c = conn_from(self.PORT)                        # third from the address: the silent one is closed
+        self.assertEqual(rtsp_raw(c, self.req('DESCRIBE', self.URL, BASIC))[0], 200)
+        self.assertIsNone(rtsp_raw(s1, self.req('OPTIONS', self.URL)))
+        self.assertEqual(rtsp_raw(a, self.req('DESCRIBE', self.URL, BASIC, cseq=2))[0], 200)   # the authenticated one stays
+        # two authenticated ones are not evicted by a third (idle for less than 2 s): the third is refused
+        d = conn_from(self.PORT)
+        self.assertIsNone(rtsp_raw(d, self.req('OPTIONS', self.URL)))
+        self.assertEqual(rtsp_raw(c, self.req('DESCRIBE', self.URL, BASIC, cseq=2))[0], 200)
+        for x in (a, c, d, s1):
+            x.close()
+
+    def test_a_reconnect_storm_does_not_take_the_slots_of_another_address(self):
+        if not (alias_ok('127.0.0.2') and alias_ok('127.0.0.3')):
+            self.skipTest('127.0.0.2/3 aliases not configured on host')
+        nvr = [conn_from(self.PORT, '127.0.0.2') for _ in range(2)]
+        for n in nvr:
+            self.assertEqual(rtsp_raw(n, self.req('DESCRIBE', self.URL, BASIC))[0], 200)
+        storm = []
+        for _ in range(12):                             # one address opening connection after connection
+            storm.append(conn_from(self.PORT, '127.0.0.3'))
+            time.sleep(0.05)
+        for n in nvr:
+            self.assertEqual(rtsp_raw(n, self.req('DESCRIBE', self.URL, BASIC, cseq=2))[0], 200)
+        alive = sum(1 for s in storm if rtsp_raw(s, self.req('OPTIONS', self.URL, cseq=3), timeout=0.3))
+        self.assertLessEqual(alive, 2)
+        for x in nvr + storm:
+            x.close()
+
+    def test_full_table_closes_the_unauthenticated_of_the_address_with_most(self):
+        if not (alias_ok('127.0.0.2') and alias_ok('127.0.0.3')):
+            self.skipTest('127.0.0.2/3 aliases not configured on host')
+        a = conn_from(self.PORT, '127.0.0.4') if alias_ok('127.0.0.4') else conn_from(self.PORT)
+        self.assertEqual(rtsp_raw(a, self.req('DESCRIBE', self.URL, BASIC))[0], 200)
+        b = conn_from(self.PORT, '127.0.0.4') if alias_ok('127.0.0.4') else conn_from(self.PORT)
+        self.assertEqual(rtsp_raw(b, self.req('DESCRIBE', self.URL, BASIC))[0], 200)
+        s1, s2 = conn_from(self.PORT, '127.0.0.2'), conn_from(self.PORT, '127.0.0.2')
+        time.sleep(2.3)
+        n = conn_from(self.PORT, '127.0.0.3')           # full: s1, the oldest silent one of the address with 2, goes
+        self.assertEqual(rtsp_raw(n, self.req('DESCRIBE', self.URL, BASIC))[0], 200)
+        self.assertIsNone(rtsp_raw(s1, self.req('OPTIONS', self.URL)))
+        self.assertEqual(rtsp_raw(a, self.req('DESCRIBE', self.URL, BASIC, cseq=2))[0], 200)
+        self.assertEqual(rtsp_raw(b, self.req('DESCRIBE', self.URL, BASIC, cseq=2))[0], 200)
+        for x in (a, b, s1, s2, n):
+            x.close()
+
+    def test_25_wrong_passwords_lock_that_address_only(self):
+        s = conn_from(self.PORT)
+        bad = 'Authorization: Basic ' + base64.b64encode(b'root:no').decode()
+        for i in range(21):
+            self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL, bad))[0], 401)
+        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL, BASIC))[0], 401)        # locked: the right one too
+        s.close()
+        s = conn_from(self.PORT)
+        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL, BASIC))[0], 401)        # also on a new connection
+        s.close()
+        if alias_ok('127.0.0.2'):
+            o = conn_from(self.PORT, '127.0.0.2')                                           # another address is not affected
+            self.assertEqual(rtsp_raw(o, self.req('DESCRIBE', self.URL, BASIC))[0], 200)
+            o.close()
+
+
+class PerIpDefault(DigestAuth):
+    """RTSP_PERIP defaults to 3 (MAXCLI - 1): a host may hold three authenticated connections (Frigate main + sub + a viewer)"""
+    env = {'TC100_TEST_NO_EXEMPT': '1'}
+
+    def test_loopback_is_never_locked(self):
+        pass
+
+    def test_three_authenticated_from_one_address_the_fourth_is_refused(self):
+        cs = [conn_from(self.PORT) for _ in range(3)]
+        for c in cs:
+            self.assertEqual(rtsp_raw(c, self.req('DESCRIBE', self.URL, BASIC))[0], 200)
+        d = conn_from(self.PORT)
+        self.assertIsNone(rtsp_raw(d, self.req('OPTIONS', self.URL)))
+        for c in cs:
+            self.assertEqual(rtsp_raw(c, self.req('DESCRIBE', self.URL, BASIC, cseq=2))[0], 200)
+        for x in cs + [d]:
+            x.close()
+
+
+class BackchannelPort(Server):
+    """Review 2026-11-13: UDP backchannel RTP must come from the port of SETUP; RTSP_TALK_NAT=1 allows another port of the host"""
+    nat = False
+
+    def test_another_port_of_the_host(self):
+        c = self.client()
+        u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        u.bind(('127.0.0.1', 0))
+        o = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        o.bind(('127.0.0.1', 0))
+        self.talk_session(c, tcp=False, port=u.getsockname()[1])
+        for i in range(40):
+            o.sendto(rtp(i, tone_alaw(500, i * 160, 160)), ('127.0.0.1', 5004))
+            time.sleep(0.02)
+        time.sleep(3.5)
+        if self.nat:
+            self.assertAlmostEqual(len(self.out.read_bytes()), 40 * 160 * 2, delta=1600)
+        else:
+            self.assertFalse(self.out.exists())
+        o.close()
+        u.close()
+
+
+class BackchannelPortNat(BackchannelPort):
+    env = {'RTSP_TALK_NAT': '1'}
+    nat = True
 
 
 class LanOnly(Server):
