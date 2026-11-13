@@ -149,6 +149,52 @@ Rules that apply to every entry:
   owner's agreement) the kernel is a flash candidate through `flashw` with its read-back check, and `NR3D=1` can become the
   default for 720p setups. **Nothing is flashed before a pass.**
 
+### NR3D-02 3D-NR by day: why 25 fps overflows, and which setting avoids it (`[nr3d]`) — `to test` (owner, no code change, nothing flashed)
+
+- **Why (read-only Fable analysis, 2026-11-13; facts checked against patch 0006):** the sensor sets its frame rate by
+  frame length, not by pixel rate (JX-F23 MIPI table: 25 fps = 0x465 = 1125 lines, 20 fps = 0x56e = 1390, 15 fps =
+  0x73d = 1853, 1080 of them active). The ISP therefore works at the same speed during the active lines at every rate;
+  what changes is the vertical blanking left to finish the reference DMA: ~45 lines (~1.6 ms) at 25 fps, ~310 (~11 ms)
+  at 20 fps, ~773 (~27 ms) at 15 fps. So the overflow at 25 fps is more likely a latency limit (reference DMA not done
+  before the next frame) or the encoder being busy all the time than a pure DRAM bandwidth limit (EST: ~770 MB/s total
+  with 3D-NR at 1080p25 vs ~460 MB/s without; DDR clock and width are not known from the repo). Nothing in the patches
+  sets a DDR arbiter or priority. The meaning of `TNR_COMPRESS_FORMAT` (YUV_REG_9 bits 17-18, `tnr_refFrame_format` of
+  the vendor tuning file) is not documented anywhere in the repo.
+- **Switch:** `NR3D=auto` (default) or `NR3D=0` in `boot.conf` afterwards; frame rate and main size back to what they
+  were (Settings).
+- **Test (one RTSP client connected the whole time; nothing else changes):**
+  1. `NR3D=1` in `/mnt/config/boot.conf` (not `auto`, which turns 3D-NR off above 15 fps), reboot; dmesg shows
+     `3D-NR reference frame: ... (UV in venc pool)`.
+  2. For each case below, set it in Settings, wait for the video to restart, then read
+     `cat /sys/module/ak39_vi/parameters/nr3d_overflow`, wait 60 s, read again; note the difference, the STAT line
+     (`cap`, `dropped`) and the picture:
+     - **A:** 1080p, 25 fps (Streams & audio → frame rate 25): control, ~1500 expected in 60 s.
+     - **B:** 1080p, 20 fps.
+     - **C:** 720p (Main stream → 1280x720, `mainres=720`), 25 fps. The ISP still crops at 1080p (patch 0016), so 3D-NR
+       works at the same size: this case tells whether the encoder load matters (encoder and main write drop by ~56 %).
+     - **D:** 720p, 20 fps.
+  3. Read the vendor's 3D-NR settings from the tuning file (layout derived from patch 0006, unverified on a camera):
+     `dd if=/lib/firmware/anyka/isp.conf bs=1 skip=4034 count=4 2>/dev/null | hexdump -C` must show `04 00 68 04`;
+     then `for k in 0 1 2 3 4 5 6 7 8 9; do dd if=/lib/firmware/anyka/isp.conf bs=1 skip=$((4042+112*k)) count=12 2>/dev/null | hexdump -C | head -1; done`
+     prints, per parameter set (k=0 manual, 1-9 linked to the gain), six little-endian 16-bit values: `uv_min_enable,
+     tnr_y_enable, tnr_uv_enable, updata_ref_y, updata_ref_uv, tnr_refFrame_format`. Paste the 10 lines under this
+     entry (they hold no secret). If the check bytes differ, paste the first 8 KB offset map instead and do not guess.
+  4. `dmesg | grep -i -e GUARD -e isp | tail -20` after the four cases.
+- **Reading the result:**
+  - **B = 0:** 3D-NR by day at 20 fps is possible: raise the threshold of `nr3d_auto_sync` / `cap_fps_now`
+    (`src/tc100rtsp/tc100_rtsp.c`) from 15 to 20 fps (small change, then a 2 h soak at 0).
+  - **C = 0 but A > 0:** encoder contention: 3D-NR by day only with a 720p main.
+  - **All > 0:** next step is 3D-NR on luma only (`tnr_uv_enable` / `updata_ref_uv` = 0: a third less reference
+    traffic, chroma noise stays), which needs a small tool (`src/ispnr3d`, GET/SET of the 1124-byte 3D-NR block through
+    `/dev/isp_char` `AK_ISP_GET_3D_NR` / `AK_ISP_SET_3D_NR`, patch 0006 ~12937-12975) — to be written after this test.
+- **Not now, and why:** a compressed reference format (`tnr_refFrame_format`) could be the biggest gain, but with unknown
+  semantics it risks DMA past the reference buffer (memory corruption). It needs first a kernel guard
+  (`ak39_vi.nr3d_refguard`: one extra page per plane, filled with a pattern, high-water mark logged, error if the slack
+  is touched), then one value at a time with the owner present. Raising the DDR / core clock is excluded (no
+  independent DDR clock is known; 640 MHz is the crash path).
+- **Pass:** a configuration with `nr3d_overflow` +0 over 60 s at the rate used by day, then a 2 h soak at +0 with no
+  kernel error and a visible noise gain.
+
 ### ENC-01 Free encoder: VBR and smart mode drive the free encoder (`[fe-smart]`) — `on, being watched` (2026-11-12, .11 rc40: VBR + smart on both streams; see "rc40 features switched on" at the end)
 
 - **Observation (2026-11-12 22:35, `.11` rc40, night):** 58,578 H.265 frames encoded across sessions with `0 failed`;
