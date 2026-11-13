@@ -1,18 +1,18 @@
-From 6bcc4494f0f7d99d1f1e0daa5dedc1bb62daffd4 Mon Sep 17 00:00:00 2001
+From f124a9d89c01a9005c8b26204bb65ec5667fd98c Mon Sep 17 00:00:00 2001
 From: test <test@localhost>
 Date: Fri, 13 Nov 2026 14:18:17 +0100
 Subject: [PATCH] wifi: rtl8xxxu: read-only TX/RX counters
 
 Read-only (0444) module parameters to see where the transmit path waits during a Wi-Fi stall: free TX URBs (now and lowest), mac80211 queue stops and wakes, TX URB errors, time since the last TX completion, RX URBs lost and alive. Counters only, no behaviour change.
 ---
- .../wireless/realtek/rtl8xxxu/rtl8xxxu_core.c | 71 +++++++++++++++++++
- 1 file changed, 71 insertions(+)
+ .../wireless/realtek/rtl8xxxu/rtl8xxxu_core.c | 72 +++++++++++++++++++
+ 1 file changed, 72 insertions(+)
 
 diff --git a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
-index a4dd3d9..7725d2c 100644
+index a4dd3d9..f340f23 100644
 --- a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
 +++ b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
-@@ -79,6 +79,56 @@ MODULE_PARM_DESC(ampdu_rx, "Allow RX A-MPDU (BlockAck) aggregation (default Y)")
+@@ -79,6 +79,57 @@ MODULE_PARM_DESC(ampdu_rx, "Allow RX A-MPDU (BlockAck) aggregation (default Y)")
  #define RTL8XXXU_TX_URB_LOW_WATER	25
  #define RTL8XXXU_TX_URB_HIGH_WATER	32
  
@@ -29,7 +29,7 @@ index a4dd3d9..7725d2c 100644
 +static atomic_t rtl8xxxu_dbg_tx_err = ATOMIC_INIT(0);
 +static atomic_t rtl8xxxu_dbg_rx_lost = ATOMIC_INIT(0);
 +static atomic_t rtl8xxxu_dbg_rx_alive = ATOMIC_INIT(0);
-+static unsigned long rtl8xxxu_dbg_tx_last;	/* jiffies, WRITE_ONCE */
++static unsigned long rtl8xxxu_dbg_tx_last;	/* jiffies | 1 of the last TX completion, 0 = none since start */
 +
 +static int rtl8xxxu_dbg_set(const char *val, const struct kernel_param *kp)
 +{
@@ -59,8 +59,9 @@ index a4dd3d9..7725d2c 100644
 +RTL8XXXU_DBG_PARAM(tx_urb_err, atomic_read(&rtl8xxxu_dbg_tx_err));
 +MODULE_PARM_DESC(tx_urb_err, "TX URB completions with status != 0 (read-only)");
 +RTL8XXXU_DBG_PARAM(tx_last_ms,
-+		   jiffies_to_msecs(jiffies - READ_ONCE(rtl8xxxu_dbg_tx_last)));
-+MODULE_PARM_DESC(tx_last_ms, "ms since the last TX URB completion (read-only)");
++		   READ_ONCE(rtl8xxxu_dbg_tx_last) ?
++		   jiffies_to_msecs(jiffies - READ_ONCE(rtl8xxxu_dbg_tx_last)) : 0);
++MODULE_PARM_DESC(tx_last_ms, "ms since the last TX URB completion, 0 before the first one since start (read-only)");
 +RTL8XXXU_DBG_PARAM(rx_urb_lost, atomic_read(&rtl8xxxu_dbg_rx_lost));
 +MODULE_PARM_DESC(rx_urb_lost, "RX URBs freed on error, not resubmitted (read-only)");
 +RTL8XXXU_DBG_PARAM(rx_urb_alive, atomic_read(&rtl8xxxu_dbg_rx_alive));
@@ -69,7 +70,7 @@ index a4dd3d9..7725d2c 100644
  static int rtl8xxxu_submit_rx_urb(struct rtl8xxxu_priv *priv,
  				  struct rtl8xxxu_rx_urb *rx_urb);
  
-@@ -5172,6 +5222,7 @@ static void rtl8xxxu_free_tx_resources(struct rtl8xxxu_priv *priv)
+@@ -5172,6 +5223,7 @@ static void rtl8xxxu_free_tx_resources(struct rtl8xxxu_priv *priv)
  	list_for_each_entry_safe(tx_urb, tmp, &priv->tx_urb_free_list, list) {
  		list_del(&tx_urb->list);
  		priv->tx_urb_free_count--;
@@ -77,7 +78,7 @@ index a4dd3d9..7725d2c 100644
  		usb_free_urb(&tx_urb->urb);
  	}
  	spin_unlock_irqrestore(&priv->tx_urb_lock, flags);
-@@ -5189,9 +5240,13 @@ rtl8xxxu_alloc_tx_urb(struct rtl8xxxu_priv *priv)
+@@ -5189,9 +5241,13 @@ rtl8xxxu_alloc_tx_urb(struct rtl8xxxu_priv *priv)
  	if (tx_urb) {
  		list_del(&tx_urb->list);
  		priv->tx_urb_free_count--;
@@ -91,7 +92,7 @@ index a4dd3d9..7725d2c 100644
  			ieee80211_stop_queues(priv->hw);
  		}
  	}
-@@ -5212,9 +5267,11 @@ static void rtl8xxxu_free_tx_urb(struct rtl8xxxu_priv *priv,
+@@ -5212,9 +5268,11 @@ static void rtl8xxxu_free_tx_urb(struct rtl8xxxu_priv *priv,
  
  	list_add(&tx_urb->list, &priv->tx_urb_free_list);
  	priv->tx_urb_free_count++;
@@ -103,17 +104,17 @@ index a4dd3d9..7725d2c 100644
  		ieee80211_wake_queues(priv->hw);
  	}
  
-@@ -5242,6 +5299,9 @@ static void rtl8xxxu_tx_complete(struct urb *urb)
+@@ -5242,6 +5300,9 @@ static void rtl8xxxu_tx_complete(struct urb *urb)
  
  	if (!urb->status)
  		tx_info->flags |= IEEE80211_TX_STAT_ACK;
 +	else
 +		atomic_inc(&rtl8xxxu_dbg_tx_err);
-+	WRITE_ONCE(rtl8xxxu_dbg_tx_last, jiffies);
++	WRITE_ONCE(rtl8xxxu_dbg_tx_last, jiffies | 1UL);
  
  	ieee80211_tx_status_irqsafe(hw, skb);
  
-@@ -5841,6 +5901,7 @@ static void rtl8xxxu_free_rx_resources(struct rtl8xxxu_priv *priv)
+@@ -5841,6 +5902,7 @@ static void rtl8xxxu_free_rx_resources(struct rtl8xxxu_priv *priv)
  		list_del(&rx_urb->list);
  		priv->rx_urb_pending_count--;
  		usb_free_urb(&rx_urb->urb);
@@ -121,7 +122,7 @@ index a4dd3d9..7725d2c 100644
  	}
  
  	spin_unlock_irqrestore(&priv->rx_urb_lock, flags);
-@@ -5863,6 +5924,7 @@ static void rtl8xxxu_queue_rx_urb(struct rtl8xxxu_priv *priv,
+@@ -5863,6 +5925,7 @@ static void rtl8xxxu_queue_rx_urb(struct rtl8xxxu_priv *priv,
  		skb = (struct sk_buff *)rx_urb->urb.context;
  		dev_kfree_skb_irq(skb);
  		usb_free_urb(&rx_urb->urb);
@@ -129,7 +130,7 @@ index a4dd3d9..7725d2c 100644
  	}
  
  	spin_unlock_irqrestore(&priv->rx_urb_lock, flags);
-@@ -5911,6 +5973,8 @@ static void rtl8xxxu_rx_urb_work(struct work_struct *work)
+@@ -5911,6 +5974,8 @@ static void rtl8xxxu_rx_urb_work(struct work_struct *work)
  			skb = (struct sk_buff *)rx_urb->urb.context;
  			dev_kfree_skb(skb);
  			usb_free_urb(&rx_urb->urb);
@@ -138,7 +139,7 @@ index a4dd3d9..7725d2c 100644
  		}
  	}
  }
-@@ -6491,6 +6555,8 @@ static void rtl8xxxu_rx_complete(struct urb *urb)
+@@ -6491,6 +6556,8 @@ static void rtl8xxxu_rx_complete(struct urb *urb)
  	return;
  
  cleanup:
@@ -147,18 +148,18 @@ index a4dd3d9..7725d2c 100644
  	usb_free_urb(urb);
  	dev_kfree_skb(skb);
  }
-@@ -7235,7 +7301,10 @@ static int rtl8xxxu_start(struct ieee80211_hw *hw)
+@@ -7235,7 +7302,10 @@ static int rtl8xxxu_start(struct ieee80211_hw *hw)
  		tx_urb->hw = hw;
  		list_add(&tx_urb->list, &priv->tx_urb_free_list);
  		priv->tx_urb_free_count++;
 +		atomic_inc(&rtl8xxxu_dbg_tx_free);
  	}
 +	atomic_set(&rtl8xxxu_dbg_tx_min, priv->tx_urb_free_count);
-+	WRITE_ONCE(rtl8xxxu_dbg_tx_last, jiffies);
++	WRITE_ONCE(rtl8xxxu_dbg_tx_last, 0UL);
  
  	priv->tx_stopped = false;
  
-@@ -7243,6 +7312,7 @@ static int rtl8xxxu_start(struct ieee80211_hw *hw)
+@@ -7243,6 +7313,7 @@ static int rtl8xxxu_start(struct ieee80211_hw *hw)
  	priv->shutdown = false;
  	spin_unlock_irqrestore(&priv->rx_urb_lock, flags);
  
@@ -166,7 +167,7 @@ index a4dd3d9..7725d2c 100644
  	for (i = 0; i < RTL8XXXU_RX_URBS; i++) {
  		rx_urb = kmalloc(sizeof(struct rtl8xxxu_rx_urb), GFP_KERNEL);
  		if (!rx_urb) {
-@@ -7254,6 +7324,7 @@ static int rtl8xxxu_start(struct ieee80211_hw *hw)
+@@ -7254,6 +7325,7 @@ static int rtl8xxxu_start(struct ieee80211_hw *hw)
  		usb_init_urb(&rx_urb->urb);
  		INIT_LIST_HEAD(&rx_urb->list);
  		rx_urb->hw = hw;

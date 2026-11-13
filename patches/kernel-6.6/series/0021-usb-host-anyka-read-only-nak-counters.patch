@@ -1,41 +1,46 @@
-From c38cfb3c9037a948e4041b0d85a295d22567184f Mon Sep 17 00:00:00 2001
+From ff997f8d3f18fcaac3faeb3f1079a7879e3c421b Mon Sep 17 00:00:00 2001
 From: test <test@localhost>
 Date: Fri, 13 Nov 2026 14:18:17 +0100
 Subject: [PATCH] usb: host: anyka: read-only NAK counters
 
 Read-only (0444) parameters of the Anyka host controller driver: bulk OUT and IN NAK timeouts and the age of the oldest pending bulk transfer. Counters only, no behaviour change.
 ---
- drivers/usb/host/anyka/usb-hc.c | 85 +++++++++++++++++++++++++++++++++
- 1 file changed, 85 insertions(+)
+ drivers/usb/host/anyka/usb-hc.c | 110 ++++++++++++++++++++++++++++++++
+ 1 file changed, 110 insertions(+)
 
 diff --git a/drivers/usb/host/anyka/usb-hc.c b/drivers/usb/host/anyka/usb-hc.c
-index 94af00d..b56d152 100644
+index 94af00d..5f30be8 100644
 --- a/drivers/usb/host/anyka/usb-hc.c
 +++ b/drivers/usb/host/anyka/usb-hc.c
-@@ -44,6 +44,77 @@ static bool fifo32;
+@@ -44,6 +44,97 @@ static bool fifo32;
  module_param(fifo32, bool, 0644);
  MODULE_PARM_DESC(fifo32, "move FIFO data in 32-bit words (default: bytes)");
  
 +/*
 + * Read-only (0444) counters for the Wi-Fi TX stall hunt: NAK timeouts of the
-+ * bulk endpoints per direction and the age of the oldest pending bulk
-+ * transfer (head of an endpoint queue, per EPFIFO; 0 = none). Increments and
++ * bulk endpoints per direction and the age of the head bulk transfer of the
++ * oldest endpoint queue, per direction (0 = none pending). Increments and
 + * stores only, no lock added; the .set op refuses a command-line value.
++ * Note for reading: the RX side of rtl8xxxu keeps bulk IN URBs queued all the
++ * time, so bulk_in_oldest_ms is only "time since the last received frame"
++ * (large on a quiet link, not a fault); bulk_out_oldest_ms is the one that
++ * shows a stuck transmit.
 + */
 +static atomic_t akotg_dbg_bulk_out_nak = ATOMIC_INIT(0);
 +static atomic_t akotg_dbg_bulk_in_nak = ATOMIC_INIT(0);
-+static unsigned long akotg_dbg_bulk_since[MAX_EP_NUM + 1];	/* jiffies | 1 */
++/* [0] = IN, [1] = OUT; jiffies | 1 when the head transfer started, 0 = idle */
++static unsigned long akotg_dbg_bulk_since[2][MAX_EP_NUM + 1];
 +
-+static void akotg_dbg_bulk_start(int epfifo)
++static void akotg_dbg_bulk_start(int epfifo, int is_out)
 +{
 +	if (epfifo > 0 && epfifo <= MAX_EP_NUM)
-+		WRITE_ONCE(akotg_dbg_bulk_since[epfifo], jiffies | 1UL);
++		WRITE_ONCE(akotg_dbg_bulk_since[!!is_out][epfifo], jiffies | 1UL);
 +}
 +
-+static void akotg_dbg_bulk_idle(int epfifo)
++static void akotg_dbg_bulk_idle(int epfifo, int is_out)
 +{
 +	if (epfifo > 0 && epfifo <= MAX_EP_NUM)
-+		WRITE_ONCE(akotg_dbg_bulk_since[epfifo], 0UL);
++		WRITE_ONCE(akotg_dbg_bulk_since[!!is_out][epfifo], 0UL);
 +}
 +
 +static int akotg_dbg_set(const char *val, const struct kernel_param *kp)
@@ -53,13 +58,13 @@ index 94af00d..b56d152 100644
 +	return sysfs_emit(buf, "%d\n", atomic_read(&akotg_dbg_bulk_in_nak));
 +}
 +
-+static int akotg_dbg_get_bulk_oldest_ms(char *buf, const struct kernel_param *kp)
++static int akotg_dbg_oldest_ms(char *buf, int dir)
 +{
 +	unsigned long now = jiffies, since, age, oldest = 0;
 +	int i;
 +
 +	for (i = 1; i <= MAX_EP_NUM; i++) {
-+		since = READ_ONCE(akotg_dbg_bulk_since[i]);
++		since = READ_ONCE(akotg_dbg_bulk_since[dir][i]);
 +		if (!since)
 +			continue;
 +		age = now - since;
@@ -71,41 +76,69 @@ index 94af00d..b56d152 100644
 +	return sysfs_emit(buf, "%u\n", jiffies_to_msecs(oldest));
 +}
 +
++static int akotg_dbg_get_bulk_out_oldest_ms(char *buf, const struct kernel_param *kp)
++{
++	return akotg_dbg_oldest_ms(buf, 1);
++}
++
++static int akotg_dbg_get_bulk_in_oldest_ms(char *buf, const struct kernel_param *kp)
++{
++	return akotg_dbg_oldest_ms(buf, 0);
++}
++
 +static const struct kernel_param_ops akotg_dbg_ops_bulk_out_nak = {
 +	.set = akotg_dbg_set, .get = akotg_dbg_get_bulk_out_nak,
 +};
 +static const struct kernel_param_ops akotg_dbg_ops_bulk_in_nak = {
 +	.set = akotg_dbg_set, .get = akotg_dbg_get_bulk_in_nak,
 +};
-+static const struct kernel_param_ops akotg_dbg_ops_bulk_oldest_ms = {
-+	.set = akotg_dbg_set, .get = akotg_dbg_get_bulk_oldest_ms,
++static const struct kernel_param_ops akotg_dbg_ops_bulk_out_oldest_ms = {
++	.set = akotg_dbg_set, .get = akotg_dbg_get_bulk_out_oldest_ms,
++};
++static const struct kernel_param_ops akotg_dbg_ops_bulk_in_oldest_ms = {
++	.set = akotg_dbg_set, .get = akotg_dbg_get_bulk_in_oldest_ms,
 +};
 +module_param_cb(bulk_out_nak, &akotg_dbg_ops_bulk_out_nak, NULL, 0444);
 +MODULE_PARM_DESC(bulk_out_nak, "bulk OUT NAK timeouts since boot (read-only)");
 +module_param_cb(bulk_in_nak, &akotg_dbg_ops_bulk_in_nak, NULL, 0444);
 +MODULE_PARM_DESC(bulk_in_nak, "bulk IN NAK timeouts since boot (read-only)");
-+module_param_cb(bulk_oldest_ms, &akotg_dbg_ops_bulk_oldest_ms, NULL, 0444);
-+MODULE_PARM_DESC(bulk_oldest_ms, "age in ms of the oldest pending bulk transfer, 0 if none (read-only)");
++module_param_cb(bulk_out_oldest_ms, &akotg_dbg_ops_bulk_out_oldest_ms, NULL, 0444);
++MODULE_PARM_DESC(bulk_out_oldest_ms, "age in ms of the head pending bulk OUT transfer, 0 if none (read-only)");
++module_param_cb(bulk_in_oldest_ms, &akotg_dbg_ops_bulk_in_oldest_ms, NULL, 0444);
++MODULE_PARM_DESC(bulk_in_oldest_ms, "age in ms of the head pending bulk IN transfer, 0 if none; large when idle (read-only)");
 +
  static void fifo_write(int epfifo, const unsigned char *buf, int len)
  {
  	u8 reg = ep_fifos[epfifo];
-@@ -600,6 +671,14 @@ static void finish_request_epx(
+@@ -588,7 +679,13 @@ static void finish_request_epx(
+ {
+ 	unsigned		i;
+ 	int is_out;
++	bool dbg_bulk, dbg_head;
++
+ 	is_out = usb_pipeout(urb->pipe);
++	/* read-only counters: take all they need from the URB now, the
++	 * completion below runs inline and may free it */
++	dbg_bulk = usb_pipebulk(urb->pipe);
++	dbg_head = ep->hep->urb_list.next == &urb->urb_list;	/* pointer compare only */
+ 
+ 	VDBG("Finishing EPx URB Request...\n");
+ 
+@@ -600,6 +697,13 @@ static void finish_request_epx(
  	usb_hcd_giveback_urb(akotg_usbhc_to_hcd(akotghc), urb, status);
  	spin_lock(&akotghc->lock);
  
-+	if (usb_pipebulk(urb->pipe)) {
-+		/* the next queued transfer, if any, starts now */
++	if (dbg_bulk) {
 +		if (list_empty(&ep->hep->urb_list))
-+			akotg_dbg_bulk_idle(ep->epfifo);
-+		else
-+			akotg_dbg_bulk_start(ep->epfifo);
++			akotg_dbg_bulk_idle(ep->epfifo, is_out);
++		else if (dbg_head)	/* the next queued transfer starts now */
++			akotg_dbg_bulk_start(ep->epfifo, is_out);
 +	}
 +
  	/* leave active endpoints in the schedule */
  	if (!list_empty(&ep->hep->urb_list))
  		return;
-@@ -683,6 +762,10 @@ done(struct akotg_usbhc *akotghc, struct akotghc_ep *ep)
+@@ -683,6 +787,10 @@ done(struct akotg_usbhc *akotghc, struct akotghc_ep *ep)
  		&&((status & (1 << 7))||(rxstatus & (1 << 3)))) {
  		if (!ep->period)
  			ep->nak_count++;
@@ -116,12 +149,12 @@ index 94af00d..b56d152 100644
  		ep->error_count = 0;
  		err_occurred = 1;
  	}
-@@ -1420,6 +1503,8 @@ akotg_usbhc_urb_enqueue(
+@@ -1420,6 +1528,8 @@ akotg_usbhc_urb_enqueue(
  	}
  
  	urb->hcpriv = hep;
 +	if (type == PIPE_BULK && hep->urb_list.next == &urb->urb_list)
-+		akotg_dbg_bulk_start(epfifo);
++		akotg_dbg_bulk_start(epfifo, is_out);
  	start_transfer(akotghc, epfifo);
    
  fail:

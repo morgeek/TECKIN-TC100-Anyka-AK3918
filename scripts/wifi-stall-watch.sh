@@ -5,7 +5,11 @@
 #   sh wifi-stall-watch.sh 600 > /tmp/stall.txt &
 # Columns: time, tx / rx packets per second (interface statistics), USB interrupts per second, then the read-only
 # counters of rtl8xxxu (tx_urb_free tx_urb_min txq_stops txq_wakes tx_urb_err tx_last_ms rx_urb_lost rx_urb_alive)
-# and of the Anyka host controller (bulk_out_nak bulk_in_nak bulk_oldest_ms). Read-only: nothing is written.
+# and of the Anyka host controller (bulk_out_nak bulk_in_nak bulk_out_oldest_ms bulk_in_oldest_ms). Read-only: nothing is written.
+# Reading traps: every interface down/up kills the anchored URBs, so rx_urb_lost rises by up to 32 and tx_urb_err by the
+# in-flight count: deltas across an interface restart are not stall evidence. tx_last_ms is 0 until the first TX
+# completion after the start. bulk_in_oldest_ms only means "time since the last received frame" (RX URBs stay queued),
+# large on a quiet link; bulk_out_oldest_ms is the one that shows a stuck transmit.
 # Meaning of the patterns: docs/linux-port/test-queue.md, WIFI-STALL-01, step "counters".
 N=${1:-0}
 IF=${2:-wlan0}
@@ -14,7 +18,7 @@ PROC=${WATCH_PROC:-/proc}
 RTL=$SYS/module/rtl8xxxu/parameters
 HCD=$SYS/module/otg_hs/parameters
 RTL_NAMES="tx_urb_free tx_urb_min txq_stops txq_wakes tx_urb_err tx_last_ms rx_urb_lost rx_urb_alive"
-HCD_NAMES="bulk_out_nak bulk_in_nak bulk_oldest_ms"
+HCD_NAMES="bulk_out_nak bulk_in_nak bulk_out_oldest_ms bulk_in_oldest_ms"
 ST=$SYS/class/net/$IF/statistics
 
 num() { # first line of a file, or nothing when the file is missing

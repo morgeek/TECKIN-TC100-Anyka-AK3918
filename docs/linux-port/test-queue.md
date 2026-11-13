@@ -103,14 +103,19 @@ Rules that apply to every entry:
     `tx_urb_err` (TX URB completions with status != 0), `tx_last_ms` (ms since the last TX URB completion), `rx_urb_lost`
     (RX URBs freed on error, never resubmitted; it also counts the URBs killed when the interface goes down),
     `rx_urb_alive` (of 32, in flight or pending). Anyka HCD (`/sys/module/otg_hs/parameters/`): `bulk_out_nak`,
-    `bulk_in_nak` (NAK timeouts of bulk endpoints), `bulk_oldest_ms` (age of the oldest pending bulk transfer, 0 = none).
+    `bulk_in_nak` (NAK timeouts of bulk endpoints), `bulk_out_oldest_ms` / `bulk_in_oldest_ms` (age of the head pending bulk
+    transfer per direction, 0 = none; IN is only "time since the last received frame", since rtl8xxxu keeps RX URBs queued
+    permanently, so it is large on a quiet link and is not a fault; OUT is the one that shows a stuck transmit).
+    **Traps:** every interface down/up kills the anchored URBs, so `rx_urb_lost` rises by up to 32 and `tx_urb_err` by the
+    in-flight count: deltas across an interface restart are not stall evidence (also a reassociate that goes through
+    ifdown, or net-guard). `tx_last_ms` reads 0 until the first TX completion after the start.
     All `0444`; a value on the command line is refused (`-EPERM`), harmless.
   - **Reading the patterns (compare a stall second with a normal second):**
     - `tx_urb_free` near 0 (and `tx_urb_min` low), `txq_stops` rising, `tx_last_ms` growing = TX URBs stuck in the HCD
-      (submitted, never completed); then `bulk_oldest_ms` > 1000 says the HCD holds a transfer, and:
+      (submitted, never completed); then `bulk_out_oldest_ms` > 1000 says the HCD holds a transfer, and:
     - `bulk_out_nak` rising in the same seconds = the 8188F NAKs bulk-OUT (adapter FIFO full or busy: the TX side of the
       chip or its firmware is the one waiting; look at `irq/s` collapsing with it);
-    - `bulk_out_nak` flat with `bulk_oldest_ms` large = the HCD does not restart the transfer (IRQ / schedule problem in
+    - `bulk_out_nak` flat with `bulk_out_oldest_ms` large = the HCD does not restart the transfer (IRQ / schedule problem in
       patch 0003, no NAK timeout involved);
     - `tx_urb_free` high (about 64, no `txq_stops` change) but `tx_last_ms` large and `tx/s` ~6 = mac80211 / the driver
       does not submit (frames wait above the driver: queues, rate control, power-save-like holds); the HCD counters stay

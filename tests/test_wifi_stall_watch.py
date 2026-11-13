@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / 'scripts/wifi-stall-watch.sh'
 SERIES = ROOT / 'patches/kernel-6.6/series'
 RTL = 'tx_urb_free tx_urb_min txq_stops txq_wakes tx_urb_err tx_last_ms rx_urb_lost rx_urb_alive'.split()
-HCD = 'bulk_out_nak bulk_in_nak bulk_oldest_ms'.split()
+HCD = 'bulk_out_nak bulk_in_nak bulk_out_oldest_ms bulk_in_oldest_ms'.split()
 
 
 def patch(prefix):
@@ -52,6 +52,13 @@ class WifiStallWatch(unittest.TestCase):
             p = patch(pfx)
             self.assertRegex(p, r'%s\(const char \*val, const struct kernel_param \*kp\)\n\+\{\n\+\treturn -EPERM;' % fn)
 
+    def test_hcd_does_not_touch_the_urb_after_the_giveback(self):
+        p = patch('0021')
+        self.assertIn('dbg_bulk = usb_pipebulk(urb->pipe);', p)
+        added = [l[1:] for l in p.splitlines() if l.startswith('+')]
+        after = added[[i for i, l in enumerate(added) if 'if (dbg_bulk) {' in l][0]:]
+        self.assertFalse([l for l in after[:6] if 'urb->' in l and 'urb_list' not in l])
+
     def test_patch_headers(self):
         for pfx, path in (('0020', 'drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c'),
                           ('0021', 'drivers/usb/host/anyka/usb-hc.c')):
@@ -80,7 +87,7 @@ class WifiStallWatch(unittest.TestCase):
             self.assertIn('tx_urb_free=1', line)
             self.assertIn('txq_wakes=4', line)
             self.assertNotIn('rx_urb_alive', line)       # missing file: skipped
-            self.assertIn('bulk_oldest_ms=3', line)
+            self.assertIn('bulk_out_oldest_ms=3 bulk_in_oldest_ms=4', line)
 
 
 if __name__ == '__main__':
