@@ -1,15 +1,18 @@
 #!/bin/sh
 # WebRTC live view (item 35): tc100-whep, the WHEP gateway. The web page (and any WHEP client) plays the camera's H.264
 # stream over WebRTC with about 150 ms of delay; the daemon takes the RTP packets from tc100_rtsp on the loopback and
-# sends them SRTP-protected (src/whep, docs/linux-port/whep-design.md). It starts at boot by default: set WHEP=0 in
-# boot.conf to disable it (the Services page "Boot" toggle writes this one switch; autorun-linux66.sh reads it).
-# Start/Stop here act immediately; stopping it does not change the boot setting.
+# sends them SRTP-protected (src/whep, docs/linux-port/whep-design.md). It is NOT started at boot: www/cgi-bin/whep.cgi
+# runs "whep start" on the first POST offer and the daemon leaves by itself after 300 s without a viewer (-I 300). Set
+# WHEP=0 in boot.conf to disable it (the Services page toggle writes this one switch).
+# Start/Stop here act immediately; stopping it does not change the boot setting. Concurrent starts are serialised with
+# a lock directory; the pid file is written only once the daemon is up and is trusted only if the pid is tc100-whep.
 # The other keys of boot.conf are read at each start: WHEP_STREAM (sub|main), WHEP_MAX (1-2), WHEP_AUDIO (0|1).
 # The browser reaches it through www/cgi-bin/whep.cgi, behind the web login; the daemon itself listens on 127.0.0.1.
 SERVICE_NAME="WebRTC live view (WHEP)"
 PIDFILE="/var/run/whep.pid"
 BIN=/mnt/ext/bin/tc100-whep
 LOG=/tmp/logs/whep.log
+LOCKDIR=/tmp/whep-start.lock
 
 . /mnt/scripts/common_functions.sh
 
@@ -17,7 +20,7 @@ status()
 {
   pid="$(cat "$PIDFILE" 2>/dev/null)"
   case "$pid" in ''|*[!0-9]*) return 1 ;; esac
-  if kill -0 "$pid" 2>/dev/null && grep -q whep "/proc/$pid/cmdline" 2>/dev/null; then
+  if kill -0 "$pid" 2>/dev/null && grep -q tc100-whep "/proc/$pid/cmdline" 2>/dev/null; then
     echo "PID: $pid"
     return 0
   fi
@@ -32,9 +35,36 @@ bc()
   [ -n "$_v" ] && echo "$_v" || echo "$2"
 }
 
+# serialise the starts: mkdir is atomic; a lock whose owner is gone is removed; about 10 s at most
+lock()
+{
+  _n=0
+  while ! mkdir "$LOCKDIR" 2>/dev/null; do
+    _o=$(cat "$LOCKDIR/pid" 2>/dev/null)
+    case "$_o" in ''|*[!0-9]*) ;; *) kill -0 "$_o" 2>/dev/null || { rm -rf "$LOCKDIR"; continue; } ;; esac
+    _n=$((_n + 1))
+    [ "$_n" -ge 40 ] && return 1
+    sleep 0.25 2>/dev/null || sleep 1
+  done
+  echo $$ > "$LOCKDIR/pid"
+  return 0
+}
+
+unlock() { rm -rf "$LOCKDIR"; }
+
 start()
 {
   [ -n "$(status)" ] && return 0
+  lock || { echo "tc100-whep: another start is running" >&2; return 1; }
+  _start_locked
+  _rc=$?
+  unlock
+  return $_rc
+}
+
+_start_locked()
+{
+  [ -n "$(status)" ] && return 0	# a concurrent start finished while this one waited for the lock
   [ -x "$BIN" ] || { echo "tc100-whep is not installed ($BIN): the base image has no WebRTC gateway" >&2; return 1; }
   _stream=$(bc WHEP_STREAM sub); case "$_stream" in sub|main) ;; *) _stream=sub ;; esac
   _max=$(bc WHEP_MAX 2); case "$_max" in 1|2) ;; *) _max=2 ;; esac
@@ -45,9 +75,14 @@ start()
   # NET_LAN_ONLY covers the UDP port too: the gateway reads the same list as httpfront and drops other datagrams
   TC100_NET_ALLOW="$(netacl_allow_list 2>/dev/null)" "$BIN" -i wlan0,eth0 -s "$_stream" -m "$_max" -a "$_aud" -r "${_port:-554}" -U "${_ruser:-root}" \
     -w /mnt/config/user.pwd -c /mnt/config -I 300 </dev/null >>"$LOG" 2>&1 &
-  echo $! > "$PIDFILE"
-  sleep 2	# the first start makes the certificate (about a second)
-  [ -n "$(status)" ]
+  _dpid=$!
+  sleep 2	# the first start makes the certificate (about a second); a daemon that cannot bind is gone by then
+  # the pid file only names a daemon that is up (a dead pid must never overwrite the one of the live daemon)
+  if kill -0 "$_dpid" 2>/dev/null && grep -q tc100-whep "/proc/$_dpid/cmdline" 2>/dev/null; then
+    echo "$_dpid" > "$PIDFILE"
+    return 0
+  fi
+  return 1
 }
 
 stop()

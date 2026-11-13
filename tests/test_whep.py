@@ -80,7 +80,10 @@ class Cgi(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         (self.tmp / 'run').mkdir()
-        self.sleeper = subprocess.Popen(['sleep', '60'])
+        # the daemon stand-in: the CGI only trusts a pid whose process name is tc100-whep
+        shutil.copy(shutil.which('sleep'), self.tmp / 'tc100-whep')
+        self.sleeper = subprocess.Popen([str(self.tmp / 'tc100-whep'), '60'])
+        self.other = subprocess.Popen(['sleep', '60'])
         src = read('www/cgi-bin/whep.cgi')
         src = src.replace('/var/run/', f'{self.tmp}/run/').replace('CURL=/mnt/ext/bin/curl', f'CURL={self.tmp}/curl').replace('T=/tmp/', f'T={self.tmp}/')
         self.cgi = self.tmp / 'whep.cgi'
@@ -108,8 +111,9 @@ esac
         os.chmod(self.tmp / 'curl', 0o755)
 
     def tearDown(self):
-        self.sleeper.kill()
-        self.sleeper.wait()
+        for p in (self.sleeper, self.other):
+            p.kill()
+            p.wait()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def run_cgi(self, method='GET', query='', body='', **env):
@@ -130,6 +134,17 @@ esac
         self.pid(2 ** 22 + 5)				# a pid nobody has
         head, body = self.run_cgi()
         self.assertTrue(head.startswith('Status: 503'), head)
+
+    def test_reused_pid_is_not_the_daemon(self):
+        """after the daemon's idle exit its pid may belong to anything: not tc100-whep = not running, stale file removed"""
+        self.pid(self.other.pid)
+        head, body = self.run_cgi()
+        self.assertTrue(head.startswith('Status: 503') or head.startswith('Status: 200'), head)
+        self.assertFalse((self.tmp / 'run/whep.pid').exists())
+        self.pid(self.other.pid)
+        head, _ = self.run_cgi('POST', body='v=0\r\n')
+        self.assertTrue(head.startswith('Status: 503'), head)
+        self.assertFalse((self.tmp / 'run/whep.pid').exists())
 
     def test_status(self):
         self.pid(self.sleeper.pid)
@@ -171,6 +186,60 @@ esac
             self.assertTrue(head.startswith('Status: 400'), (bad, head))
         head, _ = self.run_cgi('GET', 'stop=0123456789abcdef')
         self.assertTrue(head.startswith('Status: 405'), head)
+
+
+@unittest.skipIf(os.name == 'nt', 'needs a POSIX shell and /proc')
+class StartRace(unittest.TestCase):
+    """controlscripts/whep start with its paths in a temporary directory and a fake daemon: two starts at once"""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        src = read('controlscripts/whep')
+        src = src.replace('. /mnt/scripts/common_functions.sh', 'netacl_allow_list() { echo 127.0.0.0/8; }')
+        src = src.replace('/var/run/whep.pid', f'{self.tmp}/whep.pid').replace('/tmp/logs', f'{self.tmp}/logs')
+        src = src.replace('BIN=/mnt/ext/bin/tc100-whep', f'BIN={self.tmp}/tc100-whep').replace('/tmp/whep-start.lock', f'{self.tmp}/lock')
+        src = src.replace('sleep 2\t', 'sleep 1\t')
+        self.ctl = self.tmp / 'whep'
+        self.ctl.write_text(src)
+        # fake daemon: "binds" with an atomic mkdir, logs its start, runs; the second one fails like a busy port
+        (self.tmp / 'tc100-whep').write_text(f"""#!/bin/sh
+echo started >> {self.tmp}/starts
+mkdir {self.tmp}/bound 2>/dev/null || exit 1
+sleep 30
+""")
+        os.chmod(self.tmp / 'tc100-whep', 0o755)
+
+    def tearDown(self):
+        try:
+            pid = int((self.tmp / 'whep.pid').read_text())
+            os.kill(pid, 9)
+        except (OSError, ValueError):
+            pass
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_two_starts_make_one_daemon_and_keep_its_pid(self):
+        env = {'PATH': os.environ['PATH']}
+        ps = [subprocess.Popen(SHELL + [str(self.ctl), 'start'], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+              for _ in range(2)]
+        rcs = [p.wait(timeout=30) for p in ps]
+        self.assertEqual(rcs, [0, 0])
+        self.assertEqual((self.tmp / 'starts').read_text().split(), ['started'], 'only one daemon was launched')
+        pid = int((self.tmp / 'whep.pid').read_text())
+        self.assertIn('tc100-whep', Path(f'/proc/{pid}/cmdline').read_text())
+        self.assertFalse((self.tmp / 'lock').exists(), 'the lock is released')
+
+    def test_a_dead_daemon_never_writes_the_pid_file(self):
+        (self.tmp / 'bound').mkdir()	# the port is taken: the fake daemon exits at once
+        r = subprocess.run(SHELL + [str(self.ctl), 'start'], env={'PATH': os.environ['PATH']}, capture_output=True, timeout=30)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertFalse((self.tmp / 'whep.pid').exists())
+
+    def test_sources(self):
+        cs = read('controlscripts/whep')
+        self.assertIn('mkdir "$LOCKDIR"', cs)
+        self.assertIn('TC100_NET_ALLOW="$(netacl_allow_list 2>/dev/null)" "$BIN"', cs)
+        self.assertNotIn('It starts at boot', cs)
+        self.assertIn('/proc/$_pid/comm', read('www/cgi-bin/whep.cgi'))
 
 
 class UdpReview20261112(unittest.TestCase):
