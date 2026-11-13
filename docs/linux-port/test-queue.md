@@ -129,23 +129,23 @@ Rules that apply to every entry:
 - **Review (2026-11-13, read-only, `src/tc100rtsp/tc100_rtsp.c`):** no buffer overflow, no injection and no authentication
   bypass found (request line, header scanner, base64 and Digest field copies are all bounded; the password check cannot be
   skipped). Six weaknesses were verified and are fixed here.
-- **What changes:** (1) At most 2 concurrent connections per source IPv4 (127/8 exempt: the WHEP gateway, `live.cgi`, the
+- **What changes:** (1) At most `RTSP_PERIP` (rtsp.env, default 3, clamped 1..4) concurrent connections per source IPv4 (127/8 exempt: the WHEP gateway, `live.cgi`, the
   recorder). When the table or the address is full, a connection that is not authenticated goes first, whatever its age,
   from the address holding the most connections (oldest of them); then the old rule (idle >= 2 s and not playing). A
   playing client is never evicted, so a LAN host opening a connection every 0.5 s can no longer keep the 4 slots.
   (2) Digest: the nonce is random per connection (16 bytes of `/dev/urandom` read once, a counter and the clock through
   MD5, 32 hex digits; renewed on a challenge when older than 5 min); the `uri=` must equal the request-line URL (with or
-  without `rtsp://host:port`, one trailing `/` ignored), so a captured response no longer authorises another URL such as
+  without `rtsp://host:port`, one trailing `/` ignored; the VLC / live555 form is accepted too: a uri that is the request path or a parent of it at a `/` boundary, e.g. `uri="rtsp://h/video0/"` on SETUP `.../video0/track1`, never a sibling such as `/video1`), so a captured response no longer authorises another URL such as
   `track3`; the Digest response, user name and the Basic `user:password` are compared in constant time. A client may
   reuse the nonce for the whole connection. (3) Wrong answers (an Authorization header that does not verify; the first
   request without one is the normal challenge and is not counted) are counted per source address: 20 in a minute lock
   that address (401 without checking) for the rest of the minute, as `src/onvifd`; 127/8 never counted, a locked address
-  is never evicted from the 32-entry table, other addresses are untouched. (4) UDP backchannel RTP must come from the exact
+  is never evicted from the 32-entry table, other addresses are untouched. A connection that already authenticated is never locked (a stale-password client on the NVR's address cannot make its keepalives fail). Known trade-off, not fixed (same as onvifd): with 32 locked addresses in the table, failures from a 33rd address are not counted for the rest of the minute. (4) UDP backchannel RTP must come from the exact
   port given in SETUP; `RTSP_TALK_NAT=1` in `/mnt/config/rtsp.env` brings back "same host, any port" for a client behind a
   NAT (default 0). (5) `Content-Length` is honoured (SET_PARAMETER, GET_PARAMETER, ANNOUNCE): the body is waited for and
   consumed with the request; a body larger than the 4 KB buffer closes the client. (6) `b64dec` and `num()` no longer
   overflow a signed int (mask, cap at 999999999).
-- **Switches:** `RTSP_TALK_NAT=1` (rtsp.env) for (4); otherwise revert the `[rtsp-auth]` commit. The host tests use
+- **Switches:** `RTSP_TALK_NAT=1` (rtsp.env) for (4); `RTSP_PERIP=<1-4>` for (1) (2 = the strictest); otherwise revert the `[rtsp-auth]` commit. The host tests use
   `TC100_TEST_NO_EXEMPT=1`, honoured only in the `TC100_HOST_TEST` build.
 - **Test on the camera:** with a password set, stream from the NVR, Frigate, Home Assistant, go2rtc and VLC, each with
   Digest and (where the client allows it) Basic; WHEP live view; a talk session over UDP and over TCP (UDP: `RTSP_TALK_NAT`

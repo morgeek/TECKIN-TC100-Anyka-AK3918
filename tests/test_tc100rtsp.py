@@ -963,7 +963,7 @@ class DigestAuth(Server):
     (127/8 exempt: the WHEP gateway, live.cgi), Content-Length bodies consumed"""
 
     def req(self, method, uri, *h, cseq=1):
-        return '%s %s RTSP/1.0\r\nCSeq: %d\r\n%s\r\n\r\n' % (method, uri, cseq, '\r\n'.join(h))
+        return '\r\n'.join(['%s %s RTSP/1.0' % (method, uri), 'CSeq: %d' % cseq] + list(h)) + '\r\n\r\n'
 
     def test_nonce_differs_between_connections_and_is_random_hex(self):
         seen = set()
@@ -986,8 +986,8 @@ class DigestAuth(Server):
         # the same URL with its rtsp://host:port prefix, then path only, same nonce each time
         self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL, digest_hdr('DESCRIBE', self.URL, n), cseq=3))[0], 200)
         self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL, digest_hdr('DESCRIBE', '/video0', n), cseq=4))[0], 200)
-        # a request for another URL with the response of the first one is refused
-        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL + '/track3', digest_hdr('DESCRIBE', self.URL, n), cseq=5))[0], 401)
+        # a request for another stream with the response of the first one is refused
+        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', 'rtsp://127.0.0.1:18554/video1', digest_hdr('DESCRIBE', self.URL, n), cseq=5))[0], 401)
         # a nonce of another connection is refused
         s2 = conn_from(self.PORT)
         n2 = nonce_of(rtsp_raw(s2, self.req('DESCRIBE', self.URL))[1])
@@ -998,6 +998,22 @@ class DigestAuth(Server):
         self.assertEqual(rtsp_raw(s2, self.req('DESCRIBE', self.URL, digest_hdr('DESCRIBE', self.URL, n2)))[0], 200)
         s.close()
         s2.close()
+
+    def test_vlc_form_uri_of_the_base_url_accepted_siblings_refused(self):
+        s = conn_from(self.PORT)
+        n = nonce_of(rtsp_raw(s, self.req('DESCRIBE', self.URL))[1])
+        tr = 'Transport: RTP/AVP/TCP;unicast;interleaved=0-1'
+        # live555: SETUP on .../track1 carries uri= of the base URL (trailing slash)
+        h = digest_hdr('SETUP', self.URL + '/', n)
+        self.assertEqual(rtsp_raw(s, self.req('SETUP', self.URL + '/track1', tr, h, cseq=2))[0], 200)
+        # a parent only at a '/' boundary, never another stream
+        h = digest_hdr('DESCRIBE', 'rtsp://127.0.0.1:18554/video1', n)
+        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL, h, cseq=3))[0], 401)
+        h = digest_hdr('DESCRIBE', '/video', n)
+        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL, h, cseq=4))[0], 401)
+        h = digest_hdr('DESCRIBE', '/video1/', n)
+        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', '/video0/track1', h, cseq=5))[0], 401)
+        s.close()
 
     def test_basic_still_works_and_a_wrong_password_does_not(self):
         s = conn_from(self.PORT)
@@ -1039,10 +1055,22 @@ class DigestAuth(Server):
 
 class NoExempt(DigestAuth):
     """the tests that need 127.0.0.1 to count like a LAN address (test build only: TC100_TEST_NO_EXEMPT=1)"""
-    env = {'TC100_TEST_NO_EXEMPT': '1'}
+    env = {'TC100_TEST_NO_EXEMPT': '1', 'RTSP_PERIP': '2'}
 
     def test_loopback_is_never_locked(self):
         pass
+
+    def test_an_authenticated_connection_is_not_cut_off_by_the_lockout_of_its_address(self):
+        a = conn_from(self.PORT)
+        self.assertEqual(rtsp_raw(a, self.req('DESCRIBE', self.URL, BASIC))[0], 200)
+        b = conn_from(self.PORT)
+        bad = 'Authorization: Basic ' + base64.b64encode(b'root:no').decode()
+        for i in range(21):
+            self.assertEqual(rtsp_raw(b, self.req('DESCRIBE', self.URL, bad))[0], 401)
+        self.assertEqual(rtsp_raw(b, self.req('DESCRIBE', self.URL, BASIC))[0], 401)       # locked
+        self.assertEqual(rtsp_raw(a, self.req('GET_PARAMETER', self.URL, BASIC, cseq=2))[0], 200)   # the keepalive still passes
+        a.close()
+        b.close()
 
     def test_two_connections_per_address_unauthenticated_goes_first(self):
         a = conn_from(self.PORT)
@@ -1107,6 +1135,25 @@ class NoExempt(DigestAuth):
             o = conn_from(self.PORT, '127.0.0.2')                                           # another address is not affected
             self.assertEqual(rtsp_raw(o, self.req('DESCRIBE', self.URL, BASIC))[0], 200)
             o.close()
+
+
+class PerIpDefault(DigestAuth):
+    """RTSP_PERIP defaults to 3 (MAXCLI - 1): a host may hold three authenticated connections (Frigate main + sub + a viewer)"""
+    env = {'TC100_TEST_NO_EXEMPT': '1'}
+
+    def test_loopback_is_never_locked(self):
+        pass
+
+    def test_three_authenticated_from_one_address_the_fourth_is_refused(self):
+        cs = [conn_from(self.PORT) for _ in range(3)]
+        for c in cs:
+            self.assertEqual(rtsp_raw(c, self.req('DESCRIBE', self.URL, BASIC))[0], 200)
+        d = conn_from(self.PORT)
+        self.assertIsNone(rtsp_raw(d, self.req('OPTIONS', self.URL)))
+        for c in cs:
+            self.assertEqual(rtsp_raw(c, self.req('DESCRIBE', self.URL, BASIC, cseq=2))[0], 200)
+        for x in cs + [d]:
+            x.close()
 
 
 class BackchannelPort(Server):

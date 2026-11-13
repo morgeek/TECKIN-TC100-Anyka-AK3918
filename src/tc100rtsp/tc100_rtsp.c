@@ -1766,6 +1766,16 @@ static void url_path(const char *u, char *o, int osz)
 	if (n > 1 && o[n - 1] == '/') o[n - 1] = 0;
 }
 
+/* live555 (VLC) computes uri= from its base URL for every method: the request path may be the uri path or below it,
+ * at a '/' boundary ("/video0/" covers "/video0/track1", never "/video01" or "/video1") */
+static int uri_covers(const char *u, const char *r)
+{
+	size_t n = strlen(u);
+
+	if (!strcmp(u, r)) return 1;
+	return !strncmp(u, r, n) && (n == 1 || r[n] == '/');
+}
+
 /* Digest nonces: random per connection (a key read from /dev/urandom at start, a counter, the clock), never repeated */
 static unsigned char au_key[16];
 static unsigned long long au_ctr;
@@ -1820,7 +1830,7 @@ static int auth_ok(const char *req, const char *method, const char *url, const c
 		    !field(a, "uri=", uri, sizeof uri) || !field(a, "response=", resp, sizeof resp))
 			return 0;
 		url_path(uri, p1, sizeof p1); url_path(url, p2, sizeof p2);
-		if (!nonce[0] || !ct_eq(u, au_user) || !ct_eq(n, nonce) || strcmp(p1, p2)) return 0;
+		if (!nonce[0] || !ct_eq(u, au_user) || !ct_eq(n, nonce) || !uri_covers(p1, p2)) return 0;
 		md5s(ha1, 3, au_user, "TC100", au_pass);
 		md5s(ha2, 2, method, uri, "");
 		{
@@ -1840,7 +1850,7 @@ static int auth_ok(const char *req, const char *method, const char *url, const c
  * never affected. TC100_TEST_NO_EXEMPT=1 (host test build only) treats 127/8 like any address, to test with it. */
 #define FAIL_MAX 20
 #define FAIL_SLOTS 32
-#define PERIP_MAX 2		/* concurrent connections from one source address */
+static int perip_max = 3;	/* RTSP_PERIP (rtsp.env), 1..MAXCLI: concurrent connections from one source address */
 static struct { uint32_t ip; int n; time_t t0; } g_fail[FAIL_SLOTS];
 static int no_exempt;
 
@@ -2771,7 +2781,7 @@ static void handle(struct cli *c, char *req, int cseq_default)
 
 	if (au_on && strcmp(m, "OPTIONS")) {
 		time_t tn = time(NULL);
-		int locked = fail_locked(c->peer, tn);
+		int locked = !c->authed && fail_locked(c->peer, tn);	/* a connection that already passed is not cut off by another one's failures */
 
 		if (locked || !auth_ok(req, m, url, c->nonce)) {
 			char ch[400];
@@ -2899,7 +2909,7 @@ static void handle(struct cli *c, char *req, int cseq_default)
 	}
 }
 
-/* Where a new connection goes (-1: refused). At most PERIP_MAX per source address (127/8 exempt); when the table is full,
+/* Where a new connection goes (-1: refused). At most perip_max per source address (127/8 exempt); when the table is full,
  * a connection that is not authenticated goes first, whatever its age, from the address with the most connections (oldest
  * of them); then the old rule: the client idle the longest that does not play. A playing client is never evicted (R1). */
 static int cli_count_ip(uint32_t ip)
@@ -2931,10 +2941,10 @@ static int accept_slot(uint32_t ip, time_t nowt)
 {
 	int i, v;
 
-	if (!ip_exempt(ip) && cli_count_ip(ip) >= PERIP_MAX) {	/* one address may not take the slots of the others */
+	if (!ip_exempt(ip) && cli_count_ip(ip) >= perip_max) {	/* one address may not take the slots of the others */
 		v = cli_victim(ip, 1, nowt);
 		if (v < 0) return -1;
-		LOG("rtsp: %d connections from one address, client %d closed for a new one\n", PERIP_MAX, v);
+		LOG("rtsp: %d connections from one address, client %d closed for a new one\n", perip_max, v);
 		cli_close(&cl[v]);
 		return v;
 	}
@@ -2972,6 +2982,16 @@ static void cli_read(struct cli *c)
 			memmove(c->buf, c->buf + len, c->blen - len);
 			c->blen -= len;
 			c->buf[c->blen] = 0;	/* or strstr below finds the end of an old request in the bytes just consumed */
+			continue;
+		}
+		if (c->buf[0] == '\r' || c->buf[0] == '\n') {	/* blank lines between requests are ignored (RFC 2326 4.1) */
+			int k = 0;
+
+			while (k < c->blen && (c->buf[k] == '\r' || c->buf[k] == '\n')) k++;
+			memmove(c->buf, c->buf + k, c->blen - k);
+			c->blen -= k;
+			c->buf[c->blen] = 0;
+			if (!c->blen) return;
 			continue;
 		}
 		e = strstr(c->buf, "\r\n\r\n");
@@ -3974,6 +3994,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 	for (int i = 0; i < MAXCLI; i++) cl[i].fd = -1;
 	net_init();
 	au_rand_init();
+	{ const char *e = getenv("RTSP_PERIP"); if (e && *e) { perip_max = num(e); if (perip_max < 1) perip_max = 1; if (perip_max > MAXCLI) perip_max = MAXCLI; } }
 	{ const char *e = getenv("RTSP_TALK_NAT"); talk_nat = e && e[0] == '1'; }
 #ifdef TC100_HOST_TEST
 	{ const char *e = getenv("TC100_TEST_NO_EXEMPT"); no_exempt = e && e[0] == '1'; }
