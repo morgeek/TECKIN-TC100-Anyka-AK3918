@@ -12,3 +12,5 @@ briefs carry; these files let anyone check a number against its source.
 | `threads-{11,24}-2026-11-11.txt` | tc100_rtsp per thread, two reads 60 s apart (3.0.0) | `../rtsp-2026-11-11.md` |
 | `stat-{11,24}-2026-11-11.txt` | tc100_rtsp STAT lines and encoder log lines (3.0.0) | `../rtsp-2026-11-11.md` |
 | `rtsp-11-rc37-*-2026-11-11.txt` | .11 on rc37: baseline 120 s, then `RTSP_PROFILE=1` at 24 fps (10 min) and 10 fps (5 min): per thread reads, STAT and PROF lines | `../rtsp-prof-2026-11-11.md` |
+| `wifi-stall-11-*-2026-11-13.txt` | WIFI-STALL-01 steps 1-3 on the .11 (rc41), 09:40-09:50 UTC: per-second camera counters (Icmp InEchos / OutEchoReps, wlan0 rx / tx packets, USB IRQ, beacon rx, tx retries / failed), camera -> gateway ping, Mac -> camera ping every 0.5 s (epoch timestamps) | test-queue WIFI-STALL-01 |
+| `nr3d02-24-2026-11-13.txt` | NR3D-02 cases A-D on the .24 (rc41, NR3D=1, by day) | test-queue NR3D-02 |

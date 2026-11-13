@@ -44,7 +44,7 @@ Rules that apply to every entry:
 - **Test kernel only (2026-11-13):** 9d37efe had put both options in the base `defconfig_cma`, so every CI kernel (the next RC too) carried a timer mode no camera had ever booted; the read-only review classed it brick-class for a flash (if the one-shot path of patch 0001 misbehaves, the tick dies before the initramfs: SD recovery only), with side effects to watch: exact `usleep_range` before `ispdrv_ae_work()` (exposure writes earlier in the frame) and the `venc_soft_reset` pulse shortened from >= 10 ms to ~0.2 ms (patch 0008). The base config is back to `HZ_PERIODIC`; build the test kernel with the workflow input `test_hrtimers` (packages get `-testkernel` in their version, see the 2026-10 entry below).
 - **Test (SD kernel from a `test_hrtimers` run, nothing flashed):** Boot on SD (`boot66b.sh`), check `/proc/timer_list` shows `resolution: 1 nsecs` / `Event Handler: hrtimer_interrupt`, and run a 2 h H.265 soak + `RTSP_PACING_US=200` test; also check the picture for exposure flicker and the encoder after a reset (`vencreset`). Only after a pass, with the owner's agreement, move the two options into `defconfig_cma` as a change of its own.
 
-### WIFI-STALL-01 The ~8 s downstream stall of the .11: one evening to tell TX, RX, AP and scans apart (`[wifi]`) — `to test` (owner, read-only steps first)
+### WIFI-STALL-01 The ~8 s downstream stall of the .11: one evening to tell TX, RX, AP and scans apart (`[wifi]`) — `steps 1-3 done 2026-11-13: TX side (H5) confirmed` (results at the end)
 
 - **Diagnosis (read-only Fable analysis of the rtl8xxxu / mac80211 sources of the CI kernel, 2026-11-13; key facts
   checked):**
@@ -200,7 +200,7 @@ Rules that apply to every entry:
   owner's agreement) the kernel is a flash candidate through `flashw` with its read-back check, and `NR3D=1` can become the
   default for 720p setups. **Nothing is flashed before a pass.**
 
-### NR3D-02 3D-NR by day: why 25 fps overflows, and which setting avoids it (`[nr3d]`) — `to test` (owner, no code change, nothing flashed)
+### NR3D-02 3D-NR by day: why 25 fps overflows, and which setting avoids it (`[nr3d]`) — `cases A-D passed on the .24 by day, 2 h soak running` (2026-11-13, results at the end)
 
 - **Why (read-only Fable analysis, 2026-11-13; facts checked against patch 0006):** the sensor sets its frame rate by
   frame length, not by pixel rate (JX-F23 MIPI table: 25 fps = 0x465 = 1125 lines, 20 fps = 0x56e = 1390, 15 fps =
@@ -506,7 +506,7 @@ Rules that apply to every entry:
   no extra 401 prompt.
 - **Pass:** (a)-(d) as above, `/tmp/log/httpfront.log` without new errors.
 
-### AWB-01 Why the ISP white balance goes blue on live statistics: live checks, then a fix (`[awb-fix]`) — `to test` (owner, live, no reboot, nothing flashed)
+### AWB-01 Why the ISP white balance goes blue on live statistics: live checks, then a fix (`[awb-fix]`) — `steps 1, 2, 4 done 2026-11-13 on both cameras; step 3 (paper, tungsten) needs the owner` (results at the end)
 
 - **Diagnosis (read-only Fable analysis of patch 0006 and the recorded data, 2026-11-13; key facts checked):**
   - Every recorded `/tmp/cam_awb` line, on both cameras, by day and by night, fills **only bins 0 and 5** (bins 1-2
@@ -3829,3 +3829,47 @@ NR3D line: appended), rtspserver.conf `[0] vbr=1 smart=1`, rtsp.env `RTSP_AUDIO_
 
 To decide: remove `NR3D=0` from the .11 boot.conf to use `auto` (and explain its 3895 overflows); persist the day /
 night log across reboots (a night is lost at every update).
+
+## Results 2026-11-13 morning (run remotely, owner away; both cameras on rc41)
+
+### WIFI-STALL-01 steps 1-3, .11 (09:40-09:50 UTC; raw: frontier/data/raw/wifi-stall-11-*)
+- Signal **-51 dBm** (not the -13 / -25 of earlier runs), power save off, RTSP client connected.
+- Mac -> .11 ping every 0.5 s: **16 stall windows in 10 min**, replies late by 1.0-4.6 s, 0.3-1.8 % loss; camera ->
+  gateway ping (`up.txt`): stalls in the same minutes (max 8.4 s at the start), 52 of 1200 lost.
+- **During every stall:** `InEchos` and `OutEchoReps` keep rising ~2.5 / s (the Mac's requests arrive and the camera
+  answers at ICMP level); **`beacon rx` keeps rising ~11 / s** (radio and USB-IN alive: H3 out); **`tx_packets` drops from
+  ~250 / s to ~6 / s, `rx_packets` from ~150 / s to ~6 / s** (no TCP ACKs come back because nothing goes out), **USB IRQ
+  from ~1000 / s to ~25-40 / s**; `tx retries` / `tx failed` stay 0 (the frames never reach the air, or the counters
+  only see completed frames).
+- `iw event -t`: **no event** in 10 min (no scan, no disconnect: scans and H4 out for these stalls); no new kernel line.
+- **Reading: the camera's TX path stalls (H5).** Not H1 (requests arrive), not H3 (beacons keep coming), not H7 at this
+  signal (still stalls at -51 dBm). Next per the sheet: the read-only `0444` counters (free TX URBs, queue stops, HCD
+  bulk-OUT NAK timeouts) to see where TX waits; steps 4-5 need the owner able to power-cycle.
+- Note: `iw` is `/rom/ext/bin/iw` (not in PATH for scripts).
+
+### NR3D-02 cases A-D, .24 (NR3D=1, by day, one RTSP client; raw: frontier/data/raw/nr3d02-24-2026-11-13.txt)
+| case | overflow in 60 s | frames / 60 s | dropped | kbit/s |
+|---|---|---|---|---|
+| A 1080p 25 fps | **+0** | 1453 | 0 | 1550 |
+| B 1080p 20 fps | +0 | 1115 | 0 | 1486 |
+| C 720p 25 fps | +0 | 1481 | 0 | 1574 |
+| D 720p 20 fps | +0 | 1183 | 0 | 1578 |
+- Step 3 (vendor 3D-NR sets in `/lib/firmware/anyka/isp.conf`): check bytes `04 00 68 04` OK; per set (k=0 manual, 1-9
+  linked to the gain) `uv_min_enable tnr_y_enable tnr_uv_enable updata_ref_y updata_ref_uv tnr_refFrame_format`:
+  k0 `1 0 1 1 1 0`, k1-k5 `0 1 1 1 1 2`, k6 `1 1 1 1 1 2`, k7-k8 `1 1 1 1 1 0`, k9 `1 1 1 1 1 1`.
+- Step 4: only the usual `request irq set isp pause fail` warnings and the statistics DMA line; no GUARD line.
+- **By day the .24 shows 0 overflow even at 1080p 25 fps**, unlike the ~1500 / min expected (and the .11's 3895 since
+  its rc41 boot, which date from the owner's 25 fps test the night before: unchanged since, 3D-NR off there). So the
+  limit may depend on light (night gain) or on the unit, not on the frame rate alone. 2 h soak at 1080p 25 fps with
+  NR3D=1 running on the .24 (backups `boot.conf.bak-nr3d02`, `rtspserver.conf.bak-nr3d02`; fps / main size restored).
+
+### AWB-01 steps 1, 2, 4 (both cameras, `awb_live=0`, no white paper in view)
+- **Bins 0, 1, 2, 5, 6 fill on both cameras** (not only 0 and 5 as in the diagnosis): .11
+  `446222 874678 65770 510 33 136850 45342 304 0 0 | ct 1`, .24 `465674 905766 380282 7763 321 130228 262846 5853 0 0 |
+  ct 3/5/8`. Bins 3-4 small, 7 small, 8-9 zero.
+- **Colour temperature index 8 on the .24** (outside the documented 0-6), alternating with 3 and 5 every few seconds.
+- **Statistics are taken before the software gains:** `awb.off` (rex / bex back to 256) changes the counts by under 1 %
+  on both cameras.
+- **Same statistics block on both units:** `statistics DMA area at 0x82e61dd4, 4800 bytes (white balance counts read
+  from word 1160)` (the sheet assumed word 1032): the per-unit leftover-memory hypothesis needs a dump to be tested.
+- Step 3 (A/B with `awb_live=1`, white paper, daylight then tungsten) needs the owner.
