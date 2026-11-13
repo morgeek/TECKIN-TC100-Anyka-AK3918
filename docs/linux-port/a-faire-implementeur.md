@@ -5,6 +5,26 @@ Les sections datées qui suivent sont des notes historiques des RC précédentes
 foi. La liste d'origine date de rc25 ; les audits des 3, 4 et 6 novembre sont des instantanés, pas des listes de tâches
 à jour.
 
+## Noyau d'essai Wi-Fi et défaut du patch 0003 (2026-11-13 après-midi, coordinateur)
+
+1. **Noyau d'essai `wifi-counters` (branche poussée, jamais fusionnée telle quelle sur `main`).** Patchs `0020`
+   (compteurs `0444` de `rtl8xxxu` : URB d'émission libres et minimum, arrêts / reprises des files mac80211, erreurs
+   d'émission, `tx_last_ms`, URB de réception perdus / en vol) et `0021` (contrôleur USB `otg_hs` : NAK des transferts
+   en masse par sens, âge du plus vieux transfert en attente par sens), script `scripts/wifi-stall-watch.sh`, mode
+   d'emploi dans l'entrée WIFI-STALL-01 **de la branche**. Aucun changement de comportement ; relu deux fois en lecture
+   seule (un accès à une URB libérée trouvé puis corrigé) ; CI noyau locale passée. **À faire par le propriétaire :**
+   workflow « Build Linux 6.6 » → *Run workflow* sur la branche `wifi-counters`, puis `tc100test/c66.img` + `c66rd.gz`
+   démarrés depuis la carte SD (RAM, rien en flash), et le script pendant les blocages de la .11. Selon le résultat, un
+   correctif (et seulement lui) ira sur `main`.
+2. **Défaut existant du patch 0003, sur `main` (confirmé par la relecture du 13/11, peut planter le noyau, pas de
+   brique) :** dans `finish_request_epx`, le `switch` sur `usb_pipetype(urb->pipe)` lit l'URB **après**
+   `usb_hcd_giveback_urb()` (sans `HCD_BH`, la fonction de fin du pilote a pu la libérer). Atteint seulement quand la
+   file et `ep->schedule` sont vides : une URB libérée (empoisonnée par `slub_debug`) peut se lire comme une
+   interruption, et sur un point d'accès en masse la boucle `i += ep->period` avec une période 0 tourne alors sans fin,
+   interruptions coupées. Exposition faible. **Correctif à faire à part** (capturer le type de tuyau avant la
+   restitution, comme le fait le patch 0021 pour ses compteurs), par `implementer-heavy`, relu avant fusion, noyau sur
+   carte SD d'abord.
+
 ## Trouvailles du 2026-11-13 matin (tests à distance, les deux caméras en rc41 ; détail et chiffres dans test-queue.md « Results 2026-11-13 morning », données dans frontier/data/raw/)
 
 1. **Wi-Fi .11 (WIFI-STALL-01) : c'est l'émission de la caméra qui se bloque (H5).** 16 blocages de 1 à 4,6 s en 10 min
