@@ -117,6 +117,12 @@ Rules that apply to every entry:
   compare idle CPU of `tc100-mdnsd` (`top`) with the previous build.
 - **Pass:** all names resolve on all four systems, the browse lists the camera, the long hostname answers, no change in
   idle CPU, no crash or restart of the daemon (`/var/run/mdns.pid` stable) after the flood.
+- **Known limits (re-check of 3d6dd92, verdict safe; not fixed):** the legacy (port != 5353) **A** answer still writes
+  its own question (kernel-case host, type A) instead of echoing the query, so a strict resolver may discard a legacy
+  ANY / mixed-case / multi-question answer (the DNS-SD path echoes since this fix); four bytes after `mdns_put_name` in
+  that path are not bound-checked (unreachable today: ~172 bytes against `out[1500]`); the limiter is global, so one
+  in-subnet sender at >= 20 matching queries/s takes each second's answers until it stops. Candidates for a later
+  small change.
 
 ### WIFI-RXAGG rtl8xxxu runtime `ampdu_rx` switch (`[wifi]`) — `to test`
 
