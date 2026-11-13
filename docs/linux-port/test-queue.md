@@ -3669,3 +3669,19 @@ NR3D line: appended), rtspserver.conf `[0] vbr=1 smart=1`, rtsp.env `RTSP_AUDIO_
   set in the .24 daynight.conf (owner's decision; backup `daynight.conf.bak-20261113`, saved to flash): the dark room
   went to night at once (23:08:48 UTC, IR on, luma 100-108). To see: the next dim-lamp evening stays in colour
   (counts 550 000+), dawn goes back to day. The .11 keeps the 50 000 default until then.
+
+## 3.0.1-rc41 on both cameras (checked 2026-11-13 06:59 UTC)
+| | .11 | .24 |
+|---|---|---|
+| installed | 2026-11-12 22:06 UTC (kernel built 21:54) | 2026-11-13 06:35 UTC (kernel built 2026-11-12 23:29) |
+| services | all up (whep running) | all up; `tc100-whep` not running with `WHEP=1`: expected with the on-demand WHEP of 9d37efe (starts on a viewer) — check a live view once |
+| stream | 1 client, 24-25 fps, 0 dropped in 702 STAT lines | 1 client, 10 fps (low light at start), 0 dropped |
+| memory | MemAvailable 17.2 MB, CmaFree 2.1 MB | MemAvailable 18.0 MB, CmaFree 2.3 MB |
+| encoder | `vbr=1 smart=1` (set on 2026-11-12) | `vbr=1 smart=0` (its old config: now real VBR) |
+| 3D-NR | boot.conf `NR3D=0` (written 2026-11-12 after the rc40 failure: **overrides the new `auto` default**); reference allocated at boot ("UV in venc pool"), `nr3d=0`, `nr3d_overflow=3895` since boot | no NR3D line -> `auto`: `3D-NR auto: on (night/low-light)` then `off (day)`, `nr3d_overflow=0` |
+| AEC | `RTSP_AUDIO_AEC=1` | off |
+| day / night | `vendor`, AWB 50 000: night 23:37 -> day 06:53 UTC, no other switch: **first full night with the IR-cut fixed, HW-10 passed** | `vendor`, `AWB_DAY_CNT=200000`: the night log was lost (the update reboot clears /tmp/logs): the 200 000 threshold still needs a full night |
+| GET guard | 405 | 405 |
+
+To decide: remove `NR3D=0` from the .11 boot.conf to use `auto` (and explain its 3895 overflows); persist the day /
+night log across reboots (a night is lost at every update).
