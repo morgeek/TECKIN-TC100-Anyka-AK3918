@@ -5,6 +5,33 @@ Les sections datées qui suivent sont des notes historiques des RC précédentes
 foi. La liste d'origine date de rc25 ; les audits des 3, 4 et 6 novembre sont des instantanés, pas des listes de tâches
 à jour.
 
+## Trouvailles du 2026-11-13 matin (tests à distance, les deux caméras en rc41 ; détail et chiffres dans test-queue.md « Results 2026-11-13 morning », données dans frontier/data/raw/)
+
+1. **Wi-Fi .11 (WIFI-STALL-01) : c'est l'émission de la caméra qui se bloque (H5).** 16 blocages de 1 à 4,6 s en 10 min
+   à -51 dBm. Pendant chaque blocage, les demandes arrivent et la caméra y répond au niveau ICMP, les balises arrivent
+   toujours (~11/s), mais `tx_packets` tombe de ~250/s à ~6/s et les interruptions USB de ~1000/s à ~30/s ; aucun
+   événement `iw` (pas de scan, pas de déconnexion), aucune ligne noyau. H1, H3, H4 écartées ; H7 peu probable
+   (blocages encore à -51 dBm). **À faire :** les compteurs `0444` de la fiche (URB TX libres, arrêts de file mac80211,
+   NAK bulk-OUT du contrôleur USB par point d'accès, URB RX libérés sur erreur) pour voir où l'émission attend ; puis les
+   étapes 4-5 de la fiche avec le propriétaire. Note : `iw` est `/rom/ext/bin/iw`, hors du PATH des scripts.
+2. **3D-NR (NR3D-02) : pas de débordement de jour sur la .24, même à 1080p 25 i/s** (A-D à +0 en 60 s, aucune image
+   perdue), contrairement aux ~1500/min attendus. Les 3895 débordements de la .11 datent du test de nuit à 25 i/s du
+   propriétaire. **Piste :** la limite dépendrait de la lumière (gain de nuit, TNR plus chargée) ou de l'unité, pas de la
+   cadence seule ; le seuil `auto` à <= 15 i/s (45d3707) coupe la 3D-NR de jour alors qu'elle passe ici, et la met la nuit
+   où les débordements ont été vus. Endurance de 2 h à 1080p 25 i/s en cours sur la .24 ; ensuite : mesurer la .24 de
+   nuit à 25 i/s et la .11 de jour avant de changer la règle `auto`.
+   Réglages 3D-NR du fabricant (`isp.conf`) relevés : jeu manuel `1 0 1 1 1 0`, jeux 1-5 `0 1 1 1 1 2`, 6 `1 1 1 1 1 2`,
+   7-8 `1 1 1 1 1 0`, 9 `1 1 1 1 1 1` (`uv_min tnr_y tnr_uv upd_ref_y upd_ref_uv refFrame_format`).
+3. **Balance des blancs (AWB-01) : le diagnostic de départ est à corriger avant le correctif `awb_fix`.**
+   - Les cases 0, 1, 2, 5, 6 se remplissent sur les deux caméras (pas seulement 0 et 5) ; 3, 4, 7 faibles, 8-9 vides.
+   - Les statistiques sont prises **avant** les gains logiciels (`awb.off` change les comptes de moins de 1 %) : le
+     bit 3 « boucle fermée » du correctif proposé n'est pas justifié.
+   - Les deux caméras lisent les comptes au **mot 1160** (la fiche supposait 1032), même zone DMA `0x82e61dd4` : la piste
+     « mémoire résiduelle propre à chaque unité » reste à prouver par un dump.
+   - **Indice de température de couleur 8 sur la .24** (hors des 0-6 documentés), en alternance avec 3 et 5 : à expliquer
+     (lecture du champ, ou table plus longue que prévu).
+   - Reste l'étape 3 (feuille blanche, jour puis lampe à filament, `awb_live=1`) avec le propriétaire.
+
 ## À faire après la rc41 sur les deux caméras (2026-11-13 matin, détail dans test-queue.md « 3.0.1-rc41 on both cameras »)
 
 1. **Garder le journal jour/nuit à travers un redémarrage.** `/tmp/logs/daynight.log` est effacé à chaque mise à jour :
