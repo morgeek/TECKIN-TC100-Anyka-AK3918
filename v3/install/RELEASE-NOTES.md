@@ -2,6 +2,24 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
+## What is new in 3.0.1-rc42 (test build, branch main)
+Everything in 3.0.1-rc41 below, plus:
+- **RTSP access:** at most 3 connections per address (`RTSP_PERIP`), random Digest nonce and `uri` check (a parent
+  path is accepted, as VLC sends it), lockout after repeated failed logins (authenticated connections are never locked
+  out), the UDP two-way audio only accepted from the client's own port.
+- **mDNS:** compression pointers followed in question names, rate limit, 1500-byte answers, legacy DNS-SD answers.
+- **3D noise reduction:** `NR3D=auto` is the default (reference allocated at boot, switched on at night / low light),
+  and only when the capture rate in use is 15 fps or less; the reason is logged. Measured on 2026-11-13: no overflow by
+  day at 1080p 25 fps on both test cameras, so this rule may change after the night measurements.
+- **RTSP over UDP:** non-blocking sends, keyframe requests caused by UDP backpressure rate-limited, no frame queued for
+  a client still waiting for a keyframe.
+- **WebRTC (WHEP):** started on demand and stopped when idle; starts serialised with a lock (a stale lock is taken over).
+- **Day / night log kept across a planned reboot:** the last 200 lines are copied to `/mnt/config/log/daynight-last.log`
+  (saved to the flash with the settings) before an update, web UI, MQTT or button reboot.
+- **Wi-Fi:** `rtl8xxxu.tx_atten` (TX power attenuation at run time) and `ampdu_rx` parameters; the kernel is back to
+  `HZ_PERIODIC` (high-resolution timers stay in a test kernel).
+- **Audio:** echo cancellation prefill (`RTSP_AUDIO_AEC=1`, still off by default).
+
 ## What is new in 3.0.1-rc41 (test build, branch main)
 Everything in 3.0.1-rc40 below, plus:
 - **3D-NR 1080p memory layout (patch 0017):** `ak39_vi` allocates the 2025 KiB 3D-NR UV reference plane from the
