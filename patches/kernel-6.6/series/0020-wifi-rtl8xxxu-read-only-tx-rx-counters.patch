@@ -1,0 +1,176 @@
+From 6bcc4494f0f7d99d1f1e0daa5dedc1bb62daffd4 Mon Sep 17 00:00:00 2001
+From: test <test@localhost>
+Date: Fri, 13 Nov 2026 14:18:17 +0100
+Subject: [PATCH] wifi: rtl8xxxu: read-only TX/RX counters
+
+Read-only (0444) module parameters to see where the transmit path waits during a Wi-Fi stall: free TX URBs (now and lowest), mac80211 queue stops and wakes, TX URB errors, time since the last TX completion, RX URBs lost and alive. Counters only, no behaviour change.
+---
+ .../wireless/realtek/rtl8xxxu/rtl8xxxu_core.c | 71 +++++++++++++++++++
+ 1 file changed, 71 insertions(+)
+
+diff --git a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
+index a4dd3d9..7725d2c 100644
+--- a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
++++ b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
+@@ -79,6 +79,56 @@ MODULE_PARM_DESC(ampdu_rx, "Allow RX A-MPDU (BlockAck) aggregation (default Y)")
+ #define RTL8XXXU_TX_URB_LOW_WATER	25
+ #define RTL8XXXU_TX_URB_HIGH_WATER	32
+ 
++/*
++ * Read-only (0444) counters to see where the transmit path waits (TX stall
++ * hunt). Global, the board has a single adapter. Increments only, written
++ * where the driver already runs (under tx_urb_lock or in URB completion
++ * context); the .set op refuses a value from the command line.
++ */
++static atomic_t rtl8xxxu_dbg_tx_free = ATOMIC_INIT(0);
++static atomic_t rtl8xxxu_dbg_tx_min = ATOMIC_INIT(RTL8XXXU_TX_URBS);
++static atomic_t rtl8xxxu_dbg_txq_stops = ATOMIC_INIT(0);
++static atomic_t rtl8xxxu_dbg_txq_wakes = ATOMIC_INIT(0);
++static atomic_t rtl8xxxu_dbg_tx_err = ATOMIC_INIT(0);
++static atomic_t rtl8xxxu_dbg_rx_lost = ATOMIC_INIT(0);
++static atomic_t rtl8xxxu_dbg_rx_alive = ATOMIC_INIT(0);
++static unsigned long rtl8xxxu_dbg_tx_last;	/* jiffies, WRITE_ONCE */
++
++static int rtl8xxxu_dbg_set(const char *val, const struct kernel_param *kp)
++{
++	return -EPERM;
++}
++
++#define RTL8XXXU_DBG_PARAM(_name, _expr)				\
++static int rtl8xxxu_dbg_get_##_name(char *buf,				\
++				    const struct kernel_param *kp)	\
++{									\
++	return sysfs_emit(buf, "%d\n", (int)(_expr));			\
++}									\
++static const struct kernel_param_ops rtl8xxxu_dbg_ops_##_name = {	\
++	.set = rtl8xxxu_dbg_set,					\
++	.get = rtl8xxxu_dbg_get_##_name,				\
++};									\
++module_param_cb(_name, &rtl8xxxu_dbg_ops_##_name, NULL, 0444)
++
++RTL8XXXU_DBG_PARAM(tx_urb_free, atomic_read(&rtl8xxxu_dbg_tx_free));
++MODULE_PARM_DESC(tx_urb_free, "Free TX URBs now (read-only)");
++RTL8XXXU_DBG_PARAM(tx_urb_min, atomic_read(&rtl8xxxu_dbg_tx_min));
++MODULE_PARM_DESC(tx_urb_min, "Lowest free TX URB count since start (read-only)");
++RTL8XXXU_DBG_PARAM(txq_stops, atomic_read(&rtl8xxxu_dbg_txq_stops));
++MODULE_PARM_DESC(txq_stops, "Times the mac80211 queues were stopped (read-only)");
++RTL8XXXU_DBG_PARAM(txq_wakes, atomic_read(&rtl8xxxu_dbg_txq_wakes));
++MODULE_PARM_DESC(txq_wakes, "Times the mac80211 queues were woken (read-only)");
++RTL8XXXU_DBG_PARAM(tx_urb_err, atomic_read(&rtl8xxxu_dbg_tx_err));
++MODULE_PARM_DESC(tx_urb_err, "TX URB completions with status != 0 (read-only)");
++RTL8XXXU_DBG_PARAM(tx_last_ms,
++		   jiffies_to_msecs(jiffies - READ_ONCE(rtl8xxxu_dbg_tx_last)));
++MODULE_PARM_DESC(tx_last_ms, "ms since the last TX URB completion (read-only)");
++RTL8XXXU_DBG_PARAM(rx_urb_lost, atomic_read(&rtl8xxxu_dbg_rx_lost));
++MODULE_PARM_DESC(rx_urb_lost, "RX URBs freed on error, not resubmitted (read-only)");
++RTL8XXXU_DBG_PARAM(rx_urb_alive, atomic_read(&rtl8xxxu_dbg_rx_alive));
++MODULE_PARM_DESC(rx_urb_alive, "RX URBs in flight or pending (read-only)");
++
+ static int rtl8xxxu_submit_rx_urb(struct rtl8xxxu_priv *priv,
+ 				  struct rtl8xxxu_rx_urb *rx_urb);
+ 
+@@ -5172,6 +5222,7 @@ static void rtl8xxxu_free_tx_resources(struct rtl8xxxu_priv *priv)
+ 	list_for_each_entry_safe(tx_urb, tmp, &priv->tx_urb_free_list, list) {
+ 		list_del(&tx_urb->list);
+ 		priv->tx_urb_free_count--;
++		atomic_dec(&rtl8xxxu_dbg_tx_free);
+ 		usb_free_urb(&tx_urb->urb);
+ 	}
+ 	spin_unlock_irqrestore(&priv->tx_urb_lock, flags);
+@@ -5189,9 +5240,13 @@ rtl8xxxu_alloc_tx_urb(struct rtl8xxxu_priv *priv)
+ 	if (tx_urb) {
+ 		list_del(&tx_urb->list);
+ 		priv->tx_urb_free_count--;
++		atomic_dec(&rtl8xxxu_dbg_tx_free);
++		if (priv->tx_urb_free_count < atomic_read(&rtl8xxxu_dbg_tx_min))
++			atomic_set(&rtl8xxxu_dbg_tx_min, priv->tx_urb_free_count);
+ 		if (priv->tx_urb_free_count < RTL8XXXU_TX_URB_LOW_WATER &&
+ 		    !priv->tx_stopped) {
+ 			priv->tx_stopped = true;
++			atomic_inc(&rtl8xxxu_dbg_txq_stops);
+ 			ieee80211_stop_queues(priv->hw);
+ 		}
+ 	}
+@@ -5212,9 +5267,11 @@ static void rtl8xxxu_free_tx_urb(struct rtl8xxxu_priv *priv,
+ 
+ 	list_add(&tx_urb->list, &priv->tx_urb_free_list);
+ 	priv->tx_urb_free_count++;
++	atomic_inc(&rtl8xxxu_dbg_tx_free);
+ 	if (priv->tx_urb_free_count > RTL8XXXU_TX_URB_HIGH_WATER &&
+ 	    priv->tx_stopped) {
+ 		priv->tx_stopped = false;
++		atomic_inc(&rtl8xxxu_dbg_txq_wakes);
+ 		ieee80211_wake_queues(priv->hw);
+ 	}
+ 
+@@ -5242,6 +5299,9 @@ static void rtl8xxxu_tx_complete(struct urb *urb)
+ 
+ 	if (!urb->status)
+ 		tx_info->flags |= IEEE80211_TX_STAT_ACK;
++	else
++		atomic_inc(&rtl8xxxu_dbg_tx_err);
++	WRITE_ONCE(rtl8xxxu_dbg_tx_last, jiffies);
+ 
+ 	ieee80211_tx_status_irqsafe(hw, skb);
+ 
+@@ -5841,6 +5901,7 @@ static void rtl8xxxu_free_rx_resources(struct rtl8xxxu_priv *priv)
+ 		list_del(&rx_urb->list);
+ 		priv->rx_urb_pending_count--;
+ 		usb_free_urb(&rx_urb->urb);
++		atomic_dec(&rtl8xxxu_dbg_rx_alive);
+ 	}
+ 
+ 	spin_unlock_irqrestore(&priv->rx_urb_lock, flags);
+@@ -5863,6 +5924,7 @@ static void rtl8xxxu_queue_rx_urb(struct rtl8xxxu_priv *priv,
+ 		skb = (struct sk_buff *)rx_urb->urb.context;
+ 		dev_kfree_skb_irq(skb);
+ 		usb_free_urb(&rx_urb->urb);
++		atomic_dec(&rtl8xxxu_dbg_rx_alive);
+ 	}
+ 
+ 	spin_unlock_irqrestore(&priv->rx_urb_lock, flags);
+@@ -5911,6 +5973,8 @@ static void rtl8xxxu_rx_urb_work(struct work_struct *work)
+ 			skb = (struct sk_buff *)rx_urb->urb.context;
+ 			dev_kfree_skb(skb);
+ 			usb_free_urb(&rx_urb->urb);
++			atomic_dec(&rtl8xxxu_dbg_rx_alive);
++			atomic_inc(&rtl8xxxu_dbg_rx_lost);
+ 		}
+ 	}
+ }
+@@ -6491,6 +6555,8 @@ static void rtl8xxxu_rx_complete(struct urb *urb)
+ 	return;
+ 
+ cleanup:
++	atomic_dec(&rtl8xxxu_dbg_rx_alive);
++	atomic_inc(&rtl8xxxu_dbg_rx_lost);
+ 	usb_free_urb(urb);
+ 	dev_kfree_skb(skb);
+ }
+@@ -7235,7 +7301,10 @@ static int rtl8xxxu_start(struct ieee80211_hw *hw)
+ 		tx_urb->hw = hw;
+ 		list_add(&tx_urb->list, &priv->tx_urb_free_list);
+ 		priv->tx_urb_free_count++;
++		atomic_inc(&rtl8xxxu_dbg_tx_free);
+ 	}
++	atomic_set(&rtl8xxxu_dbg_tx_min, priv->tx_urb_free_count);
++	WRITE_ONCE(rtl8xxxu_dbg_tx_last, jiffies);
+ 
+ 	priv->tx_stopped = false;
+ 
+@@ -7243,6 +7312,7 @@ static int rtl8xxxu_start(struct ieee80211_hw *hw)
+ 	priv->shutdown = false;
+ 	spin_unlock_irqrestore(&priv->rx_urb_lock, flags);
+ 
++	atomic_set(&rtl8xxxu_dbg_rx_alive, 0);
+ 	for (i = 0; i < RTL8XXXU_RX_URBS; i++) {
+ 		rx_urb = kmalloc(sizeof(struct rtl8xxxu_rx_urb), GFP_KERNEL);
+ 		if (!rx_urb) {
+@@ -7254,6 +7324,7 @@ static int rtl8xxxu_start(struct ieee80211_hw *hw)
+ 		usb_init_urb(&rx_urb->urb);
+ 		INIT_LIST_HEAD(&rx_urb->list);
+ 		rx_urb->hw = hw;
++		atomic_inc(&rtl8xxxu_dbg_rx_alive);
+ 
+ 		ret = rtl8xxxu_submit_rx_urb(priv, rx_urb);
+ 		if (ret) {
