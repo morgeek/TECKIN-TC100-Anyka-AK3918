@@ -108,7 +108,10 @@ Rules that apply to every entry:
     permanently, so it is large on a quiet link and is not a fault; OUT is the one that shows a stuck transmit).
     **Traps:** every interface down/up kills the anchored URBs, so `rx_urb_lost` rises by up to 32 and `tx_urb_err` by the
     in-flight count: deltas across an interface restart are not stall evidence (also a reassociate that goes through
-    ifdown, or net-guard). `tx_last_ms` reads 0 until the first TX completion after the start.
+    ifdown, or net-guard). `tx_last_ms` reads 0 until the first TX completion after the start; it keeps growing while
+    the interface is down (reset only at start), and a single sample taken exactly at an ifup can be huge or negative
+    (two reads of the stamp): ignore one odd sample, trust a value that grows second after second. A NAK timeout of an
+    interrupt endpoint (if the chip uses one) would also count in `bulk_*_nak`.
     All `0444`; a value on the command line is refused (`-EPERM`), harmless.
   - **Reading the patterns (compare a stall second with a normal second):**
     - `tx_urb_free` near 0 (and `tx_urb_min` low), `txq_stops` rising, `tx_last_ms` growing = TX URBs stuck in the HCD
