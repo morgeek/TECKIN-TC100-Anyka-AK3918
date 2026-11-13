@@ -5,6 +5,22 @@ Les sections datées qui suivent sont des notes historiques des RC précédentes
 foi. La liste d'origine date de rc25 ; les audits des 3, 4 et 6 novembre sont des instantanés, pas des listes de tâches
 à jour.
 
+## À faire après la rc41 sur les deux caméras (2026-11-13 matin, détail dans test-queue.md « 3.0.1-rc41 on both cameras »)
+
+1. **Garder le journal jour/nuit à travers un redémarrage.** `/tmp/logs/daynight.log` est effacé à chaque mise à jour :
+   la nuit de la .24 avec `AWB_DAY_CNT=200000` (2026-11-12/13) est perdue. Copier le journal (ou ses dernières lignes)
+   dans `/mnt/config/log/` avant le redémarrage d'une mise à jour, ou le tenir sur la carte SD quand elle existe.
+2. **Seuil `AWB_DAY_CNT`.** 50 000 laisse une pièce sombre en jour (comptes 60-66 k, .24 le 12/11) ; 200 000 mis sur la
+   .24 (décision du propriétaire) : passage en nuit immédiat. À confirmer sur une nuit complète (soir avec une lampe
+   faible : rester en couleur ; aube : jour), puis à mettre sur la .11 et à discuter comme valeur par défaut.
+3. **3D-NR de la .11.** Sa ligne `NR3D=0` (écrite le 12/11 après l'échec de la rc40) empêche le nouveau défaut `auto`.
+   `nr3d_overflow=3895` depuis le démarrage alors que `nr3d=0` : à expliquer avant de retirer la ligne (accord du
+   propriétaire).
+4. **WHEP à la demande.** Sur la .24, `tc100-whep` ne tourne pas avec `WHEP=1` (attendu depuis 9d37efe) : vérifier qu'une
+   vue en direct le démarre.
+5. **VBR réel sur la .24.** Son ancien `vbr=1` donne maintenant un vrai VBR (plafond 1600 kbit/s) : surveiller le débit et
+   l'image dans Frigate.
+
 ## Point au 2026-11-13 — Enquête burst Wi-Fi ~8–9 s et état des chantiers
 
 ### 1. Faits mesurés sur le burst Wi-Fi de ~8–9 s (`.11` vs `.24` vs passerelle, 2026-11-12)
