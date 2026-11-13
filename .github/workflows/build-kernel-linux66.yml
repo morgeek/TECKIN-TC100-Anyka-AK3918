@@ -95,7 +95,8 @@ jobs:
           cd linux-src
           # RTL8188FU firmware (embedded in the kernel): from linux-firmware, pinned tag and checksum (not stored here)
           mkdir -p firmware/rtlwifi
-          curl -sfL --retry 3 "https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/rtlwifi/rtl8188fufw.bin?h=20241017" -o firmware/rtlwifi/rtl8188fufw.bin
+          curl -sfL --retry 3 "https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/rtlwifi/rtl8188fufw.bin?h=20241017" -o firmware/rtlwifi/rtl8188fufw.bin || \
+            curl -sfL --retry 3 "https://gitlab.com/kernel-firmware/linux-firmware/-/raw/20241017/rtlwifi/rtl8188fufw.bin" -o firmware/rtlwifi/rtl8188fufw.bin
           echo "e6189d6d7032b83f0ed4284629c43db66262449a866f33fd329e611239f62e1f  firmware/rtlwifi/rtl8188fufw.bin" | sha256sum -c -
           cp ../patches/kernel-6.6/defconfig_cma .config
           # H4 test kernel (manual run only): one-shot timer mode, so that usleep(100) sleeps 100 us and not a 10 ms tick

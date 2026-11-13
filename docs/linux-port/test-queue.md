@@ -31,6 +31,22 @@ Rules that apply to every entry:
 - Memory of a process: **PSS** (`awk '/^Pss:/ {print $2}' /proc/<pid>/smaps_rollup`, KB), not RSS. RSS counts the busybox
   and C library pages shared by every shell once per process (the C MQTT bridge looked 5 MB lighter in RSS, 0.9 MB in PSS).
 
+### WIFI-TRY-01 Safe `rtl8xxxu` runtime parameter trial script (`scripts/wifi-try.sh`) — `to test`
+- **What:** Added `scripts/wifi-try.sh` (`<ampdu_rx=0|1|tx_atten=0..30> [window_s]`, plus `confirm`/`revert`/`status`), automating safe parameter trials over SSH without toggling `wlan0`. Refuses if the rescue AP is running or if the default gateway is unreachable beforehand; saves the previous sysfs value in `/tmp/wifi-try/prev` and spawns a detached watcher that reverts automatically after 3 consecutive gateway ping misses or when `window_s` (default 120s) expires without `wifi-try.sh confirm`.
+- **Switch / revert:** Manual `scripts/wifi-try.sh revert` or waiting for the timer window; script writes only to `/sys/module/rtl8xxxu/parameters/{ampdu_rx,tx_atten}` and `/tmp/wifi-try/*`.
+- **Test:** On a camera connected over Wi-Fi (not rescue AP): run `scripts/wifi-try.sh tx_atten=6 30` (do NOT confirm) and verify `tx_atten` returns to `0` after ~30 s; run `scripts/wifi-try.sh ampdu_rx=0 30` followed by `scripts/wifi-try.sh confirm` within 30 s and verify `ampdu_rx` remains `N`.
+- **Pass criteria:** No Wi-Fi drop required, automatic revert restores the exact prior sysfs value on expiry or simulated gateway loss, `confirm` keeps the tested value (host unit tests `tests/test_wifi_try.py`: 7/7 pass).
+
+### WEBUI-CACHE-01 CGI fork reduction, HTML fragment caching & flash size optimization — `to test`
+- **What:**
+  - `www/cgi-bin/func.cgi`: pure-shell fast path in `json_escape()` skipping `awk` on safe strings `[A-Za-z0-9._:/@=?&+*,~ -]*` (unchanged escaping for quotes/backslashes/control chars/UTF-8).
+  - `www/cgi-bin/state.cgi`: fork-free timestamp and header/body handling in `state_response_cache()`, batch `load_conf_file` in `integrationmanifest` and `fullconfig` (~75 fewer subshells per `/cgi-bin/state.cgi?fullconfig=1`), and parameter expansion in `list_presets`.
+  - `src/webui/index/20-pages.js`: in-memory `pageHtmlCache` for static subpage `.html` fragments when `!forceReload`, avoiding repeated HTTP fetches and BusyBox `httpd` forks when switching tabs in the Pico UI.
+  - `src/webui/minify.mjs` & `v3/build-stack.sh`: strip HTML comments and leading indentation outside `<script|style|pre|textarea>` (~32.8 KB raw / ~1.06 KB `.gz` saved on `www/*.html`), and exclude install-only `v3/install/anyka-wifi.awk` + `v3/install/known-stock.txt` from runtime `stack.squashfs`.
+- **Switch / revert:** Browser hard reload / reload page bypasses `pageHtmlCache`; CI / `v3/build-stack.sh` artifacts unaffected at runtime except missing unused install helpers in `/mnt/ext/`.
+- **Test:** Open Web UI on a camera, navigate repeatedly across Status / Video / Wi-Fi / Settings tabs (`settings.html` load, `fullconfig=1`, `integrationmanifest=1`, `list_presets`), verify Network tab makes only one GET per HTML fragment per session and Settings loads cleanly with special characters (SSID quotes/UTF-8) intact.
+- **Pass criteria:** Zero JSON syntax errors in browser console, faster tab switches and `settings.html` initial render, `v3/build-stack.sh` image well under flash budget.
+
 ### WIFI-TXATTEN rtl8188f runtime `tx_atten` parameter (`[wifi]`) — `to test`
 
 - **What:** Kernel patch `0019-wifi-rtl8xxxu-8188f-tx_atten-parameter.patch` adds `rtl8xxxu.tx_atten` (`0644`, `0..30`, default `0`) in `rtl8188f_set_tx_power()` to reduce CCK/OFDM/MCS TX power indices in ~0.5 dB steps (e.g. `12` = `-6 dB`, `20` = `-10 dB`) on cameras sitting very close to the AP (like `.11` at `-25 dBm`).
@@ -96,6 +112,11 @@ Rules that apply to every entry:
   around a stall and the step-1 verdict under this entry.
 
 ### MDNS-01 mDNS daemon: four correctness fixes after a read-only review (`[mdns]`) — `to test`
+- **Host update (2026-11-13 — three remaining limits resolved on host):**
+  1. Unified reply header + RFC 6762 §6.7 verbatim legacy question copy in `mdns_reply_head()` (`src/mdnsd/mdns_pkt.h`), eliminating the unchecked `n + 4` legacy copy in `mdns_answer()` and echoing exact original `q[4..5]` and `q[12..p)`.
+  2. Added per-source-IP + global answer rate limiter (`struct mdns_ip_rl`, 16 IP slots x 20/s, global 80/s cap) in `src/mdnsd/mdns_pkt.h` and `src/mdnsd/mdnsd.c`.
+  3. Added dedicated regression assertions in `src/mdnsd/test_mdns.c` (verified with `cc -O2 -Wall -Wextra -Werror -fsanitize=address,undefined`).
+  *(Still awaiting live LAN camera verification of unicast/legacy mDNS responders on 3.0.1-rc43+.)*
 
 - **Review (2026-11-13, read-only, `src/mdnsd`):** no memory-safety, loop or leak issue. Every length is checked against
   the received size, labels are at most 63, at most 8 pointer jumps, names at most 254, every write to `out` is length

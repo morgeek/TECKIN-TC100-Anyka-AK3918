@@ -34,7 +34,7 @@ class KernelPatch(unittest.TestCase):
         self.assertIn('+		ret = ispdrv_vi_set_crop(l, t, CROP_W, CROP_H);', p)
         self.assertIn('-		ret = ispdrv_vi_set_crop(l, t, vi->width, vi->height);', p)
         self.assertIn('+module_param(main_scale, bool, 0444);', p)
-        self.assertIn('Sixteen patches', text('patches/kernel-6.6/series/README.md'))
+        self.assertIn('Nineteen patches', text('patches/kernel-6.6/series/README.md'))
 
 
 class StreamSummary(unittest.TestCase):

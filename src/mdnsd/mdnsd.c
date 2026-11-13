@@ -171,7 +171,10 @@ int run(int argc, char **argv)
 	unsigned char q[1500], out[1500];
 	int s, on = 1, ttl = 255, loop = 0, svcs = 0, info = 0;
 	char txt[160];
-	struct mdns_rl rl = { -1, 0 };
+	struct mdns_ip_rl rl;
+
+	memset(&rl, 0, sizeof rl);
+	rl.global.sec = -1;
 
 	for (int i = 1; i < argc; i++) {
 		if (argv[i][0] == '-' && argv[i][1] == 'i' && !argv[i][2] && i + 1 < argc) ifn = argv[++i];
@@ -199,7 +202,7 @@ int run(int argc, char **argv)
 		/* cheap checks first: other hosts' responses and odd packets cost no system call */
 		if ((q[2] & 0x80) || (q[2] & 0x78) || (q[4] << 8 | q[5]) < 1 || (q[4] << 8 | q[5]) > 16) continue;
 		now = mono();
-		if (now >= 0 && mdns_rl_full(&rl, now)) continue;	/* flood: no more than MDNS_RATE answers a second */
+		if (now >= 0 && mdns_ip_rl_full(&rl, src.addr, now)) continue;	/* flood: per-IP + total answers/sec cap */
 		ip = ifaddr(s, ifn, SIOCGIFADDR); mask = ifaddr(s, ifn, SIOCGIFNETMASK);
 		if (!ip || !mask || (src.addr & mask) != (ip & mask)) continue;	/* same subnet only */
 		if (!hostname(h, sizeof h)) continue;
@@ -211,7 +214,7 @@ int run(int argc, char **argv)
 				r = mdns_sd_answer(q, n, h, (const unsigned char *)&ip, src.port != MDNS_PORT_BE, svcs, txt, out, sizeof out);
 			}
 			if (r <= 0) continue;
-			if (now >= 0 && !mdns_rl_take(&rl, now)) break;
+			if (now >= 0 && !mdns_ip_rl_take(&rl, src.addr, now)) break;
 			if (src.port != MDNS_PORT_BE) sc(SYS_sendto, s, (long)out, r, 0, (long)&src, sizeof src);
 			else sc(SYS_sendto, s, (long)out, r, 0, (long)&dst, sizeof dst);
 		}

@@ -33,7 +33,7 @@ planned seven-day watch was cancelled on 2026-11-09. See the latest report in [t
 | Free hardware video encoder (`src/h265enc/freeenc.h`) | works (default since 3.0.1-rc34): free H.265/H.264 engine driving the ASIC core directly without vendor libraries (`RTSP_FREE_ENC=1`, 1080p & 720p H.265/H.264 + 360p H.264 sub-stream) |
 | Hardware JPEG (free code, `src/jpegenc`, also inside `tc100_rtsp`) | works (web UI pictures, snapshots) |
 | H.264 / H.265 + RTSP (`src/tc100rtsp`) | works: free hardware encoding via `musl` and `freeenc.h`, H.264/H.265 at 1080p and 720p, H.264 640x360 sub-stream; 25 fps supported. All main-stream modes were decoded without errors on IPCAM2; the latest short field captures on both cameras also decoded cleanly. The asynchronous sender is opt-in as `RTSP_SENDER_THREAD=1`; any default change follows a separate decision after its four-client and mixed TCP/UDP camera qualification. Long soak, UDP, recording, and end-to-end talk checks remain in the [test queue](test-queue.md) |
-| V3 user space on 6.6 (`v3/`) | core services field-tested on both cameras: Pico web UI, CSRF-protected setup, Wi-Fi configuration, ONVIF, MQTT, supervisor, day/night, motion, WebRTC (enabled by default), and web updates. The timezone and Wi-Fi country are available in the wizard. Latest installs: rc36 on IPCAM2 and rc35 on IPCAM1; see [current status and remaining work](a-faire-implementeur.md) |
+| V3 user space on 6.6 (`v3/`) | core services field-tested on both cameras: Pico web UI, CSRF-protected setup, Wi-Fi configuration, ONVIF, MQTT, supervisor, day/night, motion, WebRTC (enabled by default), and web updates. The timezone and Wi-Fi country are available in the wizard. Current build: `3.0.1-rc42` (field tests ongoing, last full multi-hour baseline was rc35/rc36; see [RELEASE-NOTES.md](../../v3/install/RELEASE-NOTES.md) and [current status and remaining work](a-faire-implementeur.md)) |
 | SPI NOR (`spi-ak39`, polled PIO, 4 KiB erase) | works: read and write; `kernel`, `initrd`, `stack`, `vendor`, `cfga`, `cfgb` writable, `boot`, `mac`, `env` read-only |
 | Boot from flash without the SD card | works since 2026-10-24 (cold boot without a card verified: video, snapshots, services) |
 
@@ -54,7 +54,7 @@ planned seven-day watch was cancelled on 2026-11-09. See the latest report in [t
 
 ## Building the 6.6 kernel
 
-The port is a series of 16 patches on the `v6.6` tag, in `patches/kernel-6.6/series/`:
+The port is a series of 19 patches on the `v6.6` tag, in `patches/kernel-6.6/series/`:
 
 1. `ARM: anyka` — `ARCH_ANYKA`, machine, interrupt controller, system timer, UART
 2. `soc: anyka` — L2 buffer engine helper and the SD/MMC host (`akmci`)
@@ -72,6 +72,9 @@ The port is a series of 16 patches on the `v6.6` tag, in `patches/kernel-6.6/ser
 14. `media: anyka-isp` — OSD ioctls for main and sub channels
 15. `misc: ak39_venc` — encoder pool from reusable CMA area
 16. `media: anyka-isp` — a smaller main format (1280x720) scaled from the whole sensor window
+17. `media: anyka-isp` — allocate 3D-NR UV reference plane from the encoder CMA pool (`venc@81800000`)
+18. `wifi: rtl8xxxu` — runtime `ampdu_rx` module parameter
+19. `wifi: rtl8xxxu` — runtime `tx_atten` TX power attenuation parameter (`8188f`)
 
 ```
 git clone --depth 1 -b v6.6 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git

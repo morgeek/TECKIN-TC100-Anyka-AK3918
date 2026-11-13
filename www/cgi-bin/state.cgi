@@ -11,35 +11,46 @@
 # Services toggles. A private bypass flag prevents the cache fill from looping.
 state_response_cache() {
   _src_file="$1"; _src_ttl="$2"
-  _src_now="$(date +%s 2>/dev/null)"
+  _read_now_ts
+  _src_now="$now_ts"
+  [ "$_src_now" -gt 0 ] || _src_now="$(date +%s 2>/dev/null)"
   case "$_src_now" in ''|*[!0-9]*) _src_now=0 ;; esac
   if [ -r "$_src_file" ] && [ "$_src_now" -gt 0 ]; then
-    IFS= read -r _src_header < "$_src_file"
-    case "$_src_header" in
-      ts=*)
-        _src_ts="${_src_header#ts=}"
-        case "$_src_ts" in ''|*[!0-9]*) _src_ts=0 ;; esac
-        if [ "$_src_ts" -gt 0 ] && [ "$_src_ts" -le "$_src_now" ] && [ $((_src_now - _src_ts)) -le "$_src_ttl" ]; then
-          sed '1d' "$_src_file"
-          return 0
-        fi ;;
-    esac
+    {
+      IFS= read -r _src_header
+      case "$_src_header" in
+        ts=*)
+          _src_ts="${_src_header#ts=}"
+          case "$_src_ts" in ''|*[!0-9]*) _src_ts=0 ;; esac
+          if [ "$_src_ts" -gt 0 ] && [ "$_src_ts" -le "$_src_now" ] && [ $((_src_now - _src_ts)) -le "$_src_ttl" ]; then
+            while IFS= read -r _src_line || [ -n "$_src_line" ]; do
+              printf '%s\n' "$_src_line"
+            done
+            return 0
+          fi ;;
+      esac
+    } < "$_src_file"
   fi
 
   _src_tmp="/tmp/state-response.$$.tmp"
   _src_cache_tmp="${_src_file}.tmp.$$"
   # the script running now ($0), not a fixed /mnt/www path: the same file wherever it is started from (tests, SD tree)
   STATE_RESPONSE_CACHE_BYPASS=1 sh "${STATE_CGI_SCRIPT:-$0}" > "$_src_tmp" 2>/dev/null
-  if [ -s "$_src_tmp" ] && grep -q '^Content-type:' "$_src_tmp"; then
-    _src_now="$(date +%s 2>/dev/null)"
-    case "$_src_now" in ''|*[!0-9]*) _src_now=0 ;; esac
-    if [ "$_src_now" -gt 0 ] && {
-      printf 'ts=%s\n' "$_src_now"
-      cat "$_src_tmp"
-    } > "$_src_cache_tmp"; then
-      mv -f "$_src_cache_tmp" "$_src_file" 2>/dev/null || true
-    fi
-  fi
+  _src_l1=""
+  [ -s "$_src_tmp" ] && IFS= read -r _src_l1 < "$_src_tmp" 2>/dev/null
+  case "$_src_l1" in
+    Content-type:*)
+      _read_now_ts
+      _src_now="$now_ts"
+      [ "$_src_now" -gt 0 ] || _src_now="$(date +%s 2>/dev/null)"
+      case "$_src_now" in ''|*[!0-9]*) _src_now=0 ;; esac
+      if [ "$_src_now" -gt 0 ] && {
+        printf 'ts=%s\n' "$_src_now"
+        cat "$_src_tmp"
+      } > "$_src_cache_tmp"; then
+        mv -f "$_src_cache_tmp" "$_src_file" 2>/dev/null || true
+      fi ;;
+  esac
   cat "$_src_tmp" 2>/dev/null
   rm -f "$_src_tmp" "$_src_cache_tmp"
 }
@@ -1021,12 +1032,15 @@ if [ -n "$F_cmd" ]; then
     fi
 
     load_conf_file /mnt/config/rtspserver.conf   # read_rtsp_stream_summary reads the C_* variables it sets
+    load_conf_file /mnt/config/boot.conf
+    load_conf_file /mnt/config/onvif.conf
+    load_conf_file /mnt/config/mqtt.conf
     read_rtsp_stream_summary
-    rtsp_username="$(read_conf_value /mnt/config/rtspserver.conf USERNAME root)"
-    rtsp_password="$(read_conf_value /mnt/config/rtspserver.conf USERPASSWORD pass)"
-    rtsp_substream_enabled="$(truthy_flag "$(read_conf_value /mnt/config/boot.conf RTSP_SUBSTREAM 1)")"
-    rtsp_audio_enabled="$(truthy_flag "$(read_conf_value /mnt/config/boot.conf RTSP_AUDIO 1)")"
-    onvif_stream_policy_value="$(read_conf_value /mnt/config/boot.conf ONVIF_STREAM_POLICY main-primary)"
+    rtsp_username="${C_USERNAME:-root}"
+    rtsp_password="${C_USERPASSWORD:-pass}"
+    case "${C_RTSP_SUBSTREAM:-1}" in 1|true|on|yes|enabled) rtsp_substream_enabled=1 ;; *) rtsp_substream_enabled=0 ;; esac
+    case "${C_RTSP_AUDIO:-1}" in 1|true|on|yes|enabled) rtsp_audio_enabled=1 ;; *) rtsp_audio_enabled=0 ;; esac
+    onvif_stream_policy_value="${C_ONVIF_STREAM_POLICY:-main-primary}"
     rtsp_manifest_username="$rtsp_username"
     rtsp_manifest_password="$rtsp_password"
     if [ "$manifest_redact" = "1" ]; then
@@ -1061,32 +1075,32 @@ if [ -n "$F_cmd" ]; then
       frigate_detect_source="sub"
     fi
 
-    onvif_port="$(sanitize_int "$(read_conf_value /mnt/config/onvif.conf ONVIF_PORT 8081)" 8081)"
+    cfg_int onvif_port ONVIF_PORT 8081
     if [ "$onvif_port" -lt 1 ] || [ "$onvif_port" -gt 65535 ]; then
       onvif_port=8081
     fi
     onvif_device_service_url="http://${primary_ip}:${onvif_port}/onvif/device_service"
 
-    mqtt_enabled_flag="$(truthy_flag "$(read_conf_value /mnt/config/mqtt.conf MQTT_ENABLE 0)")"
-    mqtt_broker_host="$(read_conf_value /mnt/config/mqtt.conf MQTT_HOST 127.0.0.1)"
-    mqtt_broker_port="$(sanitize_int "$(read_conf_value /mnt/config/mqtt.conf MQTT_PORT 1883)" 1883)"
+    case "${C_MQTT_ENABLE:-0}" in 1|true|on|yes|enabled) mqtt_enabled_flag=1 ;; *) mqtt_enabled_flag=0 ;; esac
+    mqtt_broker_host="${C_MQTT_HOST:-127.0.0.1}"
+    cfg_int mqtt_broker_port MQTT_PORT 1883
     if [ "$mqtt_broker_port" -lt 1 ] || [ "$mqtt_broker_port" -gt 65535 ]; then
       mqtt_broker_port=1883
     fi
-    mqtt_username="$(read_conf_value /mnt/config/mqtt.conf MQTT_USER "")"
-    mqtt_password="$(read_conf_value /mnt/config/mqtt.conf MQTT_PASSWORD "")"
+    mqtt_username="${C_MQTT_USER:-}"
+    mqtt_password="${C_MQTT_PASSWORD:-}"
     mqtt_manifest_username="$mqtt_username"
     mqtt_manifest_password="$mqtt_password"
     if [ "$manifest_redact" = "1" ]; then
       mqtt_manifest_username=""
       mqtt_manifest_password=""
     fi
-    mqtt_client_id="$(read_conf_value /mnt/config/mqtt.conf MQTT_CLIENT_ID tc100-camera)"
-    mqtt_topic_root="$(read_conf_value /mnt/config/mqtt.conf MQTT_TOPIC_ROOT tc100/camera)"
-    mqtt_command_topic="$(read_conf_value /mnt/config/mqtt.conf MQTT_TOPIC_COMMAND "")"
+    mqtt_client_id="${C_MQTT_CLIENT_ID:-tc100-camera}"
+    mqtt_topic_root="${C_MQTT_TOPIC_ROOT:-tc100/camera}"
+    mqtt_command_topic="${C_MQTT_TOPIC_COMMAND:-}"
     [ -n "$mqtt_command_topic" ] || mqtt_command_topic="${mqtt_topic_root}/command"
-    mqtt_discovery_enabled="$(truthy_flag "$(read_conf_value /mnt/config/mqtt.conf MQTT_HA_DISCOVERY_ENABLE 1)")"
-    mqtt_discovery_prefix="$(read_conf_value /mnt/config/mqtt.conf MQTT_HA_DISCOVERY_PREFIX homeassistant)"
+    case "${C_MQTT_HA_DISCOVERY_ENABLE:-1}" in 1|true|on|yes|enabled) mqtt_discovery_enabled=1 ;; *) mqtt_discovery_enabled=0 ;; esac
+    mqtt_discovery_prefix="${C_MQTT_HA_DISCOVERY_PREFIX:-homeassistant}"
     mqtt_availability_topic="${mqtt_topic_root}/availability"
     mqtt_health_topic="${mqtt_topic_root}/health"
     mqtt_motion_state_topic="${mqtt_topic_root}/motion/state"
@@ -1251,7 +1265,7 @@ if [ -n "$F_cmd" ]; then
     # This command returns ALL configurable values for the UI to populate its tabs.
     # It avoids multiple requests and keeps everything in sync.
     load_conf_file /mnt/config/boot.conf
-    _iprofile="$(get_cfg INTEGRATION_PROFILE default)"
+    _iprofile="${C_INTEGRATION_PROFILE:-default}"
     load_conf_file /mnt/config/rtspserver.conf
     load_conf_file /mnt/config/mqtt.conf
     load_conf_file /mnt/config/service_trim.conf
@@ -1269,26 +1283,72 @@ if [ -n "$F_cmd" ]; then
       load_conf_file /mnt/config/recording.conf
       load_conf_file /mnt/config/telegram.conf
     fi
-    
+    load_conf_file /mnt/config/frigate_live.conf
+
     read_rtsp_stream_summary
     detect_primary_ip
-    
-    # ISP / OSD Specifics
-    osdenabled="$(truthy_flag "$(get_cfg osdenabled 0)")"
-    osdtext_raw="$(get_cfg osdtext "")"
-    osdtext_json="$(json_escape "$osdtext_raw")"
-    
-    # Audio specifics
-    samplerate="$(get_cfg samplerate 8000)"
-    audio_vol="$(get_cfg volume 8)"
-    
-    # MQTT particulars
-    mqtt_enabled="$(truthy_flag "$(get_cfg MQTT_ENABLE 0)")"
-    mqtt_discovery="$(truthy_flag "$(get_cfg MQTT_HA_DISCOVERY_ENABLE 1)")"
-    
+
+    # Audio & boolean/int fields in shell (zero nested subshell forks)
+    cfg_int samplerate samplerate 8000
+    cfg_int audio_vol volume 8
+    cfg_int _fc_c2 2_codec 4
+    cfg_int _fc_c3 3_codec 4
+    cfg_int _fc_flip imageflip 0
+    cfg_int _fc_ln LUMA_NIGHT 40
+    cfg_int _fc_da daynightawb 100000
+    cfg_int _fc_ld LUMA_DAY 100
+    cfg_int _fc_na nightdayawb 50000
+    cfg_int _fc_oa osdalpha 128
+    cfg_int _fc_ofs 0_osdfontsize 24
+    cfg_int _fc_ofc osdfrontcolor 1
+    cfg_int _fc_obc osdbackcolor 0
+    cfg_int _fc_oec osdedgecolor 2
+    cfg_int _fc_ox 0_osdx 10
+    cfg_int _fc_oy 0_osdy 10
+    cfg_int _fc_mp MQTT_PORT 1883
+    cfg_int _fc_rpr rec_postrecord_sec 10
+    cfg_int _fc_rfd rec_file_duration_sec 60
+    cfg_int _fc_rmb rec_reserverd_disk_mb 1024
+    cfg_int _fc_rh REBOOT_SCHEDULE_HOUR 4
+    cfg_int _fc_rm REBOOT_SCHEDULE_MINUTE 0
+    cfg_int _fc_mgw MEM_GUARD_WARN_KB 6144
+    cfg_int _fc_mgc MEM_GUARD_CRITICAL_KB 3072
+    cfg_int _fc_mgi MEM_GUARD_INTERVAL_SECONDS 20
+    cfg_int _fc_mgwh MEM_GUARD_WARN_HITS 2
+    cfg_int _fc_mgch MEM_GUARD_CRITICAL_HITS 1
+    cfg_int _fc_mgcd MEM_GUARD_COOLDOWN_SECONDS 120
+    cfg_int _fc_tli tlinterval 10
+    cfg_int _fc_tld tlduration 0
+    cfg_int _fc_tp TELNET_PORT 23
+    cfg_int _fc_mds mdsens 50
+    cfg_int _fc_sp SYSLOG_PORT 514
+
+    for _fc_b in _fc_st:SERVICE_TRIM _fc_lm:LIGHTWEIGHT_MODE _fc_sh:SECURITY_HARDENING_MODE \
+        _fc_rl:RTSPLOGENABLED osdenabled:osdenabled mqtt_enabled:MQTT_ENABLE mqtt_discovery:MQTT_HA_DISCOVERY_ENABLE:1 \
+        _fc_rma:rec_motion_activated _fc_swd:SETUP_WIZARD_DONE _fc_rse:REBOOT_SCHEDULE_ENABLE \
+        _fc_mge:MEM_GUARD_ENABLE _fc_sde:ENABLE _fc_mtl:motion_trigger_led _fc_mbs:motion_best_shot \
+        telegram_enabled:TELEGRAM_ENABLE syslog_enabled:SYSLOG_ENABLE; do
+      _fc_v="${_fc_b%%:*}"; _fc_rest="${_fc_b#*:}"; _fc_k="${_fc_rest%%:*}"
+      _fc_def=0; [ "$_fc_k" != "$_fc_rest" ] && _fc_def="${_fc_rest#*:}"
+      eval "_fc_raw=\"\${C_${_fc_k}:-\$_fc_def}\""
+      case "$_fc_raw" in 1|true|on|yes|enabled) eval "$_fc_v=1" ;; *) eval "$_fc_v=0" ;; esac
+    done
+
+    case "${C_INTERVAL:-}" in
+      '') _fc_sdi=2 ;;
+      *[!0-9]*) _fc_sdi=5 ;;
+      *) _fc_sdi="$C_INTERVAL" ;;
+    esac
+
+    _st_db="${C_THRESHOLD_DB:--24}"
+    case "$_st_db" in -[0-9]|-[0-9][0-9]|0) : ;; *) _st_db=-24 ;; esac
+
+    osdtext_json="$(json_escape "${C_osdtext:-}")"
+    [ -n "${C_apiToken:-}" ] && _fc_tg_set=true || _fc_tg_set=false
+
     # Reboot epoch calculation (needed for uptime display)
     read_reboot_epoch
-    
+
     # System info
     if [ -r /proc/sys/kernel/hostname ]; then
       read -r health_hostname < /proc/sys/kernel/hostname
@@ -1322,30 +1382,26 @@ if [ -n "$F_cmd" ]; then
       read -r _led_raw < /sys/class/leds/red/brightness 2>/dev/null
       [ "$_led_raw" = "1" ] && red_led_state=1
     fi
-    syslog_enabled="$(truthy_flag "$(get_cfg SYSLOG_ENABLE 0)")"
-    telegram_enabled="$(truthy_flag "$(get_cfg TELEGRAM_ENABLE 0)")"
-    _st_db="$(get_cfg THRESHOLD_DB -24)"
-    case "$_st_db" in -[0-9]|-[0-9][0-9]|0) : ;; *) _st_db=-24 ;; esac
-    
+
     # Feature blocks
     printf '{"boot":{"perf_profile":"%s","service_trim":%s,"topology":"%s","lightweight_mode":%s,"security_hardening":%s},"video":{"rtsp_port":%s,"main_720":%s,"main":{"codec":%s,"profile":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s,"format":"%s","minqp":%s,"maxqp":%s,"smartmode":%s,"smartgoplen":%s,"smartquality":%s,"smartstatic":%s,"maxkbps":%s,"targetkbps":%s,"vbr":%s,"smart":%s},"sub":{"codec":%s,"profile":%s,"width":%s,"height":%s,"fps":%s,"bitrate":%s,"gop":%s,"format":"%s","minqp":%s,"maxqp":%s,"smartmode":%s,"smartgoplen":%s,"smartquality":%s,"smartstatic":%s,"maxkbps":%s,"targetkbps":%s},"flip":%s,"rtsp_log":%s},"audio":{"samplerate":%s,"volume":%s,"codec_main":%s,"codec_sub":%s,"mic_sens":%s},"isp":{"daynight_lum":%s,"daynight_awb":%s,"nightday_lum":%s,"nightday_awb":%s},"osd":{"enabled":%s,"text":"%s","alpha":%s,"fontsize0":%s,"frontcolor":%s,"backcolor":%s,"edgecolor":%s,"x0":%s,"y0":%s},"mqtt":{"enabled":%s,"host":"%s","port":%s,"user":"%s","topic_root":"%s","discovery":%s,"discovery_prefix":"%s"},"recording":{"postrec":%s,"maxduration":%s,"reserved_mb":%s,"motion_activated":%s},"system":{"hostname":"%s","timezone":"%s","ntp_server":"%s","setup_wizard_done":%s,"gateway":"%s","reboot_schedule":{"enable":%s,"hour":%s,"min":%s,"dow":"%s"},"mem_guard":{"enable":%s,"warn_kb":%s,"crit_kb":%s,"interval":%s,"hits_warn":%s,"hits_crit":%s,"cooldown":%s}},"timelapse":{"interval":%s,"duration":%s},"services":{"telnet_port":%s,"sound_det_enable":%s,"sound_det_threshold":%s,"sound_det_interval":%s,"motion_sens":%s,"motion_led":%s,"motion_best_shot":%s},"telegram":{"enabled":%s,"token":"%s","token_set":%s,"chat_id":"%s"},"syslog":{"enabled":%s,"host":"%s","port":%s},"frigate":{"url":"%s","camera":"%s"},"peripherals":{"led_front":%s,"led_red":%s}}\n' \
-      "$(get_perf_profile)" "$(truthy_flag "$(get_cfg SERVICE_TRIM 0)")" "$(json_escape "$(get_cfg STREAM_TOPOLOGY dual)")" "$(truthy_flag "$(get_cfg LIGHTWEIGHT_MODE 0)")" "$(truthy_flag "$(get_cfg SECURITY_HARDENING_MODE 0)")" \
+      "$(get_perf_profile)" "$_fc_st" "$(json_escape "${C_STREAM_TOPOLOGY:-dual}")" "$_fc_lm" "$_fc_sh" \
       "$rtsp_port" "$main_720" \
       "$codec0" "$profile0" "$width0" "$height0" "$fps0" "$bps0" "$goplen0" "$brmode0" "$minqp0" "$maxqp0" "$smartmode0" "$smartgoplen0" "$smartquality0" "$smartstatic0" "$maxkbps0" "$targetkbps0" "$vbr0" "$smart0" \
       "$codec1" "$profile1" "$width1" "$height1" "$fps1" "$bps1" "$goplen1" "$brmode1" "$minqp1" "$maxqp1" "$smartmode1" "$smartgoplen1" "$smartquality1" "$smartstatic1" "$maxkbps1" "$targetkbps1" \
-      "$(sanitize_int "$(get_cfg imageflip 0)" 0)" "$(truthy_flag "$(get_cfg RTSPLOGENABLED 0)")" \
-      "$samplerate" "$audio_vol" "$(sanitize_int "$(get_cfg 2_codec 4)" 4)" "$(sanitize_int "$(get_cfg 3_codec 4)" 4)" "$audio_vol" \
-      "$(sanitize_int "$(get_cfg LUMA_NIGHT 40)" 40)" "$(sanitize_int "$(get_cfg daynightawb 100000)" 100000)" "$(sanitize_int "$(get_cfg LUMA_DAY 100)" 100)" "$(sanitize_int "$(get_cfg nightdayawb 50000)" 50000)" \
-      "$osdenabled" "$osdtext_json" "$(sanitize_int "$(get_cfg osdalpha 128)" 128)" "$(sanitize_int "$(get_cfg 0_osdfontsize 24)" 24)" "$(sanitize_int "$(get_cfg osdfrontcolor 1)" 1)" "$(sanitize_int "$(get_cfg osdbackcolor 0)" 0)" "$(sanitize_int "$(get_cfg osdedgecolor 2)" 2)" "$(sanitize_int "$(get_cfg 0_osdx 10)" 10)" "$(sanitize_int "$(get_cfg 0_osdy 10)" 10)" \
-      "$mqtt_enabled" "$(json_escape "$(get_cfg MQTT_HOST 127.0.0.1)")" "$(sanitize_int "$(get_cfg MQTT_PORT 1883)" 1883)" "$(json_escape "$(get_cfg MQTT_USER "")")" "$(json_escape "$(get_cfg MQTT_TOPIC_ROOT tc100/camera)")" "$mqtt_discovery" "$(json_escape "$(get_cfg MQTT_HA_DISCOVERY_PREFIX homeassistant)")" \
-      "$(sanitize_int "$(get_cfg rec_postrecord_sec 10)" 10)" "$(sanitize_int "$(get_cfg rec_file_duration_sec 60)" 60)" "$(sanitize_int "$(get_cfg rec_reserverd_disk_mb 1024)" 1024)" "$(truthy_flag "$(get_cfg rec_motion_activated 0)")" \
-      "$(json_escape "$fullconfig_hostname")" "$(json_escape "$fullconfig_timezone")" "$(json_escape "$fullconfig_ntp")" "$(truthy_flag "$(get_cfg SETUP_WIZARD_DONE 0)")" "$(json_escape "$(get_live_gateway)")" "$(truthy_flag "$(get_cfg REBOOT_SCHEDULE_ENABLE 0)")" "$(sanitize_int "$(get_cfg REBOOT_SCHEDULE_HOUR 4)" 4)" "$(sanitize_int "$(get_cfg REBOOT_SCHEDULE_MINUTE 0)" 0)" "$(json_escape "$(get_cfg REBOOT_SCHEDULE_WEEKDAY "*")")" \
-      "$(truthy_flag "$(get_cfg MEM_GUARD_ENABLE 0)")" "$(sanitize_int "$(get_cfg MEM_GUARD_WARN_KB 6144)" 6144)" "$(sanitize_int "$(get_cfg MEM_GUARD_CRITICAL_KB 3072)" 3072)" "$(sanitize_int "$(get_cfg MEM_GUARD_INTERVAL_SECONDS 20)" 20)" "$(sanitize_int "$(get_cfg MEM_GUARD_WARN_HITS 2)" 2)" "$(sanitize_int "$(get_cfg MEM_GUARD_CRITICAL_HITS 1)" 1)" "$(sanitize_int "$(get_cfg MEM_GUARD_COOLDOWN_SECONDS 120)" 120)" \
-      "$(sanitize_int "$(get_cfg tlinterval 10)" 10)" "$(sanitize_int "$(get_cfg tlduration 0)" 0)" \
-      "$(sanitize_int "$(get_cfg TELNET_PORT 23)" 23)" "$(truthy_flag "$(get_cfg ENABLE 0)")" "$_st_db" "$(sanitize_int "$(get_cfg INTERVAL 2)" 5)" "$(sanitize_int "$(get_cfg mdsens 50)" 50)" "$(truthy_flag "$(get_cfg motion_trigger_led 0)")" "$(truthy_flag "$(get_cfg motion_best_shot 0)")" \
-      "$telegram_enabled" "" "$([ -n "$(get_cfg apiToken "")" ] && echo true || echo false)" "$(json_escape "$(get_cfg userChatId "")")" \
-      "$syslog_enabled" "$(json_escape "$(get_cfg SYSLOG_HOST "")")" "$(sanitize_int "$(get_cfg SYSLOG_PORT 514)" 514)" \
-      "$(json_escape "$(read_conf_value /mnt/config/frigate_live.conf FRIGATE_URL "")")" "$(json_escape "$(read_conf_value /mnt/config/frigate_live.conf FRIGATE_CAMERA "")")" \
+      "$_fc_flip" "$_fc_rl" \
+      "$samplerate" "$audio_vol" "$_fc_c2" "$_fc_c3" "$audio_vol" \
+      "$_fc_ln" "$_fc_da" "$_fc_ld" "$_fc_na" \
+      "$osdenabled" "$osdtext_json" "$_fc_oa" "$_fc_ofs" "$_fc_ofc" "$_fc_obc" "$_fc_oec" "$_fc_ox" "$_fc_oy" \
+      "$mqtt_enabled" "$(json_escape "${C_MQTT_HOST:-127.0.0.1}")" "$_fc_mp" "$(json_escape "${C_MQTT_USER:-}")" "$(json_escape "${C_MQTT_TOPIC_ROOT:-tc100/camera}")" "$mqtt_discovery" "$(json_escape "${C_MQTT_HA_DISCOVERY_PREFIX:-homeassistant}")" \
+      "$_fc_rpr" "$_fc_rfd" "$_fc_rmb" "$_fc_rma" \
+      "$(json_escape "$fullconfig_hostname")" "$(json_escape "$fullconfig_timezone")" "$(json_escape "$fullconfig_ntp")" "$_fc_swd" "$(json_escape "$(get_live_gateway)")" "$_fc_rse" "$_fc_rh" "$_fc_rm" "$(json_escape "${C_REBOOT_SCHEDULE_WEEKDAY:-*}")" \
+      "$_fc_mge" "$_fc_mgw" "$_fc_mgc" "$_fc_mgi" "$_fc_mgwh" "$_fc_mgch" "$_fc_mgcd" \
+      "$_fc_tli" "$_fc_tld" \
+      "$_fc_tp" "$_fc_sde" "$_st_db" "$_fc_sdi" "$_fc_mds" "$_fc_mtl" "$_fc_mbs" \
+      "$telegram_enabled" "" "$_fc_tg_set" "$(json_escape "${C_userChatId:-}")" \
+      "$syslog_enabled" "$(json_escape "${C_SYSLOG_HOST:-}")" "$_fc_sp" \
+      "$(json_escape "${C_FRIGATE_URL:-}")" "$(json_escape "${C_FRIGATE_CAMERA:-}")" \
       "$front_led_state" "$red_led_state"
     ;;
 
@@ -1384,17 +1440,18 @@ if [ -n "$F_cmd" ]; then
         else
           printf ','
         fi
-        preset_name=$(basename "$preset_file" .json)
+        preset_name="${preset_file##*/}"
+        preset_name="${preset_name%.json}"
         printf '{"name":"'
-        json_escape "$(basename "$preset_file" .json)"
+        json_escape "$preset_name"
         printf '"}'
       done
       printf ']}'
     else
-      # busybox basename has no -s flag; iterate and strip the suffix per file.
       for _pf in "$presets_dir"/*.json; do
         [ -f "$_pf" ] || continue
-        basename "$_pf" .json
+        _pf="${_pf##*/}"
+        printf '%s\n' "${_pf%.json}"
       done
     fi
     ;;

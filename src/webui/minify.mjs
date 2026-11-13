@@ -29,14 +29,23 @@ export function minifyCss(code) { return esbuild.transformSync(code, CSS).code.t
 
 // inline blocks of an HTML page; an attribute list with src= or a non-JavaScript type is left alone
 export function minifyHtml(html) {
-  html = html.replace(/<script(\s[^>]*)?>([\s\S]*?)<\/script>/gi, (all, attrs = '', body) => {
-    if (/\bsrc\s*=/i.test(attrs) || !body.trim()) return all;
-    const t = /\btype\s*=\s*["']?([^"'\s>]+)/i.exec(attrs);
-    if (t && !/^(text|application)\/(javascript|ecmascript)$/i.test(t[1])) return all;
-    return `<script${attrs}>${minifyJs(body)}</script>`;
+  const blocks = [];
+  html = html.replace(/<(script|style|pre|textarea)(\s[^>]*)?>([\s\S]*?)<\/\1>/gi, (all, tag, attrs = '', body) => {
+    const low = tag.toLowerCase();
+    let out = all;
+    if (low === 'script' && !/\bsrc\s*=/i.test(attrs) && body.trim()) {
+      const t = /\btype\s*=\s*["']?([^"'\s>]+)/i.exec(attrs);
+      if (!t || /^(text|application)\/(javascript|ecmascript)$/i.test(t[1])) {
+        out = `<script${attrs}>${minifyJs(body)}</script>`;
+      }
+    } else if (low === 'style' && body.trim()) {
+      out = `<style${attrs}>${minifyCss(body)}</style>`;
+    }
+    blocks.push(out);
+    return `\x00BLK${blocks.length - 1}\x00`;
   });
-  return html.replace(/<style(\s[^>]*)?>([\s\S]*?)<\/style>/gi, (all, attrs = '', body) =>
-    body.trim() ? `<style${attrs}>${minifyCss(body)}</style>` : all);
+  html = html.replace(/<!--[\s\S]*?-->/g, '').replace(/^[ \t]+|[ \t]+$/gm, '').replace(/\n{2,}/g, '\n');
+  return html.replace(/\x00BLK(\d+)\x00/g, (_, i) => blocks[+i]);
 }
 
 function walk(dir, out = []) {

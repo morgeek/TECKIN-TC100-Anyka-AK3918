@@ -238,7 +238,32 @@ int main(void)
 		/* the A answer for it too, multicast and legacy */
 		n = query(q, "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh.local", 1, 0);
 		CHECK(mdns_answer(q, n, host, ip, 0, big, sizeof big) > 0);
-		CHECK(mdns_answer(q, n, host, ip, 1, big, sizeof big) > 0);
+		r = mdns_answer(q, n, host, ip, 1, big, sizeof big);
+		CHECK(r > 0 && mdns_answer(q, n, host, ip, 1, big, r - 1) == 0);
+	}
+
+	/* legacy unicast A/ANY echoes original question bytes verbatim, and per-IP rate limiting isolates peers */
+	{
+		struct mdns_ip_rl t;
+		int a_got = 0, b_got = 0, all_got = 0;
+
+		n = query(q, "IPCam1.LOCAL", 255, 0x2468);
+		q[5] = 2; q[n++] = 0xc0; q[n++] = 12; q[n++] = 0; q[n++] = 28; q[n++] = 0; q[n++] = 1;
+		r = mdns_answer(q, n, "ipcam1", ip, 1, o, sizeof o);
+		CHECK(r > n && o[0] == 0x24 && o[1] == 0x68 && o[5] == 2 && !memcmp(o + 12, q + 12, (size_t)(n - 12)));
+		CHECK(mdns_answer(q, n, "ipcam1", ip, 1, o, r - 1) == 0);
+
+		memset(&t, 0, sizeof t);
+		t.global.sec = -1;
+		for (int k = 0; k < 40; k++) a_got += mdns_ip_rl_take(&t, 0x0a01a8c0u, 100);
+		CHECK(a_got == MDNS_RATE && mdns_ip_rl_full(&t, 0x0a01a8c0u, 100));
+		CHECK(!mdns_ip_rl_full(&t, 0x0b01a8c0u, 100));
+		for (int k = 0; k < 40; k++) b_got += mdns_ip_rl_take(&t, 0x0b01a8c0u, 100);
+		CHECK(b_got == MDNS_RATE);
+		for (unsigned int peer = 1; peer <= 6; peer++)
+			for (int k = 0; k < MDNS_RATE; k++)
+				all_got += mdns_ip_rl_take(&t, 0xc0a80200u + peer, 200);
+		CHECK(all_got == MDNS_RL_TOTAL && mdns_ip_rl_full(&t, 0xc0a80299u, 200));
 	}
 
 	if (!fails) printf("mdns: ok\n");

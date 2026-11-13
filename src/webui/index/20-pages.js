@@ -106,6 +106,8 @@
     });
   }
 
+  var pageHtmlCache = {};
+
   function loadOnPageTarget(target, onLoaded, forceReload) {
     var content = byId("content");
     if (!content || !target) {
@@ -124,6 +126,20 @@
       contentLoadController.abort();
     }
 
+    if (!forceReload && /\.html$/i.test(normalizedTarget) && Object.prototype.hasOwnProperty.call(pageHtmlCache, normalizedTarget)) {
+      contentLoadController = null;
+      setContentLoading(false);
+      leaveHome();
+      content.innerHTML = pageHtmlCache[normalizedTarget];
+      executeEmbeddedScripts(content);
+      currentContentTarget = normalizedTarget;
+      setActiveOnPageTarget(target);
+      if (typeof onLoaded === "function") {
+        onLoaded();
+      }
+      return;
+    }
+
     var controller = new AbortController();
     contentLoadController = controller;
     setContentLoading(true);
@@ -139,6 +155,9 @@
         return r.text();
       })
       .then(function (html) {
+        if (/\.html$/i.test(normalizedTarget)) {
+          pageHtmlCache[normalizedTarget] = html;
+        }
         leaveHome();
         content.innerHTML = html;
         executeEmbeddedScripts(content);

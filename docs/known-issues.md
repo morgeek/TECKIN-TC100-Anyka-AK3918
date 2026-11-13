@@ -4,7 +4,7 @@ Moved out of the README in 2.0.0. History of every fix: [CHANGELOG.md](../CHANGE
 
 ## 3.0 (Linux 6.6)
 
-State as of 2026-11-10 (latest camera report: 2026-11-09): 3.0.1-rc36 on IPCAM2 and 3.0.1-rc35 on IPCAM1, two cameras of the same variant;
+State as of 2026-11-13 (development head: `3.0.1-rc42` on `main`; last multi-hour baseline snapshot: 2026-11-09 on rc36 IPCAM2 / rc35 IPCAM1): two cameras of the same variant;
 details and results are in [linux-port/test-queue.md](linux-port/test-queue.md):
 - **Qualification status:** many core areas have passed real-camera checks on both devices, including flash boot,
   V3 services, the free encoder, and short RTSP decoding checks. After the latest installs, the report records

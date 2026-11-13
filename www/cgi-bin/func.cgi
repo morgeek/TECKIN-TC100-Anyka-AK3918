@@ -190,14 +190,21 @@ JSON_ERROR_PERMISSION_DENIED="permission_denied"
 JSON_ERROR_RATE_LIMITED="rate_limited"
 JSON_ERROR_SERVICE_UNAVAILABLE="service_unavailable"
 
-# Escape JSON string values
+# Escape JSON string values (fast pure-shell path for plain strings avoids spawning awk)
 json_escape() {
-  # Use awk for correct multi-char escaping on BusyBox sed (sed \n/\t in patterns is unreliable).
-  # awk processes line-by-line; NR>1 inserts \n between lines for embedded newlines.
-  printf '%s' "$1" | awk '
-    NR > 1 { printf "\\n" }
-    { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); gsub(/\r/, "\\r"); printf "%s", $0 }
-  '
+  case "$1" in
+    *[!A-Za-z0-9._:/@=?\&+*,~-\ ]*)
+      # Use awk for correct multi-char escaping on BusyBox sed (sed \n/\t in patterns is unreliable).
+      # awk processes line-by-line; NR>1 inserts \n between lines for embedded newlines.
+      printf '%s' "$1" | awk '
+        NR > 1 { printf "\\n" }
+        { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); gsub(/\r/, "\\r"); printf "%s", $0 }
+      '
+      ;;
+    *)
+      printf '%s' "$1"
+      ;;
+  esac
 }
 
 # Generate JSON response

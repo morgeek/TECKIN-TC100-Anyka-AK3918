@@ -84,6 +84,20 @@ static int mdns_put_name(unsigned char *o, int n, int max, const char *host)
 	return n;
 }
 
+/* RFC 6762 6.7: initialize DNS response header and, for legacy unicast, echo the original question bytes verbatim. */
+static int mdns_reply_head(const unsigned char *q, int p, int legacy, unsigned char *out, int outmax)
+{
+	if (outmax < 12) return -1;
+	out[0] = legacy ? q[0] : 0; out[1] = legacy ? q[1] : 0;
+	out[2] = 0x84; out[3] = 0;			/* response, authoritative */
+	for (int k = 4; k < 12; k++) out[k] = 0;
+	if (!legacy) return 12;
+	if (p - 12 > outmax - 12) return -1;
+	out[4] = q[4]; out[5] = q[5];
+	for (int k = 12; k < p; k++) out[k] = q[k];
+	return p;
+}
+
 static int mdns_answer(const unsigned char *q, int qn, const char *host, const unsigned char *ip, int legacy,
 		       unsigned char *out, int outmax)
 {
@@ -105,16 +119,8 @@ static int mdns_answer(const unsigned char *q, int qn, const char *host, const u
 	}
 	if (!want) return 0;
 	if (outmax < 64) return 0;
-	out[0] = legacy ? q[0] : 0; out[1] = legacy ? q[1] : 0;
-	out[2] = 0x84; out[3] = 0;			/* response, authoritative */
-	out[4] = 0; out[5] = legacy ? 1 : 0;		/* the question is repeated for a legacy query only */
-	out[6] = 0; out[7] = 1;				/* one answer */
-	out[8] = out[9] = out[10] = out[11] = 0;
-	n = 12;
-	if (legacy) {
-		if ((n = mdns_put_name(out, n, outmax, host)) < 0) return 0;
-		out[n++] = 0; out[n++] = 1; out[n++] = 0; out[n++] = 1;
-	}
+	if ((n = mdns_reply_head(q, p, legacy, out, outmax)) < 0) return 0;
+	out[7] = 1;					/* one answer */
 	if ((n = mdns_put_name(out, n, outmax, host)) < 0 || n + 14 > outmax) return 0;
 	out[n++] = 0; out[n++] = 1;			/* type A */
 	out[n++] = legacy ? 0 : 0x80; out[n++] = 1;	/* class IN, cache flush (not for legacy) */
@@ -258,15 +264,7 @@ static int mdns_sd_answer(const unsigned char *q, int qn, const char *host, cons
 		if ((type == 12 || type == 255) && mdns_eq(name, "_services._dns-sd._udp.local")) want_ptr_svc = 1;
 	}
 	if (!want_ptr_svc && !want_ptr[1] && !want_ptr[2] && !want_inst[1] && !want_inst[2]) return 0;
-	out[0] = legacy ? q[0] : 0; out[1] = legacy ? q[1] : 0;
-	out[2] = 0x84; out[3] = 0;
-	for (int k = 4; k < 12; k++) out[k] = 0;
-	if (legacy) {	/* RFC 6762 6.7: the question section is repeated, byte for byte (compression pointers stay valid at the same offsets) */
-		if (p - 12 > outmax - 12) return 0;
-		out[4] = q[4]; out[5] = q[5];
-		for (int k = 12; k < p; k++) out[k] = q[k];
-		n = p;
-	}
+	if ((n = mdns_reply_head(q, p, legacy, out, outmax)) < 0) return 0;
 	if (want_ptr_svc)
 		for (int s = 1; s <= 2; s++) {
 			int at;
@@ -306,22 +304,65 @@ static int mdns_sd_answer(const unsigned char *q, int qn, const char *host, cons
 	return an ? n : 0;
 }
 
-/* ---- answer rate limit (the daemon would otherwise reflect a flood of queries at full rate) ----
- * at most MDNS_RATE answers per second, counted per whole second of a monotonic clock; the caller peeks with
- * mdns_rl_full() before any costly work and takes a token with mdns_rl_take() when it sends */
+/* ---- answer rate limit (per source IP + total cap, so one flooder cannot starve other subnet hosts) ---- */
 #define MDNS_RATE 20
+#define MDNS_RL_SLOTS 16
+#define MDNS_RL_TOTAL 80
 struct mdns_rl { long sec; int cnt; };
+struct mdns_ip_rl {
+	unsigned int ip[MDNS_RL_SLOTS];
+	struct mdns_rl per[MDNS_RL_SLOTS];
+	struct mdns_rl global;
+	int next;
+};
 
-static int mdns_rl_full(struct mdns_rl *r, long now)
+static int mdns_rl_cap_full(struct mdns_rl *r, long now, int cap)
 {
 	if (now != r->sec) { r->sec = now; r->cnt = 0; }
-	return r->cnt >= MDNS_RATE;
+	return r->cnt >= cap;
 }
 
-static int mdns_rl_take(struct mdns_rl *r, long now)
+static int mdns_rl_cap_take(struct mdns_rl *r, long now, int cap)
 {
-	if (mdns_rl_full(r, now)) return 0;
+	if (mdns_rl_cap_full(r, now, cap)) return 0;
 	r->cnt++;
+	return 1;
+}
+
+static int mdns_rl_full(struct mdns_rl *r, long now) { return mdns_rl_cap_full(r, now, MDNS_RATE); }
+static int mdns_rl_take(struct mdns_rl *r, long now) { return mdns_rl_cap_take(r, now, MDNS_RATE); }
+
+static int mdns_ip_rl_find(const struct mdns_ip_rl *t, unsigned int src_ip)
+{
+	if (!src_ip) return -1;
+	for (int i = 0; i < MDNS_RL_SLOTS; i++)
+		if (t->ip[i] == src_ip) return i;
+	return -1;
+}
+
+static int mdns_ip_rl_full(struct mdns_ip_rl *t, unsigned int src_ip, long now)
+{
+	int idx;
+
+	if (mdns_rl_cap_full(&t->global, now, MDNS_RL_TOTAL)) return 1;
+	idx = mdns_ip_rl_find(t, src_ip);
+	return idx >= 0 && mdns_rl_cap_full(&t->per[idx], now, MDNS_RATE);
+}
+
+static int mdns_ip_rl_take(struct mdns_ip_rl *t, unsigned int src_ip, long now)
+{
+	int idx;
+
+	if (mdns_rl_cap_full(&t->global, now, MDNS_RL_TOTAL)) return 0;
+	idx = mdns_ip_rl_find(t, src_ip);
+	if (idx < 0) {
+		for (int i = 0; i < MDNS_RL_SLOTS; i++)
+			if (!t->ip[i] || t->per[i].sec != now) { idx = i; break; }
+		if (idx < 0) { idx = t->next; t->next = (t->next + 1) % MDNS_RL_SLOTS; }
+		t->ip[idx] = src_ip; t->per[idx].sec = now; t->per[idx].cnt = 0;
+	}
+	if (!mdns_rl_cap_take(&t->per[idx], now, MDNS_RATE)) return 0;
+	t->global.cnt++;
 	return 1;
 }
 

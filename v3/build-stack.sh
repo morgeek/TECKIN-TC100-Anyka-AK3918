@@ -164,6 +164,7 @@ mksquashfs "$T" "$OUT/stack.sqfs" -comp xz $bcj -b 128K -noappend -all-root -qui
 	-e ext/bin/mksquashfs bin/busybox scripts/build-kernel-docker.sh scripts/flash_budget.py scripts/generate_sounds.py scripts/pcm2alaw.py \
 	v3/install/envtool.c v3/install/RELEASE-NOTES.md v3/install/README-SD.txt \
 	v3/install/LISEZ-MOI.txt v3/install/LISEZ-MOI-INVENTAIRE.txt v3/install/stock-hook.sh \
+	v3/install/anyka-wifi.awk v3/install/known-stock.txt \
 	sounds/test-1k-m6.pcm sounds/test-1k-m12.pcm sounds/test-1k-m20.pcm \
 	www/css/ui.css www/css/pico-2.0.6.min.css www/css/pico-shim.css
 n=$(wc -c < "$OUT/stack.sqfs")

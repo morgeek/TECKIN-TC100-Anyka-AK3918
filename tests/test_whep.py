@@ -146,12 +146,14 @@ esac
         self.assertTrue(head.startswith('Status: 503'), head)
         self.assertFalse((self.tmp / 'run/whep.pid').exists())
 
+    @unittest.skipUnless(Path('/proc').is_dir(), 'needs /proc')
     def test_status(self):
         self.pid(self.sleeper.pid)
         head, body = self.run_cgi()
         self.assertTrue(head.startswith('Status: 200'), head)
         self.assertIn('"viewers":1', body)
 
+    @unittest.skipUnless(Path('/proc').is_dir(), 'needs /proc')
     def test_offer(self):
         self.pid(self.sleeper.pid)
         offer = 'v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n'
@@ -174,6 +176,7 @@ esac
         head, _ = self.run_cgi('PUT', body='x')
         self.assertTrue(head.startswith('Status: 405'), head)
 
+    @unittest.skipUnless(Path('/proc').is_dir(), 'needs /proc')
     def test_stop(self):
         self.pid(self.sleeper.pid)
         for method in ('POST', 'DELETE'):
@@ -188,7 +191,7 @@ esac
         self.assertTrue(head.startswith('Status: 405'), head)
 
 
-@unittest.skipIf(os.name == 'nt', 'needs a POSIX shell and /proc')
+@unittest.skipUnless(os.name != 'nt' and Path('/proc').is_dir(), 'needs a POSIX shell and /proc')
 class StartRace(unittest.TestCase):
     """controlscripts/whep start with its paths in a temporary directory and a fake daemon: two starts at once"""
 
