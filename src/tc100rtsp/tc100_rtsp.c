@@ -1493,7 +1493,7 @@ static int num(const char *s)
 {
 	int v = 0;
 
-	while (*s >= '0' && *s <= '9') v = v * 10 + (*s++ - '0');
+	while (*s >= '0' && *s <= '9') { if (v < 100000000) v = v * 10 + (*s - '0'); s++; }	/* at most 999999999: no signed overflow */
 	return v;
 }
 
@@ -1712,13 +1712,14 @@ static void md5s(char *out, int n, const char *a, const char *b, const char *c)
 
 static int b64dec(char *o, int osz, const char *s)
 {
-	int k = 0, acc = 0, bits = 0;
+	int k = 0, bits = 0;
+	unsigned acc = 0;
 
 	for (; *s && *s != '='; s++) {
 		const char *q = strchr(b64t, *s);
 
 		if (!q) continue;
-		acc = acc << 6 | (int)(q - b64t); bits += 6;
+		acc = (acc << 6 | (unsigned)(q - b64t)) & 0xffffu; bits += 6;	/* masked: only the last 16 bits are ever read */
 		if (bits >= 8) { bits -= 8; if (k < osz - 1) o[k++] = (acc >> bits) & 255; }
 	}
 	o[k] = 0;
@@ -1744,7 +1745,59 @@ static int field(const char *h, const char *key, char *o, int osz)
 	return 1;
 }
 
-static int auth_ok(const char *req, const char *method, const char *nonce)
+/* the same comparison time whatever the first differing byte (a LAN host timing the password check) */
+static int ct_eq(const char *a, const char *b)
+{
+	size_t la = strlen(a), lb = strlen(b), n = la > lb ? la : lb;
+	unsigned d = (unsigned)(la ^ lb);
+
+	for (size_t i = 0; i < n; i++) d |= (unsigned)((unsigned char)(i < la ? a[i] : 0) ^ (unsigned char)(i < lb ? b[i] : 0));
+	return d == 0;
+}
+
+/* the path of an RTSP URL: "rtsp://host:port/video0/track1" and "/video0/track1" give the same; one trailing '/' is ignored */
+static void url_path(const char *u, char *o, int osz)
+{
+	int n;
+
+	if (!strncasecmp(u, "rtsp://", 7)) { u += 7; while (*u && *u != '/') u++; }
+	snprintf(o, osz, "%s", *u ? u : "/");
+	n = (int)strlen(o);
+	if (n > 1 && o[n - 1] == '/') o[n - 1] = 0;
+}
+
+/* Digest nonces: random per connection (a key read from /dev/urandom at start, a counter, the clock), never repeated */
+static unsigned char au_key[16];
+static unsigned long long au_ctr;
+
+static void au_rand_init(void)
+{
+	FILE *f = fopen("/dev/urandom", "r");
+	size_t n = f ? fread(au_key, 1, sizeof au_key, f) : 0;
+	struct timespec ts;
+
+	if (f) fclose(f);
+	clock_gettime(CLOCK_MONOTONIC, &ts);	/* never the only source: also mixed in when the device is there */
+	au_key[0] ^= (unsigned char)ts.tv_nsec; au_key[1] ^= (unsigned char)(ts.tv_nsec >> 8);
+	au_key[2] ^= (unsigned char)getpid(); au_key[3] ^= (unsigned char)(time(NULL) >> 3);
+	if (n < sizeof au_key) LOG("tc100_rtsp: no /dev/urandom: Digest nonces are weaker\n");
+}
+
+static void au_nonce(char *out)	/* out: 33 bytes */
+{
+	struct md5 m;
+	unsigned long long ctr = ++au_ctr;
+	time_t t = time(NULL);
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	md5_init(&m);
+	md5_add(&m, au_key, sizeof au_key); md5_add(&m, &ctr, sizeof ctr); md5_add(&m, &t, sizeof t); md5_add(&m, &ts, sizeof ts);
+	md5_hex(&m, out);
+}
+
+/* url: the request-line URL; a Digest uri= for another one is refused (a captured response was good for any URL) */
+static int auth_ok(const char *req, const char *method, const char *url, const char *nonce)
 {
 	char a[512];
 
@@ -1752,18 +1805,22 @@ static int auth_ok(const char *req, const char *method, const char *nonce)
 	if (!hdr(req, "Authorization", a, sizeof a)) return 0;
 	if (!strncasecmp(a, "Basic ", 6)) {
 		char d[200], want[200];
+		int ok;
 
 		b64dec(d, sizeof d, a + 6);
 		snprintf(want, sizeof want, "%s:%s", au_user, au_pass);
-		return !strcmp(d, want);
+		ok = ct_eq(d, want);
+		memset(d, 0, sizeof d);
+		return ok;
 	}
 	if (!strncasecmp(a, "Digest ", 7)) {
-		char u[64], n[64], uri[256], resp[40], ha1[33], ha2[33], exp[33];
+		char u[64], n[64], uri[256], resp[40], ha1[33], ha2[33], exp[33], p1[256], p2[256];
 
 		if (!field(a, "username=", u, sizeof u) || !field(a, "nonce=", n, sizeof n) ||
 		    !field(a, "uri=", uri, sizeof uri) || !field(a, "response=", resp, sizeof resp))
 			return 0;
-		if (strcmp(u, au_user) || strcmp(n, nonce)) return 0;
+		url_path(uri, p1, sizeof p1); url_path(url, p2, sizeof p2);
+		if (!nonce[0] || !ct_eq(u, au_user) || !ct_eq(n, nonce) || strcmp(p1, p2)) return 0;
 		md5s(ha1, 3, au_user, "TC100", au_pass);
 		md5s(ha2, 2, method, uri, "");
 		{
@@ -1773,9 +1830,58 @@ static int auth_ok(const char *req, const char *method, const char *nonce)
 			md5_add(&m, ha1, 32); md5_add(&m, ":", 1); md5_add(&m, n, strlen(n)); md5_add(&m, ":", 1); md5_add(&m, ha2, 32);
 			md5_hex(&m, exp);
 		}
-		return !strcmp(exp, resp);
+		return ct_eq(exp, resp);
 	}
 	return 0;
+}
+
+/* wrong logins counted per source address (as src/onvifd): FAIL_MAX within a minute refuse that address for the rest of
+ * its minute; 127/8 (the WHEP gateway, live.cgi, the recorder) is neither counted nor limited, and other addresses are
+ * never affected. TC100_TEST_NO_EXEMPT=1 (host test build only) treats 127/8 like any address, to test with it. */
+#define FAIL_MAX 20
+#define FAIL_SLOTS 32
+#define PERIP_MAX 2		/* concurrent connections from one source address */
+static struct { uint32_t ip; int n; time_t t0; } g_fail[FAIL_SLOTS];
+static int no_exempt;
+
+static int ip_exempt(uint32_t ip_net)
+{
+	return !no_exempt && (ntohl(ip_net) >> 24) == 127;
+}
+
+static int fail_find(uint32_t ip, time_t t)
+{
+	for (int i = 0; i < FAIL_SLOTS; i++)
+		if (g_fail[i].n && g_fail[i].ip == ip) {
+			if (t - g_fail[i].t0 > 60) { g_fail[i].n = 0; return -1; }
+			return i;
+		}
+	return -1;
+}
+
+static int fail_locked(uint32_t ip, time_t t)
+{
+	int i = fail_find(ip, t);
+
+	return !ip_exempt(ip) && i >= 0 && g_fail[i].n >= FAIL_MAX;
+}
+
+static void fail_note(uint32_t ip, time_t t)
+{
+	int i = fail_find(ip, t), o = -1;
+
+	if (ip_exempt(ip)) return;
+	if (i < 0) {	/* a free or expired slot, else the oldest one not locked (a locked address is never evicted:
+			 * cycling through more addresses than slots must not unlock one) */
+		for (i = 0; i < FAIL_SLOTS && g_fail[i].n && t - g_fail[i].t0 <= 60; i++)
+			if (g_fail[i].n < FAIL_MAX && (o < 0 || g_fail[i].t0 < g_fail[o].t0)) o = i;
+		if (i == FAIL_SLOTS) {
+			if (o < 0) return;	/* every slot holds a locked address */
+			i = o;
+		}
+		g_fail[i].ip = ip; g_fail[i].n = 0; g_fail[i].t0 = t;
+	}
+	g_fail[i].n++;
 }
 
 /* ---- allowed networks: TC100_NET_ALLOW="a.b.c.d/n ..." (boot.conf NET_LAN_ONLY, rtsp-launch.sh); empty or missing:
@@ -1849,7 +1955,8 @@ struct cli {
 	int b_ok, b_tcp, b_ch;		/* backchannel (the client's sound for the speaker) set up, over TCP on channel b_ch */
 	struct sockaddr_in b_udp;	/* its RTP source address (UDP) */
 	char sess[16];
-	char nonce[24];
+	char nonce[33];
+	time_t nonce_t;			/* when it was made */
 	char buf[4096];
 	int blen;
 	time_t last;			/* last accepted request (an unauthenticated one does not count) */
@@ -1902,6 +2009,7 @@ static void cl_lock(void)
 }
 static void cl_unlock(void) { if (sndr_on) pthread_mutex_unlock(&cl_mu); }
 static int udpfd = -1;
+static int talk_nat;			/* RTSP_TALK_NAT=1 (rtsp.env): UDP backchannel RTP accepted from any port of the client host (default: the SETUP port only) */
 static int talk_cfg = 1;		/* RTSP_LITE_TALK of boot.conf (anything but 0, no, off, false) */
 static uint16_t srv_rtp = 5004;
 static const uint32_t SSRC = 0x54433130;	/* "TC10" */
@@ -2661,13 +2769,23 @@ static void handle(struct cli *c, char *req, int cseq_default)
 	if (hdr(req, "CSeq", v, sizeof v)) cseq = num(v);
 	if (!getsockname(c->fd, (struct sockaddr *)&me, &ml)) inet_ntop(AF_INET, &me.sin_addr, host, sizeof host);
 
-	if (au_on && strcmp(m, "OPTIONS") && !auth_ok(req, m, c->nonce)) {
-		char ch[400];
+	if (au_on && strcmp(m, "OPTIONS")) {
+		time_t tn = time(NULL);
+		int locked = fail_locked(c->peer, tn);
 
-		if (!c->nonce[0]) snprintf(c->nonce, sizeof c->nonce, "%08x%08x", (unsigned)time(NULL), (unsigned)(c - cl) * 2654435761u ^ (unsigned)(uintptr_t)c);
-		snprintf(ch, sizeof ch, "WWW-Authenticate: Digest realm=\"TC100\", nonce=\"%s\"\r\nWWW-Authenticate: Basic realm=\"TC100\"\r\n", c->nonce);
-		reply(c, 401, "Unauthorized", cseq, ch, NULL);
-		return;
+		if (locked || !auth_ok(req, m, url, c->nonce)) {
+			char ch[400];
+
+			if (locked) {	/* guessing from this address: refused unchecked for the rest of its minute */
+				reply(c, 401, "Unauthorized", cseq, NULL, NULL);
+				return;
+			}
+			if (hdr(req, "Authorization", v, sizeof v)) fail_note(c->peer, tn);	/* a wrong answer, not the first request */
+			if (!c->nonce[0] || tn - c->nonce_t > 300) { au_nonce(c->nonce); c->nonce_t = tn; }
+			snprintf(ch, sizeof ch, "WWW-Authenticate: Digest realm=\"TC100\", nonce=\"%s\"\r\nWWW-Authenticate: Basic realm=\"TC100\"\r\n", c->nonce);
+			reply(c, 401, "Unauthorized", cseq, ch, NULL);
+			return;
+		}
 	}
 	if (!au_on || strcmp(m, "OPTIONS")) c->authed = 1;
 	if (c->authed) c->last = time(NULL);
@@ -2781,6 +2899,54 @@ static void handle(struct cli *c, char *req, int cseq_default)
 	}
 }
 
+/* Where a new connection goes (-1: refused). At most PERIP_MAX per source address (127/8 exempt); when the table is full,
+ * a connection that is not authenticated goes first, whatever its age, from the address with the most connections (oldest
+ * of them); then the old rule: the client idle the longest that does not play. A playing client is never evicted (R1). */
+static int cli_count_ip(uint32_t ip)
+{
+	int n = 0;
+
+	for (int k = 0; k < MAXCLI; k++) if (cl[k].fd >= 0 && cl[k].peer == ip) n++;
+	return n;
+}
+
+static int cli_victim(uint32_t only_ip, int use_ip, time_t nowt)
+{
+	int k, v = -1, vs = -1;
+
+	for (k = 0; k < MAXCLI; k++) {	/* not authenticated: any age */
+		int sc;
+
+		if (cl[k].fd < 0 || cl[k].authed || cl[k].playing || (use_ip && cl[k].peer != only_ip)) continue;
+		sc = ip_exempt(cl[k].peer) ? 0 : cli_count_ip(cl[k].peer);
+		if (v < 0 || sc > vs || (sc == vs && cl[k].t_acc < cl[v].t_acc)) { v = k; vs = sc; }
+	}
+	if (v >= 0) return v;
+	for (k = 0; k < MAXCLI; k++)
+		if (cl[k].fd >= 0 && (!use_ip || cl[k].peer == only_ip) && !cl[k].playing && nowt - cl[k].last >= 2 && (v < 0 || cl[k].last < cl[v].last)) v = k;
+	return v;
+}
+
+static int accept_slot(uint32_t ip, time_t nowt)
+{
+	int i, v;
+
+	if (!ip_exempt(ip) && cli_count_ip(ip) >= PERIP_MAX) {	/* one address may not take the slots of the others */
+		v = cli_victim(ip, 1, nowt);
+		if (v < 0) return -1;
+		LOG("rtsp: %d connections from one address, client %d closed for a new one\n", PERIP_MAX, v);
+		cli_close(&cl[v]);
+		return v;
+	}
+	for (i = 0; i < MAXCLI && cl[i].fd >= 0; i++) ;
+	if (i < MAXCLI) return i;
+	v = cli_victim(0, 0, nowt);
+	if (v < 0) return -1;
+	LOG("rtsp: full, client %d closed for a new one\n", v);
+	cli_close(&cl[v]);
+	return v;
+}
+
 /* read what the client sent: RTSP requests, interleaved RTCP frames are skipped */
 static void cli_read(struct cli *c)
 {
@@ -2815,6 +2981,20 @@ static void cli_read(struct cli *c)
 		}
 		used = e + 4 - c->buf;
 		if (used > c->blen) { cli_close(c); return; }	/* never past what was received */
+		{	/* Content-Length: SET_PARAMETER, GET_PARAMETER and ANNOUNCE may carry a body; it is consumed with the request
+			 * (else it would be read as the next request), waited for if it has not all arrived, never past the buffer */
+			char sv = e[2], cv[24];
+			int bl = 0;
+
+			e[2] = 0;
+			if (hdr(c->buf, "Content-Length", cv, sizeof cv)) bl = num(cv);
+			e[2] = sv;
+			if (bl > 0) {
+				if (bl > (int)sizeof c->buf - 1 - used) { cli_close(c); return; }
+				if (c->blen < used + bl) return;
+				used += bl;
+			}
+		}
 		*e = 0;
 		strcat(c->buf, "\r\n");	/* keeps the header scanner happy on the last line */
 		handle(c, c->buf, 1);
@@ -3793,6 +3973,11 @@ unsigned char *fpb[2] = { NULL, NULL };
 	}
 	for (int i = 0; i < MAXCLI; i++) cl[i].fd = -1;
 	net_init();
+	au_rand_init();
+	{ const char *e = getenv("RTSP_TALK_NAT"); talk_nat = e && e[0] == '1'; }
+#ifdef TC100_HOST_TEST
+	{ const char *e = getenv("TC100_TEST_NO_EXEMPT"); no_exempt = e && e[0] == '1'; }
+#endif
 	LOG("tc100_rtsp: rtsp://<ip>:%d/  %dx%d %d fps %d kbit/s %s; sub-stream (/video1, /ch1, /sub) %s %dx%d %d kbit/s %s\n",
 	    port, W, H, fps, kbps, hevc ? "H.265" : "H.264", sub_on ? "on" : "off", SW, SH, sub_kbps, sub_hevc ? "H.265" : "H.264");
 	LOG("tc100_rtsp: vbr main %u sub %u; client queue %d KB; rtp scatter-gather %d sendmmsg %d; pacing %d us sndbuf %d KB; live direct\n",
@@ -3910,7 +4095,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 			for (i = 0; n > 12 && i < MAXCLI; i++) {
 				if (cl[i].fd < 0 || !cl[i].b_ok || cl[i].b_tcp || !cl[i].playing || cl[i].b_udp.sin_addr.s_addr != from.sin_addr.s_addr) continue;
 				if (cl[i].b_udp.sin_port == from.sin_port) { best = i; break; }
-				if (best < 0) best = i;		/* same host, another port (NAT): still its sound */
+				if (talk_nat && best < 0) best = i;	/* RTSP_TALK_NAT=1: same host, another port (NAT) is still its sound */
 			}
 			if (best >= 0) talk_rtp(best, pk, n, now_us64());
 		}
@@ -3921,15 +4106,8 @@ unsigned char *fpb[2] = { NULL, NULL };
 
 			if (s >= 0 && !net_allowed(ntohl(pa.sin_addr.s_addr))) { close(s); s = -1; }	/* NET_LAN_ONLY (W2) */
 			if (s >= 0) {
-				for (i = 0; i < MAXCLI && cl[i].fd >= 0; i++) ;
-				if (i == MAXCLI) {	/* full: the client idle the longest that does not play, if one is (R1) */
-					int k, old = -1;
-
-					for (k = 0; k < MAXCLI; k++)
-						if (!cl[k].playing && nowt - cl[k].last >= 2 && (old < 0 || cl[k].last < cl[old].last)) old = k;
-					if (old >= 0) { LOG("rtsp: full, idle client %d closed for a new one\n", old); cli_close(&cl[old]); i = old; }
-				}
-				if (i == MAXCLI) { close(s); }
+				i = accept_slot(pa.sin_addr.s_addr, nowt);
+				if (i < 0) { close(s); }
 				else {
 					memset(&cl[i], 0, sizeof cl[i]);
 					cl[i].fd = s; cl[i].last = cl[i].t_acc = time(NULL); cl[i].qprog = time(NULL);
