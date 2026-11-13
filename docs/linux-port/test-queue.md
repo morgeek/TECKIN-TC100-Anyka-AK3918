@@ -44,6 +44,57 @@ Rules that apply to every entry:
 - **Test kernel only (2026-11-13):** 9d37efe had put both options in the base `defconfig_cma`, so every CI kernel (the next RC too) carried a timer mode no camera had ever booted; the read-only review classed it brick-class for a flash (if the one-shot path of patch 0001 misbehaves, the tick dies before the initramfs: SD recovery only), with side effects to watch: exact `usleep_range` before `ispdrv_ae_work()` (exposure writes earlier in the frame) and the `venc_soft_reset` pulse shortened from >= 10 ms to ~0.2 ms (patch 0008). The base config is back to `HZ_PERIODIC`; build the test kernel with the workflow input `test_hrtimers` (packages get `-testkernel` in their version, see the 2026-10 entry below).
 - **Test (SD kernel from a `test_hrtimers` run, nothing flashed):** Boot on SD (`boot66b.sh`), check `/proc/timer_list` shows `resolution: 1 nsecs` / `Event Handler: hrtimer_interrupt`, and run a 2 h H.265 soak + `RTSP_PACING_US=200` test; also check the picture for exposure flicker and the encoder after a reset (`vencreset`). Only after a pass, with the owner's agreement, move the two options into `defconfig_cma` as a change of its own.
 
+### WIFI-STALL-01 The ~8 s downstream stall of the .11: one evening to tell TX, RX, AP and scans apart (`[wifi]`) — `to test` (owner, read-only steps first)
+
+- **Diagnosis (read-only Fable analysis of the rtl8xxxu / mac80211 sources of the CI kernel, 2026-11-13; key facts
+  checked):**
+  - **mac80211 power save is ruled out:** rtl8xxxu sets only `SIGNAL_DBM`, `HAS_RATE_CONTROL`, `SUPPORT_FAST_XMIT`,
+    `AMPDU_AGGREGATION` (no `SUPPORTS_PS`), no firmware LPS command is sent, `iw` shows `Power save: off`.
+  - **RX reorder buffer unlikely** (mac80211 timeout 100 ms; RX DMA aggregation of the 8188F is off); `ampdu_rx=0`
+    (WIFI-RXAGG below) stays a cheap control.
+  - **No user-space scan at -25 dBm:** `wifi-roam.sh` scans only below -75 dBm twice in a row; no bgscan / autoscan;
+    `wifi-quality.sh` = `iw station dump` + one ping a minute. Two stalls back to back (seq 54-69 then 71-80+) do not fit
+    a 60 s job.
+  - **Silent losses in the driver:** an RX URB that completes with an error is freed and never resubmitted (only a
+    `dev_dbg`, compiled out): the pool of 32 can shrink without a trace. The Anyka host controller (patch 0003) has a
+    bulk-OUT NAK limit of 16 and none on bulk-IN; a NAK timeout only counts and keeps the transfer pending, with no log.
+  - **No debug tools on the camera:** no debugfs, dynamic debug, usbmon, ftrace or tcpdump in the image.
+  - The "upstream has no stall" result (.11 -> gateway) was a separate 30 s run, not simultaneous with a stall: weak.
+- **Ranked hypotheses:** **H5 (new) the camera's TX side stalls** (8188F NAKs bulk-OUT, silent HCD retries, TX URBs run
+  out, mac80211 queues stop, echo replies released together: fits 0 % loss, the exact 0.5 s latency steps and the IRQ
+  collapse); **H3** USB RX stops (fits the IRQ drop, but the residual 14-35 IRQ/s and self-recovery argue against);
+  **H7 (new) receiver overload / CFO tracking at very strong signal** (the .11 read `level -13` dBm during a stall,
+  extremely strong for this chip; only the MCS 7 camera is affected); H1 AP buffering (needs the camera silent: back to
+  H5), H2 reorder buffer, H4 periodic job: unlikely.
+- **Evening plan (steps 1-3 read-only; 4-5 change a setting, RAM only, revert by reboot; `wifi-try.sh` does not exist
+  yet, so run 4-5 only with the owner able to power-cycle):**
+  1. **TX or RX (10 min):** on the camera, `ping -c 1200 192.168.1.1 > /tmp/up.txt &` and
+     `while :; do echo "$(date +%T) $(grep '^Icmp:' /proc/net/snmp | tail -1) rx=$(cat /sys/class/net/wlan0/statistics/rx_packets) irq=$(grep usb /proc/interrupts | awk '{print $2}')"; sleep 1; done > /tmp/s.txt`,
+     while the Mac runs `ping -i 0.5 192.168.1.11`. Take the positions of `InEchos` / `OutEchoReps` from the `Icmp:`
+     header line of `/proc/net/snmp`. During a stall: `InEchos` frozen = requests do not reach the camera (AP or RX:
+     H1/H3); `InEchos` and `OutEchoReps` still +2/s while the Mac sees nothing = **TX side (H5)**; `up.txt` stalling in the
+     same seconds = the whole link; `up.txt` clean = look at the AP.
+  2. **Is RX alive during the stall (same run):** add `timeout 2 iw dev wlan0 station dump | grep -E 'beacon rx|tx retries|tx failed'`
+     to the loop: `beacon rx` still rising ~10/s = radio and USB-IN alive (H3 out). Also `dmesg | grep -iE 'writeN retry|requeue urb|usb'`.
+  3. **Scans:** `iw event -t > /tmp/ev.txt &` during step 1; then one deliberate `wpa_cli -i wlan0 scan` while pinging,
+     to see what a scan looks like. No scan event at the stall times rules scans out.
+  4. `WIFI_QUALITY=0` for 30 min, repeat step 1 (stalls unchanged = H4 closed).
+  5. `echo 0 > /sys/module/rtl8xxxu/parameters/ampdu_rx && wpa_cli -i wlan0 reassociate` (drops the link a few seconds;
+     net-guard reassociates at 2 min, reboots at 15 min), repeat step 1 (WIFI-RXAGG).
+  6. Optional, decisive for the air side: macOS Wireless Diagnostics sniffer on channel 3 (2422 MHz) during a stall
+     (null-data PM=1 from the camera, AP retries without ACK, or no camera frames at all).
+  7. **H7:** move the .11 a few metres from the AP (or reduce its TX power with `tx_atten`, patch 0019) for 15 min and
+     repeat step 1.
+  - Also note whether the RTSP client was on TCP or UDP during the IRQ measurement of 2026-11-12: with UDP the IRQ drop
+    alone already shows that TX stopped.
+- **Follow-up for the implementer (only after the evening, no fix is certain yet):** read-only `0444` counters
+  (rtl8xxxu: free TX URBs, queue stops, RX URBs freed on error, current crystal cap; HCD: NAK timeouts per endpoint, age
+  of the oldest pending bulk transfer); a `rtl8xxxu.cfo_track` switch (0644, default on) for H7; requeue an RX URB on a
+  transient error instead of freeing it (default-off until soaked); `scripts/wifi-try.sh` as designed in
+  `audit-2026-11-06.md` before any remote parameter trial.
+- **Pass:** the evening separates H5 / H3 / H7 / H1 with one decisive observation; record the four lines of `s.txt`
+  around a stall and the step-1 verdict under this entry.
+
 ### WIFI-RXAGG rtl8xxxu runtime `ampdu_rx` switch (`[wifi]`) — `to test`
 
 - **What:** Kernel patch `0018-wifi-rtl8xxxu-runtime-ampdu_rx-parameter.patch` adds `rtl8xxxu.ampdu_rx` (`0644`, default `Y`). When `0`/`N`, `rtl8xxxu_ampdu_action(IEEE80211_AMPDU_RX_START)` returns `-EOPNOTSUPP`, so `mac80211` declines BlockAck RX sessions from the AP and receives frames individually without RX reorder buffering.
