@@ -95,6 +95,29 @@ Rules that apply to every entry:
 - **Pass:** the evening separates H5 / H3 / H7 / H1 with one decisive observation; record the four lines of `s.txt`
   around a stall and the step-1 verdict under this entry.
 
+### MDNS-01 mDNS daemon: four correctness fixes after a read-only review (`[mdns]`) — `to test`
+
+- **Review (2026-11-13, read-only, `src/mdnsd`):** no memory-safety, loop or leak issue. Every length is checked against
+  the received size, labels are at most 63, at most 8 pointer jumps, names at most 254, every write to `out` is length
+  checked; the hostname is already sanitised by autorun with `tr -cd 'A-Za-z0-9-'` and again by the daemon. Four
+  correctness defects were found.
+- **What changes:** (1) a question name that uses a compression pointer (e.g. "A host.local" + "AAAA host.local" with the
+  second name `c0 0c`, as Apple and Windows send) no longer makes the whole packet unanswered: the matcher follows pointers
+  with the bounded logic of the DNS-SD path (8 jumps, only backwards, never onto itself, name < 255); malformed names are
+  still refused. (2) Global limit of 20 answers a second (raw `clock_gettime`, no limit if the clock cannot be read), and
+  the QR / opcode / question-count checks now come before the per-datagram ioctls and hostname read, so other hosts'
+  responses cost nothing. (3) `out` is 1500 bytes (was 700): a full DNS-SD answer needs about 416 + 9 x hostname length,
+  so 63-character hostnames got no answer. (4) Legacy unicast DNS-SD answers (source port != 5353) repeat the question
+  section, clear the cache-flush bit and use TTL 10, like the A record path.
+- **Switch:** none; revert the commit (`[mdns]` fix).
+- **Test on the camera:** resolve `<name>.local` from a Mac, an iPhone, a Windows PC and Home Assistant (`ping`, browser);
+  `dns-sd -B _rtsp._tcp` / `avahi-browse -art` lists the camera (with `MDNS_SERVICES=1`); `dns-sd -G v4 <name>.local` and
+  `dig -p 5353 @224.0.0.251 <name>.local` (legacy, repeats the question); repeat with a 63-character hostname; flood
+  `for i in $(seq 200); do dig +short -p 5353 @<camera> <name>.local; done` and check at most about 20 answers per second;
+  compare idle CPU of `tc100-mdnsd` (`top`) with the previous build.
+- **Pass:** all names resolve on all four systems, the browse lists the camera, the long hostname answers, no change in
+  idle CPU, no crash or restart of the daemon (`/var/run/mdns.pid` stable) after the flood.
+
 ### WIFI-RXAGG rtl8xxxu runtime `ampdu_rx` switch (`[wifi]`) — `to test`
 
 - **What:** Kernel patch `0018-wifi-rtl8xxxu-runtime-ampdu_rx-parameter.patch` adds `rtl8xxxu.ampdu_rx` (`0644`, default `Y`). When `0`/`N`, `rtl8xxxu_ampdu_action(IEEE80211_AMPDU_RX_START)` returns `-EOPNOTSUPP`, so `mac80211` declines BlockAck RX sessions from the AP and receives frames individually without RX reorder buffering.
