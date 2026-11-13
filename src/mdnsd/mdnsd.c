@@ -34,6 +34,7 @@ static long sc(long n, long a, long b, long c, long d, long e, long f)
 #define SYS_close 6
 #define SYS_ioctl 54
 #define SYS_nanosleep 162
+#define SYS_clock_gettime 263
 #define SYS_socket 281
 #define SYS_bind 282
 #define SYS_sendto 290
@@ -146,6 +147,15 @@ static void info_txt(char *t, int max)
 	}
 }
 
+/* seconds of the monotonic clock, -1 when it cannot be read (the limit is then not applied) */
+static long mono(void)
+{
+	struct ts t;
+
+	if (sc(SYS_clock_gettime, 1, (long)&t, 0, 0, 0, 0) < 0) return -1;
+	return t.sec;
+}
+
 static void join(int s)
 {
 	struct ip_mreq m = { MDNS_GROUP_BE, 0 };
@@ -158,9 +168,10 @@ int run(int argc, char **argv)
 	const char *ifn = "wlan0";
 	struct sockaddr_in a = { AF_INET, MDNS_PORT_BE, 0, { 0 } }, src, dst = { AF_INET, MDNS_PORT_BE, MDNS_GROUP_BE, { 0 } };
 	struct timeval tv = { 60, 0 };
-	unsigned char q[1500], out[700];
+	unsigned char q[1500], out[1500];
 	int s, on = 1, ttl = 255, loop = 0, svcs = 0, info = 0;
 	char txt[160];
+	struct mdns_rl rl = { -1, 0 };
 
 	for (int i = 1; i < argc; i++) {
 		if (argv[i][0] == '-' && argv[i][1] == 'i' && !argv[i][2] && i + 1 < argc) ifn = argv[++i];
@@ -179,11 +190,16 @@ int run(int argc, char **argv)
 	for (;;) {
 		int sl = sizeof src, n, r;
 		u32 ip, mask;
+		long now;
 		char h[64];
 
 		n = (int)sc(SYS_recvfrom, s, (long)q, sizeof q, 0, (long)&src, (long)&sl);
 		if (n == -EAGAIN) { join(s); continue; }	/* quiet minute: join again (Wi-Fi may have come back) */
 		if (n < 12) { if (n < 0 && n != -EINTR) { struct ts t = { 1, 0 }; sc(SYS_nanosleep, (long)&t, 0, 0, 0, 0, 0); } continue; }
+		/* cheap checks first: other hosts' responses and odd packets cost no system call */
+		if ((q[2] & 0x80) || (q[2] & 0x78) || (q[4] << 8 | q[5]) < 1 || (q[4] << 8 | q[5]) > 16) continue;
+		now = mono();
+		if (now >= 0 && mdns_rl_full(&rl, now)) continue;	/* flood: no more than MDNS_RATE answers a second */
 		ip = ifaddr(s, ifn, SIOCGIFADDR); mask = ifaddr(s, ifn, SIOCGIFNETMASK);
 		if (!ip || !mask || (src.addr & mask) != (ip & mask)) continue;	/* same subnet only */
 		if (!hostname(h, sizeof h)) continue;
@@ -195,6 +211,7 @@ int run(int argc, char **argv)
 				r = mdns_sd_answer(q, n, h, (const unsigned char *)&ip, src.port != MDNS_PORT_BE, svcs, txt, out, sizeof out);
 			}
 			if (r <= 0) continue;
+			if (now >= 0 && !mdns_rl_take(&rl, now)) break;
 			if (src.port != MDNS_PORT_BE) sc(SYS_sendto, s, (long)out, r, 0, (long)&src, sizeof src);
 			else sc(SYS_sendto, s, (long)out, r, 0, (long)&dst, sizeof dst);
 		}
