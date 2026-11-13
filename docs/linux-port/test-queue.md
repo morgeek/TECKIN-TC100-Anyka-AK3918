@@ -3893,3 +3893,19 @@ night log across reboots (a night is lost at every update).
   clean in daylight (snapshot checked).
 - Left as is: `NR3D=1` on the .24 (backup `boot.conf.bak-nr3d02` = the `auto` default). Next: the same at night (25 fps,
   high gain) where the .11 overflowed, before changing the `auto` rule (a-faire, 2026-11-13 findings, point 2).
+
+### NR3D-02 on the .11 by day (2026-11-13 12:39-12:45 UTC, owner's OK; raw: frontier/data/raw/nr3d02-11-2026-11-13.txt)
+`NR3D=0` -> `NR3D=1` in boot.conf (backups `boot.conf.bak-nr3d-day`, `rtspserver.conf.bak-nr3d-day`), reboot; VBR and
+smart on (rc40 setting). Overflow counter 3895 before the reboot (from the owner's night test), 0 after.
+
+| case | overflow in 60 s | frames / 60 s | dropped | kbit/s |
+|---|---|---|---|---|
+| A 1080p 25 fps | **+0** | 1376 | 0 | 1465 |
+| B 1080p 20 fps | +0 | 1153 | 0 | 1539 |
+| C 720p 25 fps | +0 | 1474 | 0 | 1202 |
+| D 720p 20 fps | +0 | 1193 | 0 | 882 |
+
+- **Both cameras: no overflow by day, at any rate or size.** So the overflows seen on the .11 at 25 fps came with the
+  night (high gain), not with the unit or the frame rate alone: the `auto` rule (3D-NR only at <= 15 fps) is the wrong
+  way round for this data. fps / main size restored (25, 1080); `NR3D=1` left on the .11 for tonight's measurement (at
+  night the low-light mode drops to 10 fps; a forced 25 fps run at night is scheduled on the .24).

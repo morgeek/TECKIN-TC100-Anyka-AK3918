@@ -1,0 +1,6 @@
+00:00:38
+A fps=25 mainres=1080 overflow +0 in 60 s (0 -> 0); 12 lines, 1376 frames, dropped 0, 1465 kbit/s; nr3d=1; free encoder: H.265 1920x1080 (source stride 1920), 1600 kbi
+B fps=20 mainres=1080 overflow +0 in 60 s (0 -> 0); 12 lines, 1153 frames, dropped 0, 1539 kbit/s; nr3d=1; free encoder: H.265 1920x1080 (source stride 1920), 1600 kbi
+C fps=25 mainres=720 overflow +0 in 60 s (0 -> 0); 12 lines, 1474 frames, dropped 0, 1202 kbit/s; nr3d=1; free encoder: H.265 1280x720 (source stride 1280), 1600 kbit
+D fps=20 mainres=720 overflow +0 in 60 s (0 -> 0); 12 lines, 1193 frames, dropped 0, 882 kbit/s; nr3d=1; free encoder: H.265 1280x720 (source stride 1280), 1600 kbit
+restored fps=25 mainres=1080 12:45:28
