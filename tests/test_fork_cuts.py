@@ -202,7 +202,7 @@ class ForkCuts(unittest.TestCase):
         r = ash(
             f"{now_fn}\n"
             'unset WQ_NOW\n'
-            'a=$(_wq_now); b=$(date +%s)\n'
+            '_wq_btime=0; _wq_now; a=$_now; b=$(date +%s)\n'      # _wq_now sets _now (no subshell, no fork)
             'd=$((b - a)); [ "$d" -lt 0 ] && d=$((-d))\n'
             '[ "$d" -le 2 ] && echo ok || echo "diff=$d a=$a b=$b"\n'
         )

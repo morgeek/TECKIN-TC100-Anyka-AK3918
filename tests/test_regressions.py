@@ -2015,7 +2015,10 @@ class ActionCommandFiles(unittest.TestCase):
         cgi = (ROOT / 'www/cgi-bin/action.cgi').read_text()
         main = cgi[cgi.index('if [ -n "$F_cmd" ]; then'):]
         # only the routing patterns are left: each one is followed by its group
-        self.assertEqual(len(self.ARM.findall(main)), main.count('      _action_group='))
+        # the GET response cache keys (`GET:md_zones_info:0|...)`) are case arms too, but never routes: a command
+        # name has no ':'
+        arms = [a for a in self.ARM.findall(main) if ':' not in a]
+        self.assertEqual(len(arms), main.count('      _action_group='))
         self.assertNotIn('    showlog)\n      if', main)
         self.assertIn('. "/mnt/scripts/action.d/$_action_group.sh"', main)
         # the checks run before any command file is read
