@@ -4,10 +4,14 @@
 # confirmed before the safety window expires. Never toggles wlan0 down/up.
 #
 # Usage:
-#   wifi-try.sh <ampdu_rx=0|1|tx_atten=0..30> [window_s]   (default 120s, 10..600)
+#   wifi-try.sh <ampdu_rx=0|1|ampdu_tx=0|1|tx_atten=0..30> [window_s]   (default 120s, 10..600)
 #   wifi-try.sh confirm                                   keep current change
 #   wifi-try.sh revert                                    restore previous now
 #   wifi-try.sh status                                    show trial state
+#
+# ampdu_tx only affects new TX BlockAck sessions, so the script asks
+# wpa_supplicant for a reassociation (wpa_cli reassociate, no interface
+# down/up) after applying it and after every revert.
 
 SYS="${WT_SYS:-/sys/module/rtl8xxxu/parameters}"
 STATE="${WT_STATE:-/tmp/wifi-try}"
@@ -67,6 +71,13 @@ _wt_ping() {
     ${WT_PING:-ping} -c 1 -W 3 "$_gw" >/dev/null 2>&1
 }
 
+_wt_reassoc() {
+    # $1 = parameter name; only ampdu_tx needs it (existing sessions stay)
+    [ "$1" = ampdu_tx ] || return 0
+    PATH="$PATH:/mnt/ext/bin" ${WT_WPA_CLI:-wpa_cli} -i "${WT_IFACE:-wlan0}" reassociate >/dev/null 2>&1
+    return 0
+}
+
 _wt_clear_state() {
     rm -f "$STATE/pid" "$STATE/prev" "$STATE/key" "$STATE/target" "$STATE/confirm" 2>/dev/null
 }
@@ -79,7 +90,7 @@ _wt_validate_kv() {
     _key=${1%%=*}
     _val=${1#*=}
     case "$_key" in
-        ampdu_rx)
+        ampdu_rx|ampdu_tx)
             case "$_val" in 0|1) return 0 ;; *) return 1 ;; esac
             ;;
         tx_atten)
@@ -132,6 +143,7 @@ case "${1:-}" in
                 echo "wifi-try: failed to restore $_k" >&2
                 exit 1
             }
+            _wt_reassoc "$_k"
             _wt_log "manual revert $_k=$_p"
         fi
         _wt_clear_state
@@ -141,7 +153,7 @@ case "${1:-}" in
 esac
 
 if [ $# -lt 1 ] || [ $# -gt 2 ]; then
-    echo "usage: wifi-try.sh <ampdu_rx=0|1|tx_atten=0..30> [window_s]" >&2
+    echo "usage: wifi-try.sh <ampdu_rx=0|1|ampdu_tx=0|1|tx_atten=0..30> [window_s]" >&2
     exit 2
 fi
 
@@ -197,6 +209,7 @@ if ! printf '%s\n' "$_val" > "$_sysfile"; then
     echo "wifi-try: failed to write $_sysfile" >&2
     exit 1
 fi
+_wt_reassoc "$_key"
 _wt_log "trying $_key=$_val (prev=$_prev window=${_win}s gw=$_gw)"
 
 (
@@ -217,6 +230,7 @@ _wt_log "trying $_key=$_val (prev=$_prev window=${_win}s gw=$_gw)"
             _misses=$((_misses + 1))
             if [ "$_misses" -ge 3 ]; then
                 printf '%s\n' "$_prev" > "$_sysfile" 2>/dev/null
+                _wt_reassoc "$_key"
                 _wt_log "reverted $_key=$_prev after 3 gateway misses"
                 _wt_clear_state
                 exit 0
@@ -227,6 +241,7 @@ _wt_log "trying $_key=$_val (prev=$_prev window=${_win}s gw=$_gw)"
         _wt_log "confirmed $_key=$_val"
     else
         printf '%s\n' "$_prev" > "$_sysfile" 2>/dev/null
+        _wt_reassoc "$_key"
         _wt_log "reverted $_key=$_prev after ${_win}s without confirm"
     fi
     _wt_clear_state
