@@ -1,0 +1,48 @@
+From b650a0e8837dc53023dee86ac1888ce865424d9d Mon Sep 17 00:00:00 2001
+From: test <test@localhost>
+Date: Sat, 14 Nov 2026 11:58:04 +0100
+Subject: [PATCH] usb: host: anyka: do not read the URB after giveback
+
+finish_request_epx() read usb_pipetype(urb->pipe) after usb_hcd_giveback_urb(). The driver does not set HCD_BH, so the completion handler runs inline and may have freed the URB. Reached only when the endpoint queue and ep->schedule are both empty; a freed URB read as an interrupt pipe on a bulk endpoint made the deschedule loop step by ep->period = 0 and never end, with interrupts off.
+
+Take the pipe type before the giveback (as the read-only counters already do for what they need) and leave the periodic deschedule when ep->period is 0. No other behaviour change.
+---
+ drivers/usb/host/anyka/usb-hc.c | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/usb/host/anyka/usb-hc.c b/drivers/usb/host/anyka/usb-hc.c
+index 5f30be8..3ac115a 100644
+--- a/drivers/usb/host/anyka/usb-hc.c
++++ b/drivers/usb/host/anyka/usb-hc.c
+@@ -679,9 +679,13 @@ static void finish_request_epx(
+ {
+ 	unsigned		i;
+ 	int is_out;
++	unsigned int pipetype;
+ 	bool dbg_bulk, dbg_head;
+ 
+ 	is_out = usb_pipeout(urb->pipe);
++	/* the giveback below runs the completion inline and may free the URB:
++	 * nothing may be read from it afterwards */
++	pipetype = usb_pipetype(urb->pipe);
+ 	/* read-only counters: take all they need from the URB now, the
+ 	 * completion below runs inline and may free it */
+ 	dbg_bulk = usb_pipebulk(urb->pipe);
+@@ -719,9 +723,13 @@ static void finish_request_epx(
+ 		return;
+ 	}
+ 
+-	switch(usb_pipetype(urb->pipe)) {
++	switch (pipetype) {
+ 	case PIPE_ISOCHRONOUS:
+ 	case PIPE_INTERRUPT:
++		/* never scheduled as periodic: nothing to remove, and a step
++		 * of 0 would never leave the loop below */
++		if (!ep->period)
++			break;
+ 		/* periodic deschedule */
+ 		HDBG("%s(): deschedule qh%d/%p branch %d\n", 
+ 				__func__, ep->period, ep, ep->branch);
+-- 
+2.43.0
+

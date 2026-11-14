@@ -53,7 +53,8 @@ contredise.
    workflow « Build Linux 6.6 » → *Run workflow* sur la branche `wifi-counters`, puis `tc100test/c66.img` + `c66rd.gz`
    démarrés depuis la carte SD (RAM, rien en flash), et le script pendant les blocages de la .11. Selon le résultat, un
    correctif (et seulement lui) ira sur `main`.
-2. **Défaut existant du patch 0003, sur `main` (confirmé par la relecture du 13/11, peut planter le noyau, pas de
+2. **[Correctif écrit le 14/11 : patch `0022`, branche `kpatch-0022`, non fusionné ; à relire puis tester depuis la
+   carte SD, entrée KRN-02 de test-queue.md.]** **Défaut existant du patch 0003, sur `main` (confirmé par la relecture du 13/11, peut planter le noyau, pas de
    brique) :** dans `finish_request_epx`, le `switch` sur `usb_pipetype(urb->pipe)` lit l'URB **après**
    `usb_hcd_giveback_urb()` (sans `HCD_BH`, la fonction de fin du pilote a pu la libérer). Atteint seulement quand la
    file et `ep->schedule` sont vides : une URB libérée (empoisonnée par `slub_debug`) peut se lire comme une
