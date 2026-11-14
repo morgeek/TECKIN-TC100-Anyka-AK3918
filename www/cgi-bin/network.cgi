@@ -204,11 +204,6 @@ read_cfg_to() {
   eval "$_rc_out=\$_rc_value"
 }
 
-read_cfg() {
-  read_cfg_to _rc_res "$1" "$2" "$3"
-  printf '%s\n' "$_rc_res"
-}
-
 sanitize_port_to() {
   _sp_out="$1"
   _sp_val="$2"
@@ -220,18 +215,6 @@ sanitize_port_to() {
     _sp_val="$_sp_fallback"
   fi
   eval "$_sp_out=\$_sp_val"
-}
-
-sanitize_port() {
-  sanitize_port_to _sp_res "$1" "$2"
-  printf '%s\n' "$_sp_res"
-}
-
-to_lower_ascii() {
-  case "$1" in
-    *[A-Z]*) printf '%s' "$1" | awk '{print tolower($0)}' ;;
-    *) printf '%s' "$1" ;;
-  esac
 }
 
 is_truthy_local() {
@@ -311,14 +294,6 @@ is_port_open_tcp() {
     }
     END { exit(found ? 0 : 1) }
   '
-}
-
-status_badge() {
-  if [ "$1" = "open" ]; then
-    printf "<span class='services-status-tag is-running'>OPEN</span>"
-  else
-    printf "<span class='services-status-tag is-stopped'>CLOSED</span>"
-  fi
 }
 
 emit_port_row() {

@@ -2395,23 +2395,30 @@ static int aud_aec_sample(int s, int spk)
 static void aud_pump(void)
 {
 	unsigned char raw[1024];
-	int r, dsp = adsp_on(&aud_dsp), spk = 0, aecon = aud_aec && aud_direct;
+	int r, dsp = adsp_on(&aud_dsp), spk = 0, aecon = aud_aec && aud_direct, lis = lis_count() > 0;
+	int rec_w = rec_audio_wanted(), out = aud_tx || rec_w || lis;
+	static int dsp_active;
 
+	if (!out) dsp_active = 0;
+	else if (!dsp_active) {
+		if (dsp) adsp_init(&aud_dsp, aud_dsp.hpf, aud_dsp.agc, aud_dsp.duck);
+		if (aecon) aec_reset(aud_aec);
+		dsp_active = 1;
+	}
 	/* the speaker plays (two-way audio, push-to-talk, a sound): the microphone is muted (RTSP_AUDIO_DUCK); not while a
 	 * two-way audio session plays through the echo canceller, which takes care of it */
-	if (dsp && aud_dsp.duck) spk = (talk_state() == 1 || !access("/tmp/speaker-play.lock", F_OK)) && !(aecon && talk_hold_active());
-	aud_dsp.hold = aecon ? aec_far_active(aud_aec) : 0;	/* the level gain rises only when no echo can be in the sound */
+	if (out && dsp && aud_dsp.duck) spk = (talk_state() == 1 || !access("/tmp/speaker-play.lock", F_OK)) && !(aecon && talk_hold_active());
+	aud_dsp.hold = out && aecon ? aec_far_active(aud_aec) : 0;	/* the level gain rises only when no echo can be in the sound */
 	while ((r = aud_get(raw, sizeof raw)) > 0) {
-		int rec_a = rec_audio_wanted(), left = 0;
+		int rec_a = rec_w, left = 0, pn = 0;
 		uint64_t tus = rec_a ? now_us64() : 0;
 
 		/* the pipe is read at each video frame (not at each 512-byte period of arecord): the bytes still waiting
 		 * in it are younger than these, so each 20 ms block is dated by what follows it (16 bytes per ms) */
 		if (rec_a && aud_direct) left = acap_delay_bytes(aud_fd);
 		else if (rec_a && ioctl(aud_fd, FIONREAD, &left) < 0) left = 0;
-		if (aecon) aec_align(aud_aec, talk_queued(), r / 2 + (aud_direct ? acap_delay_bytes(aud_fd) / 2 : 0));
+		if (out && aecon) aec_align(aud_aec, talk_queued(), r / 2 + (aud_direct ? acap_delay_bytes(aud_fd) / 2 : 0));
 		unsigned char pcm[sizeof raw + 2];
-		int pn = 0;
 
 		for (int i = 0; i < r; i++) {
 			int s;
@@ -2421,9 +2428,10 @@ static void aud_pump(void)
 			aud_odd = -1;
 			if (priv_on) s = 0;	/* privacy mode: silence, and no sound level */
 			else if (snd_on) { lvl_add(&snd_w, s); if (snd_w.n >= 2000) snd_window(); }	/* the meter: before the processing */
+			if (!out) continue;
 			if (aecon) s = aud_aec_sample(s, spk);
 			else if (dsp) s = adsp_sample(&aud_dsp, s, spk);
-			pcm[pn++] = (unsigned char)s; pcm[pn++] = (unsigned char)((unsigned)s >> 8);
+			if (lis) { pcm[pn++] = (unsigned char)s; pcm[pn++] = (unsigned char)((unsigned)s >> 8); }
 			if (aud_tx || rec_a) {
 				aud_buf[aud_n++] = alaw(s);
 				if (aud_n == 160) {

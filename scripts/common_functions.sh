@@ -608,13 +608,15 @@ get_current_cpu_usage()
 
     if [ "$cpu_total_prev" -le 0 ] || [ "$delta_total" -lt 0 ]; then
         printf '%s %s %s\n' "$cpu_active_cur" "$cpu_total_cur" 0 > "$cpu_state_file"
-        echo "0"
+        CPU_USAGE_VAL=0
+        [ "${1:-}" = var ] || echo "0"
         return
     fi
 
     if [ "$delta_total" -lt "$cpu_min_delta_ticks" ]; then
         # Reuse previous stable value when calls are too close together.
-        echo "$cpu_util_prev"
+        CPU_USAGE_VAL="$cpu_util_prev"
+        [ "${1:-}" = var ] || echo "$cpu_util_prev"
         return
     fi
 
@@ -629,7 +631,8 @@ get_current_cpu_usage()
     fi
 
     printf '%s %s %s\n' "$cpu_active_cur" "$cpu_total_cur" "$cpu_util" > "$cpu_state_file"
-    echo "$cpu_util"
+    CPU_USAGE_VAL="$cpu_util"
+    [ "${1:-}" = var ] || echo "$cpu_util"
 }
 
 get_current_memory_usage()
@@ -663,13 +666,6 @@ get_mem_available_kb()
     else
         echo $((free + buffers + cached + srec - shmem))
     fi
-}
-
-get_all_memory()
-{
-    # MemTotal is always the first line of /proc/meminfo — no loop needed.
-    read -r _ val _ < /proc/meminfo
-    printf '%s\n' "$val"
 }
 
 restart_service_if_need()
@@ -853,21 +849,6 @@ build_binary_versions_block() {
     ver="$(binary_version "$n")"
     printf '%-20s %s\n' "$n" "$ver"
   done
-}
-
-# devinfo_cache_fresh — returns 0 if cache files exist and are < TTL_SECONDS old.
-# TTL defaults to 3600s (1h); binary versions on embedded devices rarely change.
-devinfo_cache_fresh() {
-  _dcf_ttl="${1:-3600}"
-  [ -f /tmp/devinfo_binary_versions.txt ] || return 1
-  [ -f /tmp/devinfo_cache.ts ] || return 1
-  _dcf_ts=0; read -r _dcf_ts < /tmp/devinfo_cache.ts 2>/dev/null || true
-  case "$_dcf_ts" in ''|*[!0-9]*) return 1 ;; esac
-  _dcf_btime=0
-  while read -r _k _v _; do [ "$_k" = "btime" ] && _dcf_btime="$_v" && break; done < /proc/stat
-  read -r _dcf_up _ < /proc/uptime 2>/dev/null || true
-  _dcf_now=$((_dcf_btime + ${_dcf_up%.*}))
-  [ "$((_dcf_now - _dcf_ts))" -lt "$_dcf_ttl" ]
 }
 
 # ---------------------------------------------------------------------------

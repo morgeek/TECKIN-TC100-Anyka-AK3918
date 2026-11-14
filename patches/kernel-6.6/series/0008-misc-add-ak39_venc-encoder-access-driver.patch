@@ -170,7 +170,7 @@ index 000000000..4078d4db5
 +static void venc_soft_reset(void)
 +{
 +	sysctrl_update(SYSCTRL_SOFTRST, VENC_BIT, VENC_BIT);
-+	usleep_range(100, 200);
++	usleep_range(1000, 2000);
 +	sysctrl_update(SYSCTRL_SOFTRST, VENC_BIT, 0);
 +}
 +

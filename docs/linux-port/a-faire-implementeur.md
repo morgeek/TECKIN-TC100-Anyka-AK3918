@@ -53,6 +53,8 @@ contredise.
   réactivation du sélecteur `isp_power_hz` (`unchanged`/`50`/`60`/`auto`), et ajout des trois interrupteurs HA
   `local_recording`, `flip` et `mirror` (avec `rec_local_on`, `flip_on`, `mirror_on` dans `/health` et parité complète
   entre `scripts/mqtt-bridge.sh` et `src/mqttd/mqttd.c`).
+- [x] **Optimisations logicielles (`[opt]`, 14/11) — micro au repos, zéro fork MQTT/présence, correctif impulsion reset hrtimer et nettoyage (`IDLE-MIC-01` / `HRTIMER-01` dans `test-queue.md`) :**
+  `aud_pump()` (`src/tc100rtsp/tc100_rtsp.c`) saute `access("/tmp/speaker-play.lock")` et `adsp_sample()`/`aud_aec_sample()` quand seule la détection sonore utilise le micro (et réinitialise l'état DSP/AEC à la reprise), `mqtt-bridge.sh` / `presence-mode.sh` suppriment les sous-coquilles sur le chemin périodique (`publish_health`, `build_diag_payload`, `presence_current`), le patch `0008` passe `venc_soft_reset()` à `usleep_range(1000, 2000)` (1–2 ms sous `HIGH_RES_TIMERS`), et les fonctions mortes inutilisées sont retirées. (`ENC-01` déjà actif et en observation ; l'AWB interne ISP est laissé de côté comme demandé.)
 
 ### Encore ouvert au 2026-11-14 (par ordre de valeur)
 1. **WIFI-STALL-01 (.11), mis à jour le 14/11 après-midi :** essais sans le propriétaire (test-queue « Wi-Fi trials on

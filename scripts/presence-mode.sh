@@ -7,31 +7,39 @@ if [ -z "$PRESENCE_CONFIG" ]; then PRESENCE_CONFIG=/mnt/config/presence.conf; fi
 if [ -z "$PRESENCE_DEFAULTS" ]; then PRESENCE_DEFAULTS=/mnt/config/presence.conf.dist; fi
 if [ -z "$PRESENCE_LOCK" ]; then PRESENCE_LOCK=/tmp/tc100-presence.lock; fi
 
-[ -r /mnt/scripts/common_functions.sh ] && . /mnt/scripts/common_functions.sh
+if ! type read_config >/dev/null 2>&1 && [ -r /mnt/scripts/common_functions.sh ]; then
+  . /mnt/scripts/common_functions.sh
+fi
 
 presence_read_file()
 {
-  [ -r "$1" ] || return 0
   _prf_v=""
+  [ -r "$1" ] || return 0
   while IFS= read -r _prf_l || [ -n "$_prf_l" ]; do
     case "$_prf_l" in
       "$2="*) _prf_v="${_prf_l#*=}" ;;
     esac
   done < "$1"
-  printf '%s\n' "$_prf_v"
+  [ "${3:-}" = var ] || printf '%s\n' "$_prf_v"
 }
 
 presence_read()
 {
-  _pr_value="$(presence_read_file "$PRESENCE_CONFIG" "$1")"
-  if [ -z "$_pr_value" ]; then _pr_value="$(presence_read_file "$PRESENCE_DEFAULTS" "$1")"; fi
+  presence_read_file "$PRESENCE_CONFIG" "$1" var
+  _pr_value="$_prf_v"
+  if [ -z "$_pr_value" ]; then
+    presence_read_file "$PRESENCE_DEFAULTS" "$1" var
+    _pr_value="$_prf_v"
+  fi
   [ -n "$_pr_value" ] || _pr_value="$2"
-  printf '%s' "$_pr_value"
+  PRESENCE_READ_VAL="$_pr_value"
+  [ "${3:-}" = var ] || printf '%s' "$_pr_value"
 }
 
 presence_bool()
 {
-  case "$1" in 1|true|yes|on|enabled) printf 1 ;; *) printf 0 ;; esac
+  case "$1" in 1|true|yes|on|enabled) PRESENCE_BOOL_VAL=1 ;; *) PRESENCE_BOOL_VAL=0 ;; esac
+  [ "${2:-}" = var ] || printf '%s' "$PRESENCE_BOOL_VAL"
 }
 
 presence_profile_prefix()
@@ -71,7 +79,9 @@ presence_profile_key()
 presence_profile_value()
 {
   presence_profile_key "$1" "$2" var || return 1
-  presence_read "$_pk_val" 0
+  presence_read "$_pk_val" 0 var
+  PRESENCE_PROF_VAL="$PRESENCE_READ_VAL"
+  [ "${3:-}" = var ] || printf '%s' "$PRESENCE_PROF_VAL"
 }
 
 presence_valid_mode()
@@ -93,23 +103,37 @@ presence_lock()
 
 presence_current()
 {
-  _pr_mode="$(presence_read PRESENCE_MODE custom)"
+  presence_read PRESENCE_MODE custom var
+  _pr_mode="$PRESENCE_READ_VAL"
   presence_valid_mode "$_pr_mode" || _pr_mode=custom
-  case "$_pr_mode" in custom) printf '%s\n' custom; return 0 ;; esac
-  [ -d "$PRESENCE_LOCK" ] && { printf '%s\n' "$_pr_mode"; return 0; }
+  case "$_pr_mode" in
+    custom)
+      PRESENCE_CURRENT_VAL=custom
+      [ "${1:-}" = var ] || printf '%s\n' custom
+      return 0
+      ;;
+  esac
+  if [ -d "$PRESENCE_LOCK" ]; then
+    PRESENCE_CURRENT_VAL="$_pr_mode"
+    [ "${1:-}" = var ] || printf '%s\n' "$_pr_mode"
+    return 0
+  fi
 
-  if [ "$(presence_profile_value "$_pr_mode" configured)" != 1 ]; then
+  presence_profile_value "$_pr_mode" configured var
+  if [ "$PRESENCE_PROF_VAL" != 1 ]; then
     _pr_mismatch=1
   else
     _pr_mismatch=0
     for _pr_action in privacy motion recording; do
-      _pr_want="$(presence_profile_value "$_pr_mode" "$_pr_action")"
+      presence_profile_value "$_pr_mode" "$_pr_action" var
+      _pr_want="$PRESENCE_PROF_VAL"
       case "$_pr_action" in
-        privacy) _pr_got="$(presence_bool "$(presence_read_file /mnt/config/boot.conf PRIVACY_SCREEN)")" ;;
-        motion) _pr_got="$(presence_bool "$(presence_read_file /mnt/config/rtspserver.conf mdenabled)")" ;;
-        recording) _pr_got="$(presence_bool "$(presence_read_file /mnt/config/boot.conf REC_LOCAL)")" ;;
+        privacy) presence_read_file "${PRESENCE_BOOT_CONFIG:-/mnt/config/boot.conf}" PRIVACY_SCREEN var ;;
+        motion) presence_read_file "${PRESENCE_RTSP_CONFIG:-/mnt/config/rtspserver.conf}" mdenabled var ;;
+        recording) presence_read_file "${PRESENCE_BOOT_CONFIG:-/mnt/config/boot.conf}" REC_LOCAL var ;;
       esac
-      [ "$_pr_want" = "$_pr_got" ] || _pr_mismatch=1
+      presence_bool "$_prf_v" var
+      [ "$_pr_want" = "$PRESENCE_BOOL_VAL" ] || _pr_mismatch=1
     done
   fi
   if [ "$_pr_mismatch" = 1 ]; then
@@ -118,13 +142,15 @@ presence_current()
     fi
     _pr_mode=custom
   fi
-  printf '%s\n' "$_pr_mode"
+  PRESENCE_CURRENT_VAL="$_pr_mode"
+  [ "${1:-}" = var ] || printf '%s\n' "$_pr_mode"
 }
 
 presence_mark_custom()
 {
   [ -d "$PRESENCE_LOCK" ] && return 0
-  _pr_mode="$(presence_read PRESENCE_MODE custom)"
+  presence_read PRESENCE_MODE custom var
+  _pr_mode="$PRESENCE_READ_VAL"
   case "$_pr_mode" in
     present|away|night)
       if [ -f "$PRESENCE_CONFIG" ] && command -v rewrite_config >/dev/null 2>&1; then
@@ -245,13 +271,18 @@ presence_apply()
 
 presence_notifications_allowed()
 {
-  _pr_mode="$(presence_current)"
+  presence_current var
+  _pr_mode="$PRESENCE_CURRENT_VAL"
   case "$_pr_mode" in
-    present|away|night) presence_profile_value "$_pr_mode" notifications | presence_bool ;;
+    present|away|night)
+      presence_profile_value "$_pr_mode" notifications var
+      presence_bool "$PRESENCE_PROF_VAL"
+      ;;
     *) printf 1 ;;
   esac
 }
 
+if [ -z "${PRESENCE_LIB_ONLY:-}" ]; then
 case "$1" in
   info) presence_info ;;
   current) presence_current ;;
@@ -261,3 +292,4 @@ case "$1" in
   apply) shift; presence_apply "$@" ;;
   *) presence_fail invalid_command ;;
 esac
+fi

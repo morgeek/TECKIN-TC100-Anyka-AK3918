@@ -469,6 +469,77 @@ class WebActionForkCuts(unittest.TestCase):
         net = (ROOT / "www/cgi-bin/network.cgi").read_text(encoding="utf-8")
         self.assertNotIn("_autostart()", net)
 
+    def test_mqtt_health_and_presence_zero_forks(self):
+        import json as _json
+
+        mqtt = (ROOT / "scripts/mqtt-bridge.sh").read_text(encoding="utf-8")
+        diag = shfunc("scripts/mqtt-bridge.sh", "build_diag_payload")
+        health = shfunc("scripts/mqtt-bridge.sh", "build_health_payload")
+        pub = shfunc("scripts/mqtt-bridge.sh", "publish_health")
+        ev = shfunc("scripts/mqtt-bridge.sh", "publish_event_simple")
+        cmdres = shfunc("scripts/mqtt-bridge.sh", "publish_command_result")
+
+        self.assertNotIn("$(printf", diag)
+        self.assertNotIn("$(get_current_cpu_usage", health)
+        self.assertIn("PRESENCE_LIB_ONLY=1 . /mnt/scripts/presence-mode.sh", health)
+        self.assertIn("presence_current var", health)
+        self.assertIn("build_health_payload var", pub)
+        self.assertNotIn("$(build_health_payload)", pub)
+        self.assertNotIn("$(_get_now_ts)", ev)
+        self.assertNotIn("$(json_escape", ev)
+        self.assertNotIn("$(_get_now_ts)", cmdres)
+        self.assertNotIn("$(json_escape", cmdres)
+
+        # presence_current runs cleanly in POSIX shell with LIB_ONLY mode and var output matching stdout
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d)
+            cfg = p / "presence.conf"
+            cfg_dist = p / "presence.conf.dist"
+            boot = p / "boot.conf"
+            rtsp = p / "rtspserver.conf"
+            lock = p / "presence.lock"
+            cfg_dist.write_text("PRESENCE_MODE=custom\n")
+            cfg.write_text(
+                "PRESENCE_MODE=away\nPRESENCE_AWAY_CONFIGURED=1\n"
+                "PRESENCE_AWAY_PRIVACY=0\nPRESENCE_AWAY_MOTION=1\nPRESENCE_AWAY_RECORDING=1\n"
+            )
+            boot.write_text("PRIVACY_SCREEN=0\nREC_LOCAL=1\n")
+            rtsp.write_text("mdenabled=1\n")
+            pm = (ROOT / "scripts/presence-mode.sh").read_text(encoding="utf-8")
+            self.assertNotIn("$(presence_read", shfunc("scripts/presence-mode.sh", "presence_current"))
+            r = psh(
+                f'read_config() {{ :; }}\nPRESENCE_LIB_ONLY=1\nPRESENCE_CONFIG={cfg}\nPRESENCE_DEFAULTS={cfg_dist}\n'
+                f'PRESENCE_LOCK={lock}\nPRESENCE_BOOT_CONFIG={boot}\nPRESENCE_RTSP_CONFIG={rtsp}\n'
+                f'. {ROOT / "scripts/presence-mode.sh"}\n'
+                'presence_current var; a=$PRESENCE_CURRENT_VAL; b=$(presence_current); printf "%s|%s\\n" "$a" "$b"\n'
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stdout.strip(), "away|away")
+
+        # _get_now_ts and json_escape var mode match stdout mode
+        gts = shfunc("scripts/mqtt-bridge.sh", "_get_now_ts")
+        je = shfunc("scripts/mqtt-bridge.sh", "json_escape")
+        with tempfile.TemporaryDirectory() as d:
+            stat = Path(d) / "stat"
+            up = Path(d) / "uptime"
+            stat.write_text("btime 1700000000\n")
+            up.write_text("123.45 0.0\n")
+            r = psh(
+                'BTIME=0; _load_btime() { BTIME=1700000000; }\n'
+                + gts.replace("/proc/uptime", str(up)) + "\n"
+                + je + "\n"
+                '_get_now_ts var; ts1=$_gts_now; ts2=$(_get_now_ts)\n'
+                'json_escape "cam\\"1" var; j1=$JSON_ESCAPE_VAL; j2=$(json_escape "cam\\"1")\n'
+                'printf "%s|%s|%s|%s\\n" "$ts1" "$ts2" "$j1" "$j2"\n'
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stdout.strip(), "1700000123|1700000123|cam\\\"1|cam\\\"1")
+
+        # Verify syntax check on modified shell files
+        for rel in ("scripts/mqtt-bridge.sh", "scripts/presence-mode.sh", "scripts/common_functions.sh", "scripts/wifi-quality.sh", "www/cgi-bin/network.cgi"):
+            chk = subprocess.run(POSIX_SH + ["-n", str(ROOT / rel)], capture_output=True, text=True)
+            self.assertEqual(chk.returncode, 0, f"{rel}: {chk.stderr}")
+
 
 if __name__ == "__main__":
     unittest.main()

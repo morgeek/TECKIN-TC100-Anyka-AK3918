@@ -260,6 +260,21 @@ class AudioProcessing(unittest.TestCase):
         self.assertIn("aud_direct_cfg = ad && ad[0] == '1';", src)
         self.assertIn("adsp_init(&aud_dsp, h && h[0] == '1', a && a[0] == '1', d && d[0] == '1');", src)
 
+    def test_idle_mic_skips_dsp_and_resets_on_resume(self):
+        """When only snd_on keeps the mic open (no RTSP audio client, no Listen FIFO, no audio recording),
+        aud_pump skips access(speaker-play.lock) and adsp_sample, and resets adsp/aec filter state on resume."""
+        src = (SRC / 'tc100_rtsp.c').read_text()
+        pump = src[src.index('static void aud_pump(void)'):src.index('static int send_pkt(')]
+        self.assertIn('lis = lis_count() > 0;', pump)
+        self.assertIn('int rec_w = rec_audio_wanted(), out = aud_tx || rec_w || lis;', pump)
+        self.assertIn('if (!out) dsp_active = 0;', pump)
+        self.assertIn('adsp_init(&aud_dsp, aud_dsp.hpf, aud_dsp.agc, aud_dsp.duck);', pump)
+        self.assertIn('if (out && dsp && aud_dsp.duck) spk =', pump)
+        self.assertIn('if (!out) continue;', pump)
+        self.assertIn('if (lis) { pcm[pn++] =', pump)
+        self.assertLess(pump.index('if (!out) continue;'), pump.index('adsp_sample(&aud_dsp, s, spk)'))
+        self.assertLess(pump.index('lvl_add(&snd_w, s)'), pump.index('if (!out) continue;'))
+
 
 class Retention(unittest.TestCase):
     """Item 15: files with motion or a sound event get a .evt marker; with REC_KEEP_EVENTS a full card loses the

@@ -35,12 +35,6 @@ _wq_now() {
   fi
 }
 
-wq_rssi() {
-  WIFI_PROC_FILE="${WQ_WIRELESS:-}"
-  wifi_signal_read
-  echo "${WIFI_DBM:-null}"
-}
-
 # totals of "tx retries" and "tx failed" over the stations (the access point), and the averaged signal of the access
 # point's beacons ("beacon signal avg", dBm; "-" when there is none). Not "signal avg": with rtl8xxxu it read -13 dBm on
 # the .24 while beacons, /proc and the MCS 2 rate all said about -50 (tester, 2026-11-04). iw and ping run under

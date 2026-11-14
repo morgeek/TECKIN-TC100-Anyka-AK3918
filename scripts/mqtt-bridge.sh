@@ -39,7 +39,7 @@ _get_now_ts()
     read -r _gts_up _ < /proc/uptime
   fi
   _gts_now=$((BTIME + ${_gts_up%.*}))
-  printf '%s' "$_gts_now"
+  [ "${1:-}" = var ] || printf '%s' "$_gts_now"
 }
 
 json_escape()
@@ -1312,7 +1312,8 @@ collect_slow_health_metrics()
 
 save_slow_health_cache()
 {
-  now_ts="$(_get_now_ts)"
+  _get_now_ts var
+  now_ts="$_gts_now"
   [ "$now_ts" -gt 0 ] || return 0
   {
     printf 'ts=%s\n' "$now_ts"
@@ -1375,7 +1376,8 @@ load_slow_health_cache()
     ''|*[!0-9]*) return 1 ;;
   esac
 
-  now_ts="$(_get_now_ts)"
+  _get_now_ts var
+  now_ts="$_gts_now"
   [ "$cache_ts" -le "$now_ts" ] || return 1
   age=$((now_ts - cache_ts))
   [ "$age" -le "$MQTT_HEALTH_SLOW_CACHE_TTL_SECONDS" ] || return 1
@@ -1482,13 +1484,11 @@ build_diag_payload()
     [ "$_dg_mp" = /mnt ] || continue
     case "$_dg_dev" in /dev/mmc*) case "$_dg_opt" in ro,*|ro) _dg_ro=1 ;; esac ;; esac
   done < /proc/mounts
-  _dg_fat="$(dmesg 2>/dev/null | grep -c -E 'FAT-fs .*error|exFAT.*error|I/O error.*mmcblk|get_card_status wait too long')"
-  case "$_dg_fat" in ''|*[!0-9]*) _dg_fat=0 ;; esac
-  _dg_sdprob=0
-  { [ "$_dg_ro" = 1 ] || [ "$_dg_fat" -gt 0 ]; } && _dg_sdprob=1
-  # v3/linux66-sd/sdinfo-sd.sh (web-guard.sh, every minute) knows
-  # more: a card that garbles writes, the recording card in flash mode.
+  # v3/linux66-sd/sdinfo-sd.sh (web-guard.sh, every minute) is the single scanner
+  # of the kernel log for card errors; fall back to dmesg only when /tmp/sd-health is absent.
+  _dg_fat=0
   _dg_sdst=""
+  _dg_sdprob=0
   if [ -r /tmp/sd-health ]; then
     while IFS='=' read -r _dg_k _dg_v; do
       case "$_dg_k" in
@@ -1498,7 +1498,11 @@ build_diag_payload()
       esac
     done < /tmp/sd-health
     case "$_dg_sdst" in failing|readonly|errors) _dg_sdprob=1 ;; esac
+  else
+    _dg_fat="$(dmesg 2>/dev/null | grep -c -E 'FAT-fs .*error|exFAT.*error|I/O error.*mmcblk|get_card_status wait too long')"
+    case "$_dg_fat" in ''|*[!0-9]*) _dg_fat=0 ;; esac
   fi
+  { [ "$_dg_ro" = 1 ] || [ "$_dg_fat" -gt 0 ]; } && _dg_sdprob=1
   case "$_dg_sdst" in *[!a-z]*) _dg_sdst="" ;; esac
   if [ -z "$_dg_sdst" ]; then
     if [ "$_dg_sdmount" = 1 ]; then
@@ -1553,8 +1557,7 @@ build_diag_payload()
       esac
     done < /tmp/wifi-quality
   fi
-  diag_payload="$(printf '{"wifi_rssi_dbm":%s,"wifi_quality":%s,"wifi_rx_drop":%s,"tcp_paws_drop":%s,"tcp_retrans":%s,"mem_available_kb":%s,"sound_db":%s,"light_level":%s,"day_mode":%s,"sd_readonly":%s,"sd_errors":%s,"sd_problem":%s,"sd_state":"%s","rtsp_clients":%s,"rtsp_drops":%s,"last_boot":"%s","unexpected_restarts":%s,"wifi_loss_pct":%s,"wifi_tx_retries":%s,"wifi_rssi_min":%s}' \
-    "$_dg_rssi" "$_dg_qual" "$_dg_rxdrop" "$_dg_paws" "$_dg_retrans" "$_dg_avail" "$_dg_sound" "$_dg_lum" "$_dg_day" "$_dg_ro" "$_dg_fat" "$_dg_sdprob" "${_dg_sdst:-unknown}" "$_dg_rc" "$_dg_rd" "$_dg_boot" "$_dg_unexp" "$_dg_wloss" "$_dg_wretry" "$_dg_wmin")"
+  diag_payload="{\"wifi_rssi_dbm\":${_dg_rssi},\"wifi_quality\":${_dg_qual},\"wifi_rx_drop\":${_dg_rxdrop},\"tcp_paws_drop\":${_dg_paws},\"tcp_retrans\":${_dg_retrans},\"mem_available_kb\":${_dg_avail},\"sound_db\":${_dg_sound},\"light_level\":${_dg_lum},\"day_mode\":${_dg_day},\"sd_readonly\":${_dg_ro},\"sd_errors\":${_dg_fat},\"sd_problem\":${_dg_sdprob},\"sd_state\":\"${_dg_sdst:-unknown}\",\"rtsp_clients\":${_dg_rc},\"rtsp_drops\":${_dg_rd},\"last_boot\":\"${_dg_boot}\",\"unexpected_restarts\":${_dg_unexp},\"wifi_loss_pct\":${_dg_wloss},\"wifi_tx_retries\":${_dg_wretry},\"wifi_rssi_min\":${_dg_wmin}}"
 }
 
 build_health_payload()
@@ -1569,7 +1572,8 @@ build_health_payload()
   [ "$now_ts" -gt 0 ] || now_ts=0
   reboot_epoch="$BTIME"
 
-  cpu="$(get_current_cpu_usage 2>/dev/null)"
+  get_current_cpu_usage var 2>/dev/null
+  cpu="$CPU_USAGE_VAL"
   case "$cpu" in
     ''|*[!0-9]*) cpu=0 ;;
   esac
@@ -1716,9 +1720,17 @@ build_health_payload()
     done < /mnt/config/presence.conf
     presence_mode="${presence_mode#[\"\']}"; presence_mode="${presence_mode%[\"\']}"
   fi
+  if ! type presence_current >/dev/null 2>&1 && [ -r /mnt/scripts/presence-mode.sh ]; then
+    PRESENCE_LIB_ONLY=1 . /mnt/scripts/presence-mode.sh
+  fi
   case "$presence_mode" in
     present|away|night)
-      _pm_chk="$(sh /mnt/scripts/presence-mode.sh current 2>/dev/null)"
+      if type presence_current >/dev/null 2>&1; then
+        presence_current var 2>/dev/null
+        _pm_chk="$PRESENCE_CURRENT_VAL"
+      else
+        _pm_chk="$(sh /mnt/scripts/presence-mode.sh current 2>/dev/null)"
+      fi
       [ -n "$_pm_chk" ] && presence_mode="$_pm_chk"
       ;;
     *) presence_mode=custom ;;
@@ -1729,13 +1741,14 @@ build_health_payload()
   json_escape "$primary_ip" var; primary_ip_json="$JSON_ESCAPE_VAL"
   build_diag_payload
 
-  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","presence_mode":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"front_led_on":%s,"red_led_on":%s,"privacy_on":%s,"ir_led_on":%s,"night_mode_on":%s,"auto_night_enabled":%s,"rec_local_on":%s,"flip_on":%s,"mirror_on":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s,"diag":%s}' \
-    "$now_ts" "$hostname_json" "$uptime_seconds" "$reboot_epoch" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json" "$presence_mode_json" "$security_hardening_mode" "$motion_active" "$motion_enabled" "$ftp_enabled" "$telnet_enabled" "$rtsp_enabled" "$onvif_enabled" "$front_led_on" "$red_led_on" "$privacy_on" "$ir_led_on" "$night_mode_on" "$auto_night_enabled" "$rec_local_on" "$flip_on" "$mirror_on" "$storage_total_mb" "$storage_used_mb" "$storage_avail_mb" "$storage_used_percent" "$primary_ip_json" "$dns_server_count" "$port_https_open" "$port_http_open" "$port_rtsp_open" "$port_onvif_open" "$port_ftp_open" "$port_telnet_open" "$diag_payload"
+  HEALTH_PAYLOAD="{\"ts\":${now_ts},\"hostname\":\"${hostname_json}\",\"uptime_seconds\":${uptime_seconds},\"reboot_epoch\":${reboot_epoch},\"cpu\":${cpu},\"ram_used_kb\":${mem_used},\"ram_total_kb\":${mem_total},\"ram_percent\":${ram_percent},\"chip_temp_c\":${chip_temp_json},\"power_estimate_enabled\":${power_estimated_enabled_json},\"power_estimated_mw\":${power_estimated_mw_json},\"power_estimated_current_ma\":${power_estimated_current_ma_json},\"power_voltage_mv\":${power_voltage_mv_json},\"power_sensor_path\":\"${power_sensor_path_json}\",\"web_mode\":\"${web_mode_json}\",\"perfprofile\":\"${profile_json}\",\"presence_mode\":\"${presence_mode_json}\",\"security_hardening_mode\":${security_hardening_mode},\"motion_active\":${motion_active},\"motion_enabled\":${motion_enabled},\"ftp_enabled\":${ftp_enabled},\"telnet_enabled\":${telnet_enabled},\"rtsp_enabled\":${rtsp_enabled},\"onvif_enabled\":${onvif_enabled},\"front_led_on\":${front_led_on},\"red_led_on\":${red_led_on},\"privacy_on\":${privacy_on},\"ir_led_on\":${ir_led_on},\"night_mode_on\":${night_mode_on},\"auto_night_enabled\":${auto_night_enabled},\"rec_local_on\":${rec_local_on},\"flip_on\":${flip_on},\"mirror_on\":${mirror_on},\"storage_total_mb\":${storage_total_mb},\"storage_used_mb\":${storage_used_mb},\"storage_avail_mb\":${storage_avail_mb},\"storage_used_percent\":${storage_used_percent},\"primary_ip\":\"${primary_ip_json}\",\"dns_server_count\":${dns_server_count},\"port_https_open\":${port_https_open},\"port_http_open\":${port_http_open},\"port_rtsp_open\":${port_rtsp_open},\"port_onvif_open\":${port_onvif_open},\"port_ftp_open\":${port_ftp_open},\"port_telnet_open\":${port_telnet_open},\"diag\":${diag_payload}}"
+  [ "${1:-}" = var ] || printf '%s' "$HEALTH_PAYLOAD"
 }
 
 publish_health()
 {
-  payload="$(build_health_payload)"
+  build_health_payload var
+  payload="$HEALTH_PAYLOAD"
   mqtt_publish_topic_suffix "health" "$payload" 1
   mqtt_publish_topic_suffix "motion/state" "$motion_state_payload" 1 >/dev/null 2>&1 || true
   publish_isp_state
@@ -1753,10 +1766,11 @@ publish_event_simple()
 {
   event_type="$1"
   detail="$2"
-  now_ts="$(_get_now_ts)"
-  event_json="$(json_escape "$event_type")"
-  detail_json="$(json_escape "$detail")"
-  payload=$(printf '{"ts":%s,"type":"%s","detail":"%s"}' "$now_ts" "$event_json" "$detail_json")
+  _get_now_ts var
+  now_ts="$_gts_now"
+  json_escape "$event_type" var; event_json="$JSON_ESCAPE_VAL"
+  json_escape "$detail" var; detail_json="$JSON_ESCAPE_VAL"
+  payload="{\"ts\":${now_ts},\"type\":\"${event_json}\",\"detail\":\"${detail_json}\"}"
   mqtt_publish_topic_suffix "event" "$payload" 0
 }
 
@@ -1769,15 +1783,15 @@ publish_command_result()
   result_source="${5:-mqtt}"
   result_class="${6:-command}"
 
-  now_ts="$(_get_now_ts)"
+  _get_now_ts var
+  now_ts="$_gts_now"
 
-  result_command_json="$(json_escape "$result_command")"
-  result_status_json="$(json_escape "$result_status")"
-  result_detail_json="$(json_escape "$result_detail")"
-  result_source_json="$(json_escape "$result_source")"
-  result_class_json="$(json_escape "$result_class")"
-  payload="$(printf '{"ts":%s,"command":"%s","status":"%s","detail":"%s","ok":%s,"source":"%s","class":"%s"}' \
-    "$now_ts" "$result_command_json" "$result_status_json" "$result_detail_json" "$result_ok" "$result_source_json" "$result_class_json")"
+  json_escape "$result_command" var; result_command_json="$JSON_ESCAPE_VAL"
+  json_escape "$result_status" var; result_status_json="$JSON_ESCAPE_VAL"
+  json_escape "$result_detail" var; result_detail_json="$JSON_ESCAPE_VAL"
+  json_escape "$result_source" var; result_source_json="$JSON_ESCAPE_VAL"
+  json_escape "$result_class" var; result_class_json="$JSON_ESCAPE_VAL"
+  payload="{\"ts\":${now_ts},\"command\":\"${result_command_json}\",\"status\":\"${result_status_json}\",\"detail\":\"${result_detail_json}\",\"ok\":${result_ok},\"source\":\"${result_source_json}\",\"class\":\"${result_class_json}\"}"
 
   mqtt_publish_topic_suffix "command/result" "$payload" 0 >/dev/null 2>&1 || true
   mqtt_publish_topic_suffix "command/last_result" "$payload" 1 >/dev/null 2>&1 || true
@@ -1791,7 +1805,8 @@ publish_command_result()
 dedupe_command()
 {
   cmd_payload="$1"
-  now_ts="$(_get_now_ts)"
+  _get_now_ts var
+  now_ts="$_gts_now"
   _raw_hash="$(printf '%s' "$cmd_payload" | md5sum)"
   cmd_hash="${_raw_hash%% *}"
 
