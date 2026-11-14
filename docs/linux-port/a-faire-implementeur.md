@@ -41,6 +41,29 @@ contredise.
    ci-dessous).
 3. AWB-01 étape 3 (propriétaire : papier blanc, lampe à incandescence) ; UPD-01 (b) ; WIFI-TRY-01 / WIFI-TXATTEN /
    WIFI-RXAGG sur une caméra ; mesures ENC-01 et AEC-01 ; HW-09 la nuit ; HRTIMER-01 (noyau sur carte SD seulement).
+4. **Pompage / oscillation de teinte AWB (`tc100_rtsp`, constaté sur `.11` et `.24` le 2026-11-14) :**
+   - **Mesure terrain (2026-11-14, propriétaire) :** légers changements réguliers de teinte sur les deux caméras. Avec
+     `touch /mnt/config/awb.off` (`rex=256 bex=256`, boucle `tc100_rtsp` coupée), l'image prend un voile vert mais reste
+     **100 % fixe** (prouve que le capteur et l'ISP noyau ne dérivent pas seuls). Avec `rm -f /mnt/config/awb.off`, les
+     relevés `/tmp/cam_awb` convergent vers `rex=256 bex=556 u=1 v=-1` (juste au bord de la zone morte `-1..+1`, `ct 0/1`).
+   - **Causes dans le code :**
+     1. `src/tc100rtsp/tc100_rtsp.c` (`post_awb_sample()`, l. 1281-1295) : troncature entière asymétrique
+        `(int)(su / n) - 128` / `(int)(sv / n) - 128` (`126,99` donne `tv = -2` dès `-1,01` d'écart) et **aucune
+        hystérésis** entre l'arrêt (`|tu|, |tv| <= 1`) et la reprise (`|tu|, |tv| >= 2`).
+     2. `patches/kernel-6.6/series/0006-*.patch` (`ak_isp_awb_work`, l. 6975-6980, et `_calc_wb_step`, l. 6646-6698) :
+        le noyau ignore `abs(wb_gain - target_gain) <= 5` puis rampe sur `auto_wb_step * 2` images (~1 à 2 s). Dès
+        qu'un bruit de 0,01 fait passer `u`/`v` à `±2`, `post_awb_sample()` (0,5 s) empile plusieurs ajustements sans
+        effet visible avant de franchir le seuil `> 5` du noyau, qui applique alors d'un coup un saut `>= 6` (~2,5 % de
+        gain) et repousse la teinte de l'autre côté.
+     3. Observation annexe sur la zone DMA ISP (`0006`, l. 6450-6451, 7077, 16907) : `MD_stat[24][32]` fait `24 * 32`
+        demi-mots = `384` mots (`256 + 128`, mots `771..1154`), donc le bloc lu quand `awb_live=0` (`word 1032`, `128`
+        mots avant les vraies stats AWB à `word 1160`) recouvre les lignes `16..21` de `MD_stat`.
+   - **Correctif à faire dans `src/tc100rtsp/tc100_rtsp.c` (espace utilisateur uniquement, sans toucher au noyau) :**
+     - Arrondir symétriquement autour de 128 (`(su + n / 2) / n - 128` et `(sv + n / 2) / n - 128`) ;
+     - Ajouter une hystérésis après stabilisation (`settled >= 6`) : verrouiller `ex_r`/`ex_b` tant que
+       `|tu| <= 3 && |tv| <= 3`, ne réactiver la convergence (jusqu'à `|tu| <= 1 && |tv| <= 1`) que si
+       `|tu| >= 4 || |tv| >= 4` (ou après saut de luminance `|my - prev_y| > 25`), et amortir le pas près de zéro pour
+       éviter l'accumulation contre le seuil `> 5` du noyau ; ajouter un test unitaire ciblé dans `tests/`.
 
 ## Noyau d'essai Wi-Fi et défaut du patch 0003 (2026-11-13 après-midi, coordinateur)
 
