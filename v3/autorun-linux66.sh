@@ -23,6 +23,22 @@ done
 # Wi-Fi rules of the country of boot.conf (WIFI_COUNTRY): the boot script gave it to wpa_supplicant; the regulatory
 # database is read again if the kernel missed it at boot, and the kernel is told the country if it does not apply it yet
 [ -f /mnt/scripts/wifi-country.sh ] && timeout 10 sh /mnt/scripts/wifi-country.sh boot </dev/null >/dev/null 2>&1
+# Wi-Fi TX aggregation (rtl8xxxu.ampdu_tx, kernel patch 0023): boot.conf WIFI_AMPDU_TX=0 turns it off. Measured on the .11
+# (2026-11-14): with TX BlockAck sessions the link stalled 1-2 times a minute for up to 5 s; with ampdu_tx=0 none in 8 min.
+# Absent or 1 = the kernel default (on). Only new sessions follow the switch: when one is already open (association
+# before this point), the station reassociates once, in the background (a few seconds without network, before the video).
+case "$(sed -n 's/^WIFI_AMPDU_TX="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /mnt/config/boot.conf 2>/dev/null | tail -n 1)" in
+  0|no|off|false)
+    _ap=/sys/module/rtl8xxxu/parameters
+    if [ -w $_ap/ampdu_tx ]; then
+      echo 0 > $_ap/ampdu_tx 2>/dev/null
+      _bo=$(cat $_ap/ba_tx_oper 2>/dev/null); _bs=$(cat $_ap/ba_tx_stop 2>/dev/null)
+      if [ "${_bo:-0}" -gt "${_bs:-0}" ] 2>/dev/null; then
+        ( wpa_cli -i wlan0 reassociate </dev/null >/dev/null 2>&1 & )
+      fi
+      echo "[tc100-v3] Wi-Fi TX aggregation off (WIFI_AMPDU_TX=0)" > /dev/console
+    fi ;;
+esac
 [ -f /var/run/vday ] || echo 1 > /var/run/vday
 [ -f /var/run/ircut ] || echo 1 > /var/run/ircut
 

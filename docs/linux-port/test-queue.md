@@ -3422,6 +3422,20 @@ Mac VM `ping -i 0.5` to the .11, ~8.5 min per run, a stall = a reply later than 
   (VBR), 25 fps, GOP 50, QP 25-48`; mean of 12 STAT lines 1584 / 1576 kbit/s on the indoor day scene (at the ceiling).
   GOP 50 instead of `goplen=64`: intended, `rtsp-launch.sh` ignores the pre-3.0.1 shipped values 64 / 32 (GOP 2 s).
 
+### AWB-03 White balance loop: wait for the ISP, decide on a mean, half step (`[awb]`, `tc100_rtsp.c` `post_awb_sample()`) — `to test`
+- **Why:** AWB-02 on the .11 (2026-11-14): on a still scene the error changed sign at nearly every sample and the gains moved 20
+  times in 40 s. A simulation of an ISP that shows a gain change 2-3 samples later reproduces it with the AWB-02 code
+  (delay 3: endless oscillation, b 370..853).
+- **What:** after a gain change, the next `AWB_HOLD`=2 samples are not acted on; a decision uses the mean of `AWB_AVG`=2
+  samples; the proportional step is halved (/512); the lock needs `AWB_SETTLE`=3 good decisions (6 samples). Fine
+  +-1 steps, rounding, luma-jump freeze and the +-3 lock of AWB-02 are kept. Simulated (delay 1-3, noise +-4): no
+  overshoot, gains within b 591..599 / r 347..358 after convergence, 20 small writes per 100 samples (AWB-02 code: 95-99,
+  b 568..630 or 370..853). Slower start: ~30-50 s from a large error (lamp switched), acceptable for AWB.
+- **Switch:** `touch /mnt/config/awb.off` (loop off) as before; revert the commit to get AWB-02 back.
+- **Test (.11, still indoor scene):** 40 samples of `/tmp/cam_awb` 1 s apart: `rex`/`bex` change a few times at most, by
+  1-2 units, `u`/`v` within +-4 without the sign alternation; switch a lamp: the tint settles within a minute, no pumping.
+- **Pass:** no visible tint pumping; fewer than 5 gain changes a minute on a still scene.
+
 ### AWB-02 — Hystérésis et arrondi symétrique AWB (fin du pompage de teinte)
 Status: `failed on the .11 2026-11-14`: still oscillates on a static scene (results at the end)
 - **What:** `src/tc100rtsp/tc100_rtsp.c` (`post_awb_sample()`): nearest-integer rounding `(su + n / 2) / n - 128` and
@@ -3465,3 +3479,11 @@ Status: `failed on the .11 2026-11-14`: still oscillates on a static scene (resu
   With today's earlier runs (default 1.7-2.2 / min, `ampdu_rx=0` 0.6-0.8 / min, `tx_atten` no effect): **the stalls are
   the camera's TX BlockAck sessions** (Fable 2026-11-14, mechanism 1 or 2). Proposed: `ampdu_tx=0` at boot (boot.conf
   switch, applied before wlan0 associates); cost: no TX aggregation, far above the 1.6 Mbit/s stream. Owner's decision.
+
+### Owner's decisions 2026-11-14 14:42 local, and what was done
+- **`ampdu_tx=0` on the .11 (yes):** applied live at 13:44 UTC (`ampdu_tx=N`, BA sessions closed, reassociated) and
+  `WIFI_AMPDU_TX=0` written to the .11's boot.conf (backup `boot.conf.bak-ampdutx`, saved to flash). The boot switch
+  itself (`v3/autorun-linux66.sh`, `config/boot.conf.dist` `WIFI_AMPDU_TX=1` = default unchanged for other cameras) is in
+  main from this commit: until the .11 gets a build with it, a reboot of the .11 comes back with `ampdu_tx=Y`.
+- **AWB fix (yes):** AWB-03 above.
+- **Overclock (question):** see the .11 overclock-build results above: the step changes the vclk / ASIC PLL, not the CPU.

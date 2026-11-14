@@ -275,3 +275,20 @@ exit 1
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class WifiAmpduTxBootSwitch(unittest.TestCase):
+    """boot.conf WIFI_AMPDU_TX (2026-11-14): default on, 0 turns TX aggregation off at boot, reassociates only if a
+    BlockAck session is already operational."""
+
+    def test_default_on_and_autorun_applies_zero(self):
+        root = Path(__file__).resolve().parents[1]
+        dist = (root / 'config/boot.conf.dist').read_text()
+        self.assertIn('\nWIFI_AMPDU_TX=1\n', dist)
+        auto = (root / 'v3/autorun-linux66.sh').read_text()
+        blk = auto[auto.index('WIFI_AMPDU_TX='):auto.index('esac', auto.index('WIFI_AMPDU_TX='))]
+        self.assertIn('echo 0 > $_ap/ampdu_tx', blk)
+        self.assertIn('ba_tx_oper', blk)
+        self.assertIn('wpa_cli -i wlan0 reassociate', blk)
+        r = subprocess.run(['sh', '-n', str(root / 'v3/autorun-linux66.sh')], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)

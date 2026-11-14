@@ -2008,14 +2008,17 @@ class Sources(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('gcc'), 'needs gcc')
     def test_awb_hysteresis_and_symmetric_rounding(self):
+        # AWB-02 (rounding, unit steps near zero, lock) + AWB-03 (2026-11-14: wait AWB_HOLD samples after a change,
+        # decide on the mean of AWB_AVG samples, half step): the .11 kept pumping, the error changed sign at nearly
+        # every sample because the ISP shows a change only 2-3 samples later
         src = (SRC / 'tc100_rtsp.c').read_text()
-        start = src.index('static void post_awb_sample(')
+        start = src.index('#ifndef AWB_HOLD')
         end = src.index('\n/* The capture memory is uncached', start)
         fn = src[start:end]
-        harness = r'''
+        harness = r"""
 #include <stdint.h>
 #include <stdio.h>
-#define LOG(...) printf(__VA_ARGS__)
+#define LOG(...) 0
 static int W = 64, H = 64;
 static int sensor_fps_want, tune_dirty, p_awb = 1, awb_hw = 1, awb_grey = 1;
 static int ex_r = 256, ex_b = 556, awb_max = 1536, awb_last_tu, awb_last_tv;
@@ -2027,86 +2030,69 @@ static void awb_hw_init(void) {}
 static int awb_hw_set(void) { hw_writes++; return 0; }
 static void awb_state_save(void) { state_saves++; }
 static void post_luts(void) {}
-''' + fn + r'''
-static void fill(unsigned char *buf, int y, int u_lo, int u_hi, int v)
+""" + fn + r"""
+static unsigned char frame[64 * 64 * 3 / 2];
+static void fill(int y, int u_lo, int u_hi, int v)
 {
 	int ysz = W * H, i, idx = 0;
-	for (i = 0; i < ysz; i++) buf[i] = (unsigned char)y;
+	for (i = 0; i < ysz; i++) frame[i] = (unsigned char)y;
 	for (i = 0; i < W * H / 2 - 2; i += 4) {
 		int u = (idx++ % 5 == 0) ? u_hi : u_lo;
-		buf[ysz + i] = (unsigned char)u;
-		buf[ysz + i + 1] = (unsigned char)v;
-		buf[ysz + i + 2] = (unsigned char)u;
-		buf[ysz + i + 3] = (unsigned char)v;
+		frame[ysz + i] = (unsigned char)u; frame[ysz + i + 1] = (unsigned char)v;
+		frame[ysz + i + 2] = (unsigned char)u; frame[ysz + i + 3] = (unsigned char)v;
 	}
 }
+static void feed(int n, int y, int u_lo, int u_hi, int v) { while (n--) { fill(y, u_lo, u_hi, v); post_awb_sample(frame + W * H, 0); } }
 int main(void)
 {
-	unsigned char frame[64 * 64 * 3 / 2];
-	int i;
+	int i, hb[8], hr[8], hn = 0, flips = 0, last = 0, ok = -1;
 
-	/* 1. Symmetric rounding: 80% 128 + 20% 126 = 127.6 -> tu=0 (old truncation gave -1).
-	 *    80% 127 + 20% 126 = 126.8 -> tu=-1 (old truncation gave -2). */
-	fill(frame, 120, 128, 126, 128);
-	post_awb_sample(frame + W * H, 0);
-	printf("ROUND_A tu=%d hw=%d\n", awb_last_tu, hw_writes);
-	fill(frame, 120, 127, 126, 128);
-	post_awb_sample(frame + W * H, 0);
-	printf("ROUND_B tu=%d hw=%d b=%d\n", awb_last_tu, hw_writes, ex_b);
-
-	/* 2. Fine step near zero: tu=-2 at bex=556 must step by +1 (not overshoot by +6). */
-	fill(frame, 120, 126, 126, 128);
-	post_awb_sample(frame + W * H, 0);
-	printf("DAMP tu=%d hw=%d b=%d\n", awb_last_tu, hw_writes, ex_b);
-
-	/* 3. Converge for 6 samples at (129, 127) -> settled, then lock across +-3 noise. */
-	hw_writes = 0;
-	for (i = 0; i < 6; i++) {
-		fill(frame, 120, 129, 129, 127);
-		post_awb_sample(frame + W * H, 0);
+	/* 1. symmetric rounding: 80 % 128 + 20 % 126 -> 0; then 80 % 127 + 20 % 126 -> -1; mean of the two: no change */
+	feed(1, 120, 128, 126, 128); printf("ROUND_A tu=%d hw=%d\n", awb_last_tu, hw_writes);
+	feed(1, 120, 127, 126, 128); printf("ROUND_B tu=%d hw=%d b=%d\n", awb_last_tu, hw_writes, ex_b);
+	/* 2. -2 twice: one unit step */
+	feed(2, 120, 126, 126, 128); printf("DAMP hw=%d b=%d\n", hw_writes, ex_b);
+	/* 3. the AWB_HOLD samples after a change are not acted on, whatever they read */
+	feed(2, 120, 148, 148, 108); printf("HOLD hw=%d b=%d r=%d\n", hw_writes, ex_b, ex_r);
+	/* 4. three good decisions (6 samples) -> settled, saved, no write */
+	hw_writes = 0; feed(6, 120, 129, 129, 127); printf("SETTLED saves=%d hw=%d\n", state_saves, hw_writes);
+	/* 5. +-3 noise keeps the lock */
+	for (i = 0; i < 4; i++) { int u = (i % 2) ? 131 : 125, v = (i % 2) ? 125 : 131; feed(1, 120, u, u, v); }
+	printf("LOCKED hw=%d b=%d\n", hw_writes, ex_b);
+	/* 6. a mean error of 4 wakes the loop: half step */
+	feed(2, 120, 132, 132, 128); printf("WAKE hw=%d b=%d\n", hw_writes, ex_b);
+	/* 7. luma jump > 25: that sample is skipped */
+	feed(2, 120, 128, 128, 128); feed(6, 120, 128, 128, 128); hw_writes = 0;
+	feed(1, 155, 140, 140, 128); printf("LUMA_FREEZE hw=%d\n", hw_writes);
+	/* 8. an ISP that shows a gain change 3 samples later (the .11): converges without one overshoot */
+	ex_r = 390; ex_b = 650;
+	for (i = 0; i < 8; i++) { hb[i] = ex_b; hr[i] = ex_r; }
+	for (i = 0; i < 60; i++) {
+		int bs = hb[(hn + 8 - 3) % 8], rs = hr[(hn + 8 - 3) % 8];
+		int tu = (int)(0.33 * (bs - 600)), tv = (int)(0.33 * (rs - 350));
+		fill(120, 128 + tu, 128 + tu, 128 + tv); post_awb_sample(frame + W * H, 0);
+		hb[hn % 8] = ex_b; hr[hn % 8] = ex_r; hn++;
+		if (tu && last && (tu > 0) != (last > 0)) flips++;
+		if (tu) last = tu;
+		if (ok < 0 && tu >= -2 && tu <= 2 && tv >= -2 && tv <= 2) ok = i;
 	}
-	printf("SETTLED saves=%d hw=%d\n", state_saves, hw_writes);
-	for (i = 0; i < 4; i++) {
-		int u = (i % 2) ? 131 : 125;	/* tu = +3 / -3 */
-		int v = (i % 2) ? 125 : 131;	/* tv = -3 / +3 */
-		fill(frame, 120, u, u, v);
-		post_awb_sample(frame + W * H, 0);
-	}
-	printf("LOCKED hw=%d r=%d b=%d\n", hw_writes, ex_r, ex_b);
-
-	/* 4. Deviation |tu| >= 4 wakes convergence and updates gains. */
-	fill(frame, 120, 132, 132, 128);
-	post_awb_sample(frame + W * H, 0);
-	printf("WAKE hw=%d b=%d\n", hw_writes, ex_b);
-
-	/* 5. Re-converge, then luma jump > 25 resets settled so the next +-2 sample reacts again. */
-	for (i = 0; i < 6; i++) {
-		fill(frame, 120, 128, 128, 128);
-		post_awb_sample(frame + W * H, 0);
-	}
-	hw_writes = 0;
-	fill(frame, 155, 132, 132, 128);
-	post_awb_sample(frame + W * H, 0);
-	printf("LUMA_FREEZE hw=%d\n", hw_writes);
-	fill(frame, 155, 130, 130, 128);
-	post_awb_sample(frame + W * H, 0);
-	printf("AFTER_LUMA hw=%d\n", hw_writes);
+	printf("PLANT flips=%d converged=%d\n", flips, ok >= 0 && ok < 40);
 	return 0;
 }
-'''
+"""
         with tempfile.TemporaryDirectory() as t:
             Path(t, 'awb.c').write_text(harness)
-            subprocess.run(['gcc', '-Wall', '-Wextra', '-o', str(Path(t, 'awb')), str(Path(t, 'awb.c'))], check=True)
+            subprocess.run(['gcc', '-Wall', '-Wextra', '-Wno-unused-variable', '-Wno-unused-parameter', '-o', str(Path(t, 'awb')), str(Path(t, 'awb.c'))], check=True)
             out = subprocess.run([str(Path(t, 'awb'))], capture_output=True, text=True, check=True).stdout
         self.assertIn('ROUND_A tu=0 hw=0', out)
         self.assertIn('ROUND_B tu=-1 hw=0 b=556', out)
-        self.assertIn('DAMP tu=-2 hw=1 b=557', out)
+        self.assertIn('DAMP hw=1 b=557', out)
+        self.assertIn('HOLD hw=1 b=557 r=256', out)
         self.assertIn('SETTLED saves=1 hw=0', out)
-        self.assertIn('LOCKED hw=0 r=256 b=557', out)
-        self.assertIn('WAKE hw=1 b=546', out)
+        self.assertIn('LOCKED hw=0 b=557', out)
+        self.assertIn('WAKE hw=1 b=551', out)
         self.assertIn('LUMA_FREEZE hw=0', out)
-        self.assertIn('AFTER_LUMA hw=1', out)
-
+        self.assertIn('PLANT flips=0 converged=1', out)
 
 if __name__ == '__main__':
     unittest.main()

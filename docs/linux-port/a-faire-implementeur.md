@@ -30,7 +30,7 @@ contredise.
   conservées.
 
 ### Trouvailles du 14/11 après-midi sur la .11 (build `overclock` 4f43f3e ; détail dans test-queue.md)
-- [x] **WIFI-STALL-01 : cause trouvée.** `ampdu_tx=0` (patch 0023) → **0 blocage en 8 min** (max 0,2 s) ; retour à `Y` → 6
+- [x] **WIFI-STALL-01 : cause trouvée — `ampdu_tx=0` décidé pour la .11 (14/11 14:42), appliqué à chaud + `WIFI_AMPDU_TX=0` dans son boot.conf ; le réglage de démarrage est sur `main` (défaut 1 pour les autres).** `ampdu_tx=0` (patch 0023) → **0 blocage en 8 min** (max 0,2 s) ; retour à `Y` → 6
   blocages en 5,7 min (jusqu'à 4,8 s). Les sessions BlockAck d'émission de la caméra sont la cause. **À décider par le
   propriétaire :** `ampdu_tx=0` par défaut (réglage boot.conf appliqué avant l'association Wi-Fi) ; ensuite seulement,
   l'implémenteur l'écrit, avec migration.
@@ -39,7 +39,7 @@ contredise.
   le risque côté périphériques sans gain mesuré, et `bogomips_now` ne peut rien voir (étalonné avant l'initcall). À revoir
   avant de poursuivre : nommer correctement la PLL dans 0001 et `overclock-step`, mesurer un vrai gain (enc_ms, ISP) ou
   étudier la PLL CPU (0x04) avec le code d'origine.
-- [ ] **AWB-02 : la boucle oscille encore sur la .11** (erreur u/v qui change de signe presque à chaque mesure, gains
+- [x] **AWB-03 écrit (14/11) : attente de 2 mesures après un changement, moyenne de 2, demi-pas ; simulé sans dépassement ; à vérifier sur la .11.** Constat d'origine — **AWB-02 : la boucle oscille encore sur la .11** (erreur u/v qui change de signe presque à chaque mesure, gains
   modifiés 20 fois en 40 s) : pas proportionnel trop fort pour le retard d'une mesure de l'ISP ; diviser le pas ou
   n'agir qu'une mesure sur deux, puis revérifier.
 

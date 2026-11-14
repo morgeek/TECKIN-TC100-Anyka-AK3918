@@ -1239,9 +1239,16 @@ static void osd_tick(void)
 	snprintf(last, sizeof last, "%s", t);
 }
 
+#ifndef AWB_HOLD
+#define AWB_HOLD 2	/* samples to wait after a gain change before measuring again (AWB-03) */
+#endif
+#define AWB_SETTLE 3	/* good decisions in a row (AWB_AVG samples each) before the gains are locked */
+#ifndef AWB_AVG
+#define AWB_AVG 2	/* samples averaged for one decision (AWB-03) */
+#endif
 static void post_awb_sample(const unsigned char *uv, int bw)
 {
-	static int last_my = -1, settled;
+	static int last_my = -1, settled, hold, acc_u, acc_v, acc_n;
 	const unsigned char *y_plane = uv - W * H;
 	long su = 0, sv = 0, sy = 0, gu = 0, gv = 0;
 	int n = 0, ng = 0, i;
@@ -1281,25 +1288,36 @@ static void post_awb_sample(const unsigned char *uv, int bw)
 		int tu = (int)((su + n / 2) / n) - 128, tv = (int)((sv + n / 2) / n) - 128, r = ex_r, b = ex_b;
 
 		awb_last_tu = tu; awb_last_tv = tv;
+		/* AWB-03 (2026-11-14): the ISP shows a gain change only two or three samples later. Acting on every sample
+		 * overshot and kept the tint pumping on the .11 (error changing sign at nearly every sample, gains moved 20
+		 * times in 40 s): after a change, wait AWB_HOLD samples, and move half as far (the step below is /512). */
+		if (hold > 0) { hold--; return; }
+		/* and decide on the mean of AWB_AVG samples: the error of a still scene wanders by +-4 from one sample to the
+		 * next, more than the +-3 lock below */
+		acc_u += tu; acc_v += tv;
+		if (++acc_n < AWB_AVG) return;
+		tu = (acc_u + (acc_u >= 0 ? acc_n / 2 : -acc_n / 2)) / acc_n;
+		tv = (acc_v + (acc_v >= 0 ? acc_n / 2 : -acc_n / 2)) / acc_n;
+		acc_u = acc_v = acc_n = 0;
 		tu = tu > 40 ? 40 : tu < -40 ? -40 : tu;
 		tv = tv > 40 ? 40 : tv < -40 ? -40 : tv;
 		/* once converged (settled >= 6), keep ISP gains locked across +-3 noise to avoid ramping against the kernel step (>5) */
-		if (settled >= 6 && (tu >= 4 || tu <= -4 || tv >= 4 || tv <= -4))
+		if (settled >= AWB_SETTLE && (tu >= 4 || tu <= -4 || tv >= 4 || tv <= -4))
 			settled = 0;
-		if (settled < 6) {
+		if (settled < AWB_SETTLE) {
 			if (tv > 1 || tv < -1) {
-				int dr = (tv >= -3 && tv <= 3) ? (tv > 0 ? -1 : 1) : r * (256 - tv) / 256 - r;
+				int dr = (tv >= -3 && tv <= 3) ? (tv > 0 ? -1 : 1) : r * (512 - tv) / 512 - r;
 				r += dr;
 			}
 			if (tu > 1 || tu < -1) {
-				int db = (tu >= -3 && tu <= 3) ? (tu > 0 ? -1 : 1) : b * (256 - tu * 5 / 4) / 256 - b;
+				int db = (tu >= -3 && tu <= 3) ? (tu > 0 ? -1 : 1) : b * (512 - tu * 5 / 4) / 512 - b;
 				b += db;
 			}
 			r = r < 128 ? 128 : r > awb_max ? awb_max : r;
 			b = b < 128 ? 128 : b > awb_max ? awb_max : b;
-			if (r != ex_r || b != ex_b) { ex_r = r; ex_b = b; awb_hw_set(); }
+			if (r != ex_r || b != ex_b) { ex_r = r; ex_b = b; awb_hw_set(); hold = AWB_HOLD; }
 			if (tu >= -2 && tu <= 2 && tv >= -2 && tv <= 2) {
-				if (++settled >= 6) awb_state_save();
+				if (++settled >= AWB_SETTLE) awb_state_save();
 			} else {
 				settled = 0;
 			}
