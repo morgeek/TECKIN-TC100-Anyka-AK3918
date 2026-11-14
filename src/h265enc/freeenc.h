@@ -164,6 +164,7 @@ static inline void fe_set_kbps(struct fe_enc *e, int kbps)
 
 /* VBR (quality first, kbit/s is a ceiling, rc.h); 0 = CBR as before. Call before the first picture. */
 static inline void fe_set_vbr(struct fe_enc *e, int on) { rc_set_vbr(&e->rc, on); }
+static inline void fe_set_vbr_qp(struct fe_enc *e, int qp) { rc_set_vbr_qp(&e->rc, qp); }
 
 #define FE_SMART_GOP_MAX 300	/* POC: 2 x pictures since the IDR must stay below 1024 (10 bits), H.264 frame_num wraps at 16 */
 #define FE_SMART_QP_EXTRA 4

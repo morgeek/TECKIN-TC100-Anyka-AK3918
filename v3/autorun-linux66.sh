@@ -226,15 +226,6 @@ for f in /mnt/lib/*.so*; do
 done
 [ -n "$LIBLINKS" ] && ln -sf $LIBLINKS /lib/
 
-bt step_3
-# 3. Setup WebUI document root in RAM
-mkdir -p /tmp/www
-# (one ln for every entry: the links have the names of their targets)
-set -- /mnt/www/*
-[ -e "$1" ] && ln -sfn "$@" /tmp/www/
-ln -sfn /tmp/currentpic.cache.jpg /tmp/www/ch0.jpg
-ln -sfn /tmp/stream.jpg /tmp/frame_ch0.jpg
-
 bt step_4
 # 4. Wait for /dev/video0 and start Hardware V4L2 Optical Streamer
 _vwait=0
@@ -273,16 +264,33 @@ elif [ -x $TB/tc100_rtsp ] && [ -c /dev/uio0 ]; then
   # (default H.265 like the original firmware). rtsp-launch.sh then starts tc100_rtsp from that file.
   if [ -x /mnt/bin/rwconf ] && [ -d /mnt/config ]; then
     RC=/mnt/config/rtspserver.conf
-    export LD_LIBRARY_PATH=/mnt/lib
-    [ -f /mnt/config/rtsp.codec ] && {
-      [ "$(head -n 1 /mnt/config/rtsp.codec)" = h264 ] && CODEC_NUM=1 || CODEC_NUM=2
+    if [ -f /mnt/config/rtsp.codec ]; then
+      IFS= read -r _rc_c < /mnt/config/rtsp.codec 2>/dev/null || _rc_c=
+      [ "$_rc_c" = h264 ] && CODEC_NUM=1 || CODEC_NUM=2
+      export LD_LIBRARY_PATH=/mnt/lib
       /mnt/bin/rwconf $RC w 0 codec $CODEC_NUM
-    }
-    if [ -s "$PWD_FILE" ]; then
-      /mnt/bin/rwconf $RC w " " USERNAME "${RTSP_USER:-root}"
-      /mnt/bin/rwconf $RC w " " USERPASSWORD "$(head -n 1 "$PWD_FILE")"
+      unset LD_LIBRARY_PATH
     fi
-    unset LD_LIBRARY_PATH
+    if [ -s "$PWD_FILE" ]; then
+      IFS= read -r _pwd < "$PWD_FILE" 2>/dev/null || _pwd=
+      _want_u="${RTSP_USER:-root}"
+      _rc_u=; _rc_p=
+      if [ -r "$RC" ]; then
+        while IFS= read -r _rl || [ -n "$_rl" ]; do
+          case "$_rl" in
+            '['*) break ;;
+            USERNAME=*) _rc_u="${_rl#USERNAME=}" ;;
+            USERPASSWORD=*) _rc_p="${_rl#USERPASSWORD=}" ;;
+          esac
+        done < "$RC"
+      fi
+      if [ "$_rc_u" != "$_want_u" ] || [ "$_rc_p" != "$_pwd" ]; then
+        export LD_LIBRARY_PATH=/mnt/lib
+        [ "$_rc_u" != "$_want_u" ] && /mnt/bin/rwconf $RC w " " USERNAME "$_want_u"
+        [ "$_rc_p" != "$_pwd" ] && /mnt/bin/rwconf $RC w " " USERPASSWORD "$_pwd"
+        unset LD_LIBRARY_PATH
+      fi
+    fi
   fi
   # privacy mode kept over the restart (controlscripts/privacy): the flag exists before the first picture
   grep -q '^PRIVACY_SCREEN=1' /mnt/config/boot.conf 2>/dev/null && : > /tmp/tc100_privacy
@@ -316,6 +324,15 @@ fi
 
 bt step_5
 # 5. (the picture cache is written by tc100_rtsp)
+
+bt step_3
+# 3. Setup WebUI document root in RAM (after video start so RTSP comes up first)
+mkdir -p /tmp/www
+# (one ln for every entry: the links have the names of their targets)
+set -- /mnt/www/*
+[ -e "$1" ] && ln -sfn "$@" /tmp/www/
+ln -sfn /tmp/currentpic.cache.jpg /tmp/www/ch0.jpg
+ln -sfn /tmp/stream.jpg /tmp/frame_ch0.jpg
 
 bt step_6
 # 6. Start Web Server on port 80, with the camera password (root + config/user.pwd, like 2.x)

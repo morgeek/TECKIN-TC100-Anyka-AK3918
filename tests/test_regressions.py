@@ -164,7 +164,7 @@ class Regressions(unittest.TestCase):
         a = source.index('  fullconfig)')
         b = source.index('  perfprofile)', a)
         body = source[a:b].replace('/mnt/config', str(cfg)).replace('/proc/sys/kernel/hostname', str(self.base / 'hostname'))
-        helpers = '\n'.join(function('www/cgi-bin/state.cgi', name) for name in ['load_conf_file', 'read_single_config', 'get_cfg', 'read_rtsp_stream_summary', 'sanitize_int', 'truthy_flag', 'codec_name', 'cfg_int', 'codec_name_to'])
+        helpers = '\n'.join(function('www/cgi-bin/state.cgi', name) for name in ['load_conf_file', 'load_conf_files', 'read_single_config', 'get_cfg', 'read_rtsp_stream_summary', 'sanitize_int', 'truthy_flag', 'codec_name', 'cfg_int', 'codec_name_to'])
         helpers += '\n' + function('www/cgi-bin/func.cgi', 'json_escape')
         helpers += '\ndetect_primary_ip() { :; }; read_reboot_epoch() { :; }; get_perf_profile() { echo balanced; }; hostname() { echo fixture; };\n'
         r = run(helpers + 'case fullconfig in\n' + body + '\nesac')
@@ -1757,9 +1757,9 @@ class SettingsLayout(unittest.TestCase):
     def test_tabs_by_use_and_unique_ids(self):
         html = (ROOT / 'www/settings.html').read_text()
         tabs = re.findall(r'data-tab="([^"]+)"', html)
-        # sidebar order (2.1.0): Image, Video & audio, Events, Network & integrations, System
+        # sidebar order: Camera (Image, Overlay, Day/night, Video), Automation (Detect, Record, Notify), Tools (Integrations, System, Network, Memory, Backup)
         self.assertEqual(tabs, ['tab-image', 'tab-overlay', 'tab-daynight', 'tab-video', 'tab-detect', 'tab-record',
-                                'tab-notify', 'tab-network', 'tab-integrations', 'tab-system', 'tab-backup'])
+                                'tab-notify', 'tab-integrations', 'tab-system', 'tab-network', 'tab-memory', 'tab-backup'])
         self.assertIn('id="settings_search"', html)
         self.assertIn('window.tc100SettingsTab = ', html)
         def tab(t):

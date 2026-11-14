@@ -37,6 +37,7 @@ struct rc {
 	int qmin, qmax, qp;		/* qp: the next P picture's (VBR: the ceiling's QP, see rc_base) */
 	int qlo;			/* lowest QP now: qmin, or the smart mode's floor */
 	int vbr;
+	int vbr_qp;			/* VBR quality QP override (0 = qmin + RC_VBR_QOFF) */
 	int64_t budget;			/* bytes per picture */
 	int64_t buffer;			/* bytes sent over the budget so far (can be negative) */
 	int idr_qp;
@@ -45,7 +46,7 @@ struct rc {
 
 static inline void rc_init(struct rc *r, int kbps, int fps, int qmin, int qmax, int qp0)
 {
-	r->qmin = qmin; r->qmax = qmax; r->qlo = qmin; r->vbr = 0;
+	r->qmin = qmin; r->qmax = qmax; r->qlo = qmin; r->vbr = 0; r->vbr_qp = 0;
 	r->budget = (int64_t)kbps * 1000 / 8 / (fps > 0 ? fps : 25);
 	r->buffer = 0;
 	r->qp = qp0 < qmin ? qmin : qp0 > qmax ? qmax : qp0;
@@ -72,6 +73,10 @@ static inline int rc_clamp(const struct rc *r, int q)
 }
 
 static inline void rc_set_vbr(struct rc *r, int on) { r->vbr = on != 0; }
+static inline void rc_set_vbr_qp(struct rc *r, int qp)
+{
+	r->vbr_qp = qp > 0 ? (qp < r->qmin ? r->qmin : qp > r->qmax ? r->qmax : qp) : 0;
+}
 
 /* lowest QP from now on: floor (clamped to [qmin, qmax]) or 0 for qmin; takes effect on the next picture */
 static inline void rc_set_floor(struct rc *r, int floor)
@@ -82,7 +87,7 @@ static inline void rc_set_floor(struct rc *r, int floor)
 /* the QP the next P picture is coded at before the clamp: VBR never goes below the quality QP */
 static inline int rc_base(const struct rc *r)
 {
-	int q = r->qmin + RC_VBR_QOFF;
+	int q = r->vbr_qp > 0 ? r->vbr_qp : r->qmin + RC_VBR_QOFF;
 
 	if (q > r->qmax) q = r->qmax;
 	return r->vbr && r->qp < q ? q : r->qp;

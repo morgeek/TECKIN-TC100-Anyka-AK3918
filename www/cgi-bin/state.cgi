@@ -151,6 +151,56 @@ load_conf_file() {
   done < "$_lcf_path"
 }
 
+# Batch-load multiple config files in a single awk pass (for fullconfig).
+# Preserves load_conf_file semantics and skips recording/telegram when
+# INTEGRATION_PROFILE=frigate_ha. Falls back to load_conf_file if awk is missing.
+load_conf_files() {
+  _lcfs_list=""
+  for _lcfs_f in "$@"; do
+    [ -f "$_lcfs_f" ] && _lcfs_list="$_lcfs_list $_lcfs_f"
+  done
+  [ -n "$_lcfs_list" ] || return 0
+  if command -v awk >/dev/null 2>&1; then
+    _lcfs_out="$(awk '
+      FNR == 1 {
+        sec = ""
+        skip = ((FILENAME ~ /\/(recording|telegram)\.conf$/) && vals["INTEGRATION_PROFILE"] == "frigate_ha")
+      }
+      skip { next }
+      {
+        eq = index($0, "=")
+        if (eq == 0) {
+          if ($0 ~ /^\[.*\]$/) {
+            s = substr($0, 2, length($0) - 2)
+            sec = (s ~ /^[A-Za-z0-9_]+$/) ? s : "!"
+          }
+          next
+        }
+        k = substr($0, 1, eq - 1)
+        if (k !~ /^[A-Za-z0-9_]+$/ || sec == "!") next
+        v = substr($0, eq + 1)
+        fk = (sec != "" ? sec "_" k : k)
+        vals[fk] = v
+      }
+      END {
+        q = sprintf("%c", 39)
+        rep = q "\\" q q
+        for (fk in vals) {
+          v = vals[fk]
+          gsub(q, rep, v)
+          printf "C_%s=%s%s%s\n", fk, q, v, q
+        }
+      }
+    ' $_lcfs_list 2>/dev/null)" && { eval "$_lcfs_out"; return 0; }
+  fi
+  for _lcfs_f in $_lcfs_list; do
+    if [ "$_lcfs_f" = "/mnt/config/recording.conf" ] || [ "$_lcfs_f" = "/mnt/config/telegram.conf" ]; then
+      [ "${C_INTEGRATION_PROFILE:-default}" = "frigate_ha" ] && continue
+    fi
+    load_conf_file "$_lcfs_f" || true
+  done
+}
+
 # Read one-line configuration files such as hostname/timezone/NTP without
 # treating their value as a key=value assignment.
 read_single_config() {
@@ -1263,26 +1313,14 @@ if [ -n "$F_cmd" ]; then
   fullconfig)
     # This command returns ALL configurable values for the UI to populate its tabs.
     # It avoids multiple requests and keeps everything in sync.
-    load_conf_file /mnt/config/boot.conf
+    load_conf_files /mnt/config/boot.conf /mnt/config/rtspserver.conf /mnt/config/mqtt.conf \
+      /mnt/config/service_trim.conf /mnt/config/motion.conf /mnt/config/daynight.conf \
+      /mnt/config/telnetd.conf /mnt/config/sound_detection.conf \
+      /mnt/config/recording.conf /mnt/config/telegram.conf /mnt/config/frigate_live.conf
     _iprofile="${C_INTEGRATION_PROFILE:-default}"
-    load_conf_file /mnt/config/rtspserver.conf
-    load_conf_file /mnt/config/mqtt.conf
-    load_conf_file /mnt/config/service_trim.conf
     fullconfig_hostname="$(read_single_config /mnt/config/hostname.conf TC100-CAMERA)"
     fullconfig_timezone="$(read_single_config /mnt/config/timezone.conf UTC+0)"
     fullconfig_ntp="$(read_single_config /mnt/config/ntp_srv.conf pool.ntp.org)"
-    load_conf_file /mnt/config/motion.conf
-    load_conf_file /mnt/config/daynight.conf   # 3.0 day/night thresholds (luminance)
-    load_conf_file /mnt/config/telnetd.conf
-    # Sound detection runs in every profile since 1.8.4 (the level is
-    # measured inside the RTSP server): the Settings switch showed "off" on
-    # frigate_ha cameras where it was on.
-    load_conf_file /mnt/config/sound_detection.conf
-    if [ "$_iprofile" != "frigate_ha" ]; then
-      load_conf_file /mnt/config/recording.conf
-      load_conf_file /mnt/config/telegram.conf
-    fi
-    load_conf_file /mnt/config/frigate_live.conf
 
     read_rtsp_stream_summary
     detect_primary_ip
