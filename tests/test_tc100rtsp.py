@@ -1277,7 +1277,12 @@ class Backchannel(Server):
         a, b = self.client(), self.client()
         self.talk_session(a)
         self.talk_session(b)
-        for i in range(50):
+        # a speaks first, unambiguously: on a loaded CI runner b's first packet could otherwise win the race
+        for i in range(5):
+            a.interleaved(4, rtp(i, tone_alaw(400, i * 160, 160)))
+            time.sleep(0.02)
+        time.sleep(0.3)
+        for i in range(5, 50):
             a.interleaved(4, rtp(i, tone_alaw(400, i * 160, 160)))
             b.interleaved(4, rtp(i, tone_alaw(1000, i * 160, 160)))
             time.sleep(0.02)
