@@ -1657,3 +1657,180 @@ Clients RTSP principaux (hevc 1080p, TCP, `ffmpeg -c copy -f null`) depuis la VM
 - **`failed`, corrigé — syslog** : sur les deux caméras, `syslog-forward` « Arrêté » malgré `SYSLOG_ENABLE=1` ; `syslogd` lancé avec `-D -f` refusés par la BusyBox de la base (« unrecognized option: D ») : plus aucun journal local après le démarrage du service (`/var/log/messages` arrêté à 07:01 UTC) et rien vers 192.168.1.23. Relancé à la main (RAM) à 09:17 sur les deux : `syslogd -n -l 6 -s 128 -b 1` + `tc100-logfwd -r 192.168.1.23:514`, message de test écrit. Corrigé en `bf6d15c` (fragment BusyBox + repli). R21.
 
 
+## From: open entries closed on 2026-11-14 (rc43 validated on both cameras; results stay at the end of test-queue.md)
+
+### NR3D-01 3D noise reduction: runtime switch, crop-size reference, overflow counter (`[nr3d]`) — `passed, default NR3D=1 since rc43` (2026-11-14)
+
+- **Result (2026-11-12 23:11–23:17, `.11` rc41, flashed web update):**
+  - `3D-NR reference frame: 4050 KiB at 0x82f00000, 2025 KiB at 0x82200000 (UV in venc pool)` — **zero CMA/REQBUFS error** at 1080p (`MemAvailable: 17760 kB`, `CmaFree: 2256 kB` while streaming, 2 `rtsp-h26x restart` clean).
+  - **25 fps (1080p):** `nr3d_overflow` rose to `3895` (~25/s: `TNR_DMA_OVERFLOW` on every frame at 480 MHz PLL / 120 MHz ASIC). With `nr3d=0`: `0 overflows / 5s`.
+  - **15 fps (1080p, `-f 15`):** **`0 overflows / 5s`** — confirms 3D-NR + 1080p works cleanly once DRAM/ISP frame budget is at 15 fps (e.g. night/low-light `15 fps` or `20 fps` to test; 2 h soak + night noise comparison still to do).
+  - **`NR3D=auto` default (`[nr3d]`):** `boot.conf.dist` sets `NR3D=auto`; `autorun-linux66.sh` allocates the reference
+    at boot for `1|auto`, `rtsp-launch.sh` exports `RTSP_NR3D_AUTO=1`, and `tc100_rtsp` toggles `ak39_vi.nr3d` live
+    (`1` only at night (`bw_want`) or in low light (`lowlight_on`) **and** when the capture rate in use is <= 15 fps: the
+    accepted night set runs at 10 fps, low light at `LOWLIGHT_FPS_VALUE` 10/15 (20 stays off); `0` by day at 25 fps, and at night
+    with `NIGHT_STYLE=0` or a refused night set, which stay at 25 fps; rc42 fix, the log line gives the reason and the fps:
+    `3D-NR auto: on|off (night|low light|day, N fps)`). Set `NR3D=0` in `boot.conf` to turn off.
+
+- **What (plans-2026-11-12 section 2; kernel patches 0006, 0016 and 0017, `v3/autorun-linux66.sh`, `config/boot.conf.dist`):**
+  - **Patch 0017 (`[nr3d]` UV in encoder CMA tail):** `ak39_venc` exports `ak39_venc_aux_alloc()` / `ak39_venc_aux_free()`
+    to allocate the 2025 KiB UV reference plane (`ref_uv`) from the 2688 KiB tail left unused by `ak39_venc.pool=9600K`
+    in `venc@81800000` (falling back to the default CMA if unavailable). `dmesg` logs `(UV in venc pool)` on
+    `3D-NR reference frame:` when placed there, freeing ~2 MiB in the default CMA for 1080p capture buffers.
+    `NR3D=0` remains the default; revert patch 0017 to go back to allocating both planes from the default CMA.
+  - `ak39_vi.nr3d` is now a 0644 parameter (default 0). Writing 1 while the queue is not streaming allocates the 6075 KiB
+    reference frame (Y 4050 + UV 2025 KiB) from the default CMA and turns 3D-NR on; writing 1 while streaming without a
+    reference returns `EBUSY` (CMA is then full of capture buffers); writing 0 while streaming sets `noref` at once (memory
+    kept, never freed or reallocated live); writing 0 while NOT streaming frees the reference. Recovery when the 6 MB
+    taken first leaves no room for the capture buffers (no video at 1080p): `NR3D=0`, `echo 0 >
+    /sys/module/ak39_vi/parameters/nr3d`, restart the video service, no reboot. The ISP is only touched while it runs
+    (a write between streams or after a failed start cannot oops); `nr3d_overflow` refuses a command-line value. `ak39_vi.nr3d=1` on the command line still allocates at probe.
+  - `program_ref()` programs the crop size (1920x1080, `CROP_W x CROP_H`) at every format. Before it programmed the output
+    size: at a 720p main format a 720p reference was declared to a TNR block that works on the 1080p crop. It also keeps
+    3D-NR off (`noref`) when the allocation is smaller than the crop.
+  - New read-only `ak39_vi.nr3d_overflow`: `TNR_DMA_OVERFLOW` interrupts since boot (each one switches TNR off until the
+    3A loop re-arms it).
+  - `boot.conf` `NR3D=1` (single source; the dead NR3D lines of `isp_tune.conf.dist` are gone): `autorun-linux66.sh` writes
+    1 to the parameter just before `tc100_rtsp` starts (CMA still empty) and logs `[tc100-v3] 3D-NR on (...)` or the refusal
+    on the console. `NR3D=0` or absent writes nothing. Read once at boot.
+- **Decision on 1080p memory: the memory map is NOT changed.** A 1080p reference stays an option taken from the default
+  CMA; **720p is the reliable mode**. Why (all from patches 0009/0015, `cma=18M` is a U-Boot argument and stays):
+
+  | physical range | size | what | source |
+  |---|---|---|---|
+  | 0x80000000-0x80008000 | 32 KiB | before the kernel | boot |
+  | 0x80008000-... | not measured | kernel image, bss | kernel at 0x80008000 |
+  | 0x81000000-0x811eb5ee | 2012654 B | initramfs as loaded (`initrd=0x81000000,2012654`) | `stock-hook.sh`, `build-rootfs66.sh` |
+  | 0x81800000-0x82400000 | 12 MiB | encoder reusable CMA area (pool 9600K + 2688 KiB tail); contains 0x82000000 (U-Boot uImage load, a 2 MiB read ends at 0x82200000, dead once the kernel runs) | 0009 `venc@81800000`, 0015 |
+  | 0x82400000-0x82c00000 | 8 MiB | **the only free window**: ordinary RAM today | by difference |
+  | 0x82c00000-0x84000000 | 20 MiB | default CMA (`cma=18M` rounded up to the 4 MiB pageblock; with `cma=24M` it was 0x82800000, R9-01) | command line |
+
+  A second reusable CMA area would have to be exactly 0x82400000 + 8 MiB (6 MiB needed; CMA areas are 4 MiB aligned in base
+  and size), with zero slack and touching the default CMA. Not done because: (1) it is a memory-map change whose result
+  cannot be seen without booting, and a kernel that fails to boot cannot be repaired from Linux; (2) it takes all of the
+  last free window, and the default CMA position depends on the U-Boot `cma=` value (`cma=24M` as used in R9-01 would then
+  not fit and the default CMA, hence all video buffers, would be missing); (3) a device CMA area binds every DMA allocation
+  of the video device (capture buffers too, with no fallback to the default area) and `cma_alloc()` is not exported to a
+  second device; (4) 8 MiB less memory for unmovable kernel allocations on a 64 MiB camera, also when 3D-NR is off.
+  Default CMA budget (20 MiB, 1 MiB aligned): 1080p = 3 x 3379 KiB buffers (about 12 MiB with alignment) + 6075 KiB
+  reference (about 6 MiB) = about 18 MiB, and today CmaFree is about 5.9 MB with 1080p streaming (the reference needs
+  5.93 MiB contiguous): it does not fit at video start, it only fits when taken first, with about 2 MiB spare.
+  720p = 3 x 1692 KiB (about 6 MiB) + 6 MiB reference: about 6 MiB spare. (The reference stays 1080p-sized at 720p because
+  the crop is 1080p: to confirm below.)
+- **Switch to turn it off:** `NR3D=0` in `/mnt/config/boot.conf` and reboot; live: `echo 0 > /sys/module/ak39_vi/parameters/nr3d`
+  (3D-NR off at once, memory kept until reboot). Default stays off until a pass and the owner's agreement.
+- **Test (SD kernel from CI of this commit `[nr3d]`, `pack66/boot66b.sh`, nothing flashed; owner present):**
+  1. Boot without `NR3D`: `cat /sys/module/ak39_vi/parameters/nr3d` = `0`, `ls -l` shows `-rw-r--r--`, `nr3d_overflow` = `0`
+     and `-r--r--r--`; no `3D-NR` line in dmesg; MemAvailable and CmaFree as before (22-23 MB / 5.9 MB). Record `cma: Reserved`.
+  2. **720p** (`RTSP_WIDTH=1280 RTSP_HEIGHT=720`, `NR3D=1` in boot.conf, reboot): console `[tc100-v3] 3D-NR on (ak39_vi.nr3d=1,
+     overflows 0)`, dmesg `3D-NR reference frame: 4050 KiB at ..., 2025 KiB at ...`. Note MemAvailable, CmaFree, picture OK.
+  3. **1080p, only after 720p passed**, the same way: either the allocation succeeds (note CmaFree, then the same checks as 2) or dmesg shows `no
+     memory for the 3D-NR reference frame` and the console says refused with a normal picture, or the reference is taken
+     but REQBUFS then fails (no video): recover with `echo 0` to `nr3d` and a video service restart, without reboot, and
+     check that the video comes back. All are results.
+     Also `echo 1 > .../nr3d` while streaming without a reference (NR3D=0 boot): must fail with `Device or resource busy`.
+  4. Ten `controlscripts/rtsp-h26x restart` (or kill and relaunch with the same arguments) with the reference allocated: no
+     `alloc failed`, no oops, `nr3d_overflow` unchanged, picture OK after each.
+  5. Day and night (IR cut): `echo 0` then `echo 1` to `nr3d` live, three times, while the stream runs: no freeze, no oops.
+  6. Recording to the SD card plus snapshots (`stream.jpg`) during step 2: no CMA failure in dmesg, MemAvailable stays above 15 MB.
+  7. 2 h H.265 soak at the chosen resolution with 3D-NR on: no oops, no second `Starting kernel`, `nr3d_overflow` 0 (or
+     report its rate), MemAvailable never below 12 MB, `tc100_rtsp` STAT frame counts as without 3D-NR.
+  8. Night noise comparison with IR on, 3D-NR off and on, same scene, same bit rate: two stills and the bytes per second of
+     an equal-length capture (R9-01 measured 25-34 % less noise at 1080p; give the 720p figure).
+  9. Confirm the high-water assumption: at a 720p main format the TNR block still needs the full 1080p reference (no
+     `nr3d_overflow` increments, no corrupted bands in the picture).
+- **Pass:** steps 1-7 clean at 720p, `nr3d_overflow` 0, MemAvailable thresholds met, a visible night improvement (step 8).
+  1080p is optional: report its result, it is only kept if it fits with margin over the soak. Then (and only then, with the
+  owner's agreement) the kernel is a flash candidate through `flashw` with its read-back check, and `NR3D=1` can become the
+  default for 720p setups. **Nothing is flashed before a pass.**
+
+### NR3D-02 3D-NR by day: why 25 fps overflows, and which setting avoids it (`[nr3d]`) — `passed on both cameras, day and night; default NR3D=1 since rc43` (2026-11-14)
+
+- **Why (read-only Fable analysis, 2026-11-13; facts checked against patch 0006):** the sensor sets its frame rate by
+  frame length, not by pixel rate (JX-F23 MIPI table: 25 fps = 0x465 = 1125 lines, 20 fps = 0x56e = 1390, 15 fps =
+  0x73d = 1853, 1080 of them active). The ISP therefore works at the same speed during the active lines at every rate;
+  what changes is the vertical blanking left to finish the reference DMA: ~45 lines (~1.6 ms) at 25 fps, ~310 (~11 ms)
+  at 20 fps, ~773 (~27 ms) at 15 fps. So the overflow at 25 fps is more likely a latency limit (reference DMA not done
+  before the next frame) or the encoder being busy all the time than a pure DRAM bandwidth limit (EST: ~770 MB/s total
+  with 3D-NR at 1080p25 vs ~460 MB/s without; DDR clock and width are not known from the repo). Nothing in the patches
+  sets a DDR arbiter or priority. The meaning of `TNR_COMPRESS_FORMAT` (YUV_REG_9 bits 17-18, `tnr_refFrame_format` of
+  the vendor tuning file) is not documented anywhere in the repo.
+- **Switch:** `NR3D=auto` (default) or `NR3D=0` in `boot.conf` afterwards; frame rate and main size back to what they
+  were (Settings).
+- **Test (one RTSP client connected the whole time; nothing else changes):**
+  1. `NR3D=1` in `/mnt/config/boot.conf` (not `auto`, which turns 3D-NR off above 15 fps), reboot; dmesg shows
+     `3D-NR reference frame: ... (UV in venc pool)`.
+  2. For each case below, set it in Settings, wait for the video to restart, then read
+     `cat /sys/module/ak39_vi/parameters/nr3d_overflow`, wait 60 s, read again; note the difference, the STAT line
+     (`cap`, `dropped`) and the picture:
+     - **A:** 1080p, 25 fps (Streams & audio → frame rate 25): control, ~1500 expected in 60 s.
+     - **B:** 1080p, 20 fps.
+     - **C:** 720p (Main stream → 1280x720, `mainres=720`), 25 fps. The ISP still crops at 1080p (patch 0016), so 3D-NR
+       works at the same size: this case tells whether the encoder load matters (encoder and main write drop by ~56 %).
+     - **D:** 720p, 20 fps.
+  3. Read the vendor's 3D-NR settings from the tuning file (layout derived from patch 0006, unverified on a camera):
+     `dd if=/lib/firmware/anyka/isp.conf bs=1 skip=4034 count=4 2>/dev/null | hexdump -C` must show `04 00 68 04`;
+     then `for k in 0 1 2 3 4 5 6 7 8 9; do dd if=/lib/firmware/anyka/isp.conf bs=1 skip=$((4042+112*k)) count=12 2>/dev/null | hexdump -C | head -1; done`
+     prints, per parameter set (k=0 manual, 1-9 linked to the gain), six little-endian 16-bit values: `uv_min_enable,
+     tnr_y_enable, tnr_uv_enable, updata_ref_y, updata_ref_uv, tnr_refFrame_format`. Paste the 10 lines under this
+     entry (they hold no secret). If the check bytes differ, paste the first 8 KB offset map instead and do not guess.
+  4. `dmesg | grep -i -e GUARD -e isp | tail -20` after the four cases.
+- **Reading the result:**
+  - **B = 0:** 3D-NR by day at 20 fps is possible: raise the threshold of `nr3d_auto_sync` / `cap_fps_now`
+    (`src/tc100rtsp/tc100_rtsp.c`) from 15 to 20 fps (small change, then a 2 h soak at 0).
+  - **C = 0 but A > 0:** encoder contention: 3D-NR by day only with a 720p main.
+  - **All > 0:** next step is 3D-NR on luma only (`tnr_uv_enable` / `updata_ref_uv` = 0: a third less reference
+    traffic, chroma noise stays), which needs a small tool (`src/ispnr3d`, GET/SET of the 1124-byte 3D-NR block through
+    `/dev/isp_char` `AK_ISP_GET_3D_NR` / `AK_ISP_SET_3D_NR`, patch 0006 ~12937-12975) — to be written after this test.
+- **Not now, and why:** a compressed reference format (`tnr_refFrame_format`) could be the biggest gain, but with unknown
+  semantics it risks DMA past the reference buffer (memory corruption). It needs first a kernel guard
+  (`ak39_vi.nr3d_refguard`: one extra page per plane, filled with a pattern, high-water mark logged, error if the slack
+  is touched), then one value at a time with the owner present. Raising the DDR / core clock is excluded (no
+  independent DDR clock is known; 640 MHz is the crash path).
+- **Pass:** a configuration with `nr3d_overflow` +0 over 60 s at the rate used by day, then a 2 h soak at +0 with no
+  kernel error and a visible noise gain.
+
+### HOOK-01 First-install hook: stricter checks and U-Boot built-in environment (`[stock-hook-review]`) — `passed` (2026-11-12, .11 rc40: built-in U-Boot env verified to boot stock kernel from flash)
+
+- **Result (2026-11-12, `.11` rc40, read-only `mtd0ro` dump):**
+  - `bootdelay=1`
+  - `bootcmd=run boot_normal`
+  - `boot_normal=readcfg; run read_kernel; bootm ${loadaddr}`
+  - `read_kernel=sf probe 0:0 ${sf_hz} 0; sf read ${loadaddr} ${kernel_addr} ${kernel_size}` (`loadaddr=0x82208000`, `kernel_addr=0x36000`, `kernel_size=0x200000`)
+  - Built-in U-Boot environment loads the stock kernel from SPI flash and runs `bootm`: power-cut during `envtool` write recovers to the stock firmware without a serial console. `internals.md` updated.
+
+- **What (read-only Fable review of `stock-hook.sh` + `envtool.c`, 2026-11-12: no brick path in the code):**
+  - `tc100-3/known-stock.txt` is now a required file (with its 32-digit `uboot` md5 line): without it the U-Boot / root / `/usr` md5 checks were skipped
+    (only a note) and the environment was still written on an unidentified camera.
+  - The flash copy on the card is read back after `drop_caches`, so a card that loses writes fails the md5 check
+    instead of passing from the page cache.
+  - An unexpected `envtool` exit (killed, >= 128) no longer logs "Nothing was written to the flash"; it says the
+    environment may be incomplete and points to `env-stock.bin`.
+  - **Open, the one brick question:** after a power cut in the middle of the environment write, U-Boot uses its
+    built-in environment; nobody has checked that this one boots the stock firmware (`internals.md`, "What is not
+    covered yet" 1).
+- **Switch:** none (the hook runs once per new camera); revert the commit for the old checks.
+- **Test (read-only, no card needed, on a camera running 3.0 from its flash, over ssh):**
+  `m=$(grep '"boot"' /proc/mtd | cut -d: -f1); dd if=/dev/${m}ro bs=4096 count=57 2>/dev/null | tr '\0' '\n' | grep -E '^(bootcmd|boot_normal|bootargs|bootdelay)='`
+  (U-Boot's built-in environment is plain text inside its binary). Paste the lines to the implementer; they hold no
+  secret. Also record the stock `bootcmd` from `tc100-3/env-stock.txt` if a card from a first install is available.
+- **Pass:** the built-in `bootcmd` (directly or through `boot_normal`) loads the kernel from the flash (`sf read` ...
+  `bootm`): the power-cut case is then covered; update `internals.md` and close this entry. If it does not, power-cut
+  recovery needs the serial console: say so in the install guide.
+
+### KRN-01 `ak_isp.awb_live` writable at run time (`[awb-live-rw]`, patch 0006) — `passed` (2026-11-12, .11 rc40: 0644 writable live, 5 s with `awb_live=1`, zero `division by zero` in `dmesg`, restored to 0)
+
+- **What:** `module_param(awb_live, int, 0644)` instead of `0444` (audit 2026-11-06 D3). The white balance code reads
+  it at every frame, so `echo 1 > /sys/module/ak_isp/parameters/awb_live` tries the ISP white balance on the live
+  statistics without a reboot, and `echo 0` goes back. Default unchanged (0). `ak39_vi.sub_channel` stays `0444`: the
+  driver never undoes it at stream start, so a run-time write would not do what it says.
+- **Switch:** none needed (default 0, as before); revert the commit to make it read-only again.
+- **Test:** boot the CI kernel from the SD card (`tc100test/c66.img`, RAM only, no flash write). Check
+  `ls -l /sys/module/ak_isp/parameters/awb_live` shows `-rw-r--r--` and the value `0`; picture as before. `echo 1`:
+  within a few seconds the colours change (blue cast expected, R15-01); `echo 0`: back to the usual tint. No kernel
+  message, no capture error, RTSP keeps running during both writes. With `awb_live=1`, also run
+  `dmesg | grep -i 'division by zero'`: `_calc_awb_gain()` divides by the pixel count of the current colour bin, guarded
+  only by `>= total_cnt_thresh` (patch 0006 ~l. 6582 / 6944); if the sensor configuration sets that threshold to 0, an
+  empty live bin logs this warning (ARM32: stack dump, no oops). Not introduced by this change (`ak_isp.awb_live=1` on
+  the command line already reached it); if seen, a one-line guard goes in a separate kernel change.
+- **Pass:** as above; only then is the kernel a candidate for the next flash update (owner's agreement).

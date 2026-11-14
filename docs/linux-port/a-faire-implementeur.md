@@ -1,13 +1,50 @@
-# Liste de l'implémenteur — état courant au 2026-11-12
+# Liste de l'implémenteur — état courant au 2026-11-14
 
 Les sections datées qui suivent sont des notes historiques des RC précédentes ; leurs cases non cochées ne forment pas
 à elles seules le backlog courant. L'état terrain ci-dessous et les entrées les plus récentes de `test-queue.md` font
 foi. La liste d'origine date de rc25 ; les audits des 3, 4 et 6 novembre sont des instantanés, pas des listes de tâches
 à jour.
 
+## Validé au 2026-11-14 — sujets clos, ne pas retravailler (rc43 `495609d` sur les deux caméras)
+Détail et chiffres : test-queue.md « State on 2026-11-14 » et les résultats datés du 14/11 en fin de fichier ; entrées
+closes déplacées dans test-queue-archive.md. Ces sujets sont terminés : ne pas les rouvrir sans nouvelle mesure qui les
+contredise.
+- [x] **3D-NR toujours active, `NR3D=1` par défaut** (décision du propriétaire du 14/11, option A) : 0 dépassement de jour
+  et de nuit sur les deux caméras, encore 0 en rc43 après démarrage et après reboot. `auto` et `0` restent acceptés.
+  Patch 0017 validé. Les 3895 dépassements de la .11 du 12/11 venaient d'un build antérieur à 0017 : point clos.
+- [x] **Jour / nuit méthode d'origine (`vendor`) avec `AWB_DAY_CNT=200000` par défaut** (décision du 14/11) : validé sur la .24
+  (soir sous lampe faible, nuit, aube), appliqué sur la .11 ; en rc43 les deux caméras en jour, comptes 0,4-1,0 M. IR-cut
+  592 / 593 par défaut de la carte. Le dossier frontier `daynight` est **sans objet** (question tranchée par la mesure).
+- [x] **Interface web compatible busybox 1.37 (CI Ubuntu 26.04) et 1.36 (caméra) :** `json_escape` caractère par
+  caractère sans `gsub`, `has_ip` de Frigate en recherche littérale, `-` en dernier dans la classe du chemin rapide.
+  Tests hôte sur les deux busybox, mawk, gawk ; sur caméra 12 + 17 réponses JSON valides, 6 cas spéciaux valides.
+- [x] **WEBUI-CACHE-01 côté caméra** (CGI, cache, jalon `web_ready`) : passé. Reste seulement le contrôle des onglets dans
+  le navigateur, par le propriétaire.
+- [x] **`reboot-tracker.sh` : raison du reboot + `daynight-last.log` sauvés avant le reboot** : passé sur les deux.
+- [x] **Compteurs Wi-Fi / USB en lecture seule (patchs 0020 / 0021) et `wifi-stall-watch.sh`** : branche `wifi-counters`
+  fusionnée dans `main` le 14/11 (sans conflit), dans la rc43 ; validés sur les deux caméras. Plus besoin de noyau
+  d'essai sur carte SD pour WIFI-STALL-01 (la section du 13/11 ci-dessous, point 1, est **close**).
+- [x] **Tests instables de la CI** (supervisord, mqttd, wq_now / route, retour audio « un seul à la fois ») : corrigés,
+  CI verte sur `bf84a38` et `495609d`.
+- [x] **Mise à jour web** (UPD-01 partie a) : rc41 -> rc42 -> rc43 par la page sur les deux caméras, config et clé SSH
+  conservées.
+
+### Encore ouvert au 2026-11-14 (par ordre de valeur)
+1. **WIFI-STALL-01 (.11) :** les compteurs montrent le chemin USB au repos pendant les blocages (hypothèse « URB coincées
+   dans le contrôleur » réfutée). Analyse Fable du 14/11 ([réponse](frontier/wifi-stall-2026-11-14-reponse.md)) : trou dans
+   le tampon de réordonnancement de la box après une perte silencieuse en A-MPDU, ou poignée de main ADDBA. **Proposé,
+   en attente de l'accord du propriétaire :** patch 0022 = interrupteur `ampdu_tx` (0644, défaut Y, coupe
+   `ieee80211_start_tx_ba_session()` dans `rtl8xxxu_tx()`) + compteurs 0444 `ba_tx_start/oper/stop`,
+   `tx_qos_data/tx_other` ; `wifi-try.sh ampdu_tx=0`. Le test à deux pings sur deux TID depuis le Mac n'est pas concluant
+   (marquage TOS perdu sur le chemin de la VM).
+2. **Patch 0003, `finish_request_epx`** (lecture de l'URB après la restitution) : correctif toujours à faire (point 2
+   ci-dessous).
+3. AWB-01 étape 3 (propriétaire : papier blanc, lampe à incandescence) ; UPD-01 (b) ; WIFI-TRY-01 / WIFI-TXATTEN /
+   WIFI-RXAGG sur une caméra ; mesures ENC-01 et AEC-01 ; HW-09 la nuit ; HRTIMER-01 (noyau sur carte SD seulement).
+
 ## Noyau d'essai Wi-Fi et défaut du patch 0003 (2026-11-13 après-midi, coordinateur)
 
-1. **Noyau d'essai `wifi-counters` (branche poussée, jamais fusionnée telle quelle sur `main`).** Patchs `0020`
+1. **[Clos le 14/11 : fusionné dans `main`, rc43, validé sur les deux caméras.]** **Noyau d'essai `wifi-counters` (branche poussée, jamais fusionnée telle quelle sur `main`).** Patchs `0020`
    (compteurs `0444` de `rtl8xxxu` : URB d'émission libres et minimum, arrêts / reprises des files mac80211, erreurs
    d'émission, `tx_last_ms`, URB de réception perdus / en vol) et `0021` (contrôleur USB `otg_hs` : NAK des transferts
    en masse par sens, âge du plus vieux transfert en attente par sens), script `scripts/wifi-stall-watch.sh`, mode
@@ -256,12 +293,13 @@ le fichier dans une nouvelle conversation, sans autre consigne que « réponds �
 
 | Dossier | Sujet | Taille | Prérequis | Statut |
 |---|---|---|---|---|
-| `daynight` | Bascule jour / nuit sans oscillation (item 21) : la méthode d'origine est-elle sûre, quelle règle par défaut, que devient `luma` | ~3 800 tokens | Nuits du 10/11 (`luma`, 44 bascules) et du 11/12 (`vendor`, 2 bascules ; filtre inversé de la .11) ([résumé](frontier/data/daynight-2026-11-12.md)) | **Prêt** (`brief.py daynight --data frontier/data/daynight-2026-11-12.md`) |
+| `daynight` | Bascule jour / nuit sans oscillation (item 21) : la méthode d'origine est-elle sûre, quelle règle par défaut, que devient `luma` | ~3 800 tokens | Nuits du 10/11 (`luma`, 44 bascules) et du 11/12 (`vendor`, 2 bascules ; filtre inversé de la .11) ([résumé](frontier/data/daynight-2026-11-12.md)) | **Sans objet (14/11)** : tranché par la mesure, `vendor` + `AWB_DAY_CNT=200000` par défaut en rc43 |
 | `nr` | Réduction du bruit (`DENOISE`) : structures NR1 / NR2, GET / SET, étirement des courbes, copie de base périmée | ~3 500 tokens | Aucun ; utile avant le test HW-09 | **Répondu le 11/11, vérifié** : 1 défaut corrigé (queue de courbe à +50), 5 hypothèses écartées par le code, échelle à décider ([bilan](frontier/nr-2026-11-11.md)) |
 | `talk` | Retour audio : courses et verrou du haut-parleur dans `talk.c`, le test instable seulement contourné | ~5 200 tokens | Aucun | **Répondu le 11/11, vérifié** : cause du test instable trouvée et corrigée, 5 défauts corrigés (dont aplay lancé sans verrou après SIGTERM), 2 notés ([bilan](frontier/talk-2026-11-11.md)) |
 | `cgi` | Entrées des formulaires : analyse en `F_*`, CSRF, limite de débit, import de configuration | ~6 000 tokens | Aucun | **Répondu le 11/11, vérifié** : 5 défauts corrigés dont un GET qui redémarrait la caméra, plus un trou trouvé en vérifiant (code shell possible dans `notify.conf` par l'import) ([bilan](frontier/cgi-2026-11-11.md)) |
 | `rtsp` | Programme vidéo : 6,5 % de CPU du fil principal qui ne suit pas le nombre d'images (micro, réveils, tâches à la seconde), coût système par paquet RTP, défauts de page par image | ~7 300 tokens | Relevé du 11/11 ([résumé](frontier/data/rtsp-2026-11-11.md)) ; mieux après une ligne `PROF` (relance de `tc100_rtsp` avec `RTSP_PROFILE=1`, accord du propriétaire) | **Répondu le 11/11, vérifié** : micro traité sans utilisateur (confirmé, correctif après mesure), 2 copies par paquet RTP (confirmé), attente par paquet écartée ; 4 mesures à faire avec accord ([bilan](frontier/rtsp-2026-11-11.md)) |
 | `background` | Scripts de fond : 78 à 100 nouveaux processus par minute, ~3-4 % de CPU invisible ; compter les forks par tâche et les retirer sans changer les sorties | ~9 000 tokens | Relevé du 11/11 ([résumé](frontier/data/background-2026-11-11.md)) | **Répondu le 11/11, vérifié** : ~13 forks par minute retirés de `wifi-quality.sh` et `wifi-roam.sh` (sorties identiques, testées) ; `health-snapshot.sh` et le pont MQTT à reprendre ([bilan](frontier/background-2026-11-11.md)) |
+| `wifi-stall` (hors `brief.py`) | Blocage d'émission Wi-Fi de 4-5 s de la .11 : où les trames attendent-elles, avec les compteurs 0020 / 0021 | sources v6.6 + [données](frontier/data/wifi-stall-counters-2026-11-14.md) | Compteurs de la rc43 | **Répondu le 14/11** (Fable 5.2, lecture seule) : tampon de réordonnancement de la box ou ADDBA, interrupteur `ampdu_tx` proposé ([réponse](frontier/wifi-stall-2026-11-14-reponse.md)) ; à tester |
 
 **Ce qu'on ne confie pas à ce modèle :** le câblage d'un réglage dans plusieurs fichiers, la doc, les tests, la CI,
 l'exploration du dépôt, les sessions caméra. Ce travail est mécanique et l'implémenteur le fait pour bien moins cher.
