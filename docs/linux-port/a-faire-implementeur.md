@@ -34,11 +34,17 @@ contredise.
   blocages en 5,7 min (jusqu'à 4,8 s). Les sessions BlockAck d'émission de la caméra sont la cause. **À décider par le
   propriétaire :** `ampdu_tx=0` par défaut (réglage boot.conf appliqué avant l'association Wi-Fi) ; ensuite seulement,
   l'implémenteur l'écrit, avec migration.
-- [ ] **OVERCLOCK-01 : le cœur ARM n'est pas accéléré.** SYSCTRL 0x08 règle le domaine vclk / ASIC (120 → 127,5 MHz) ; la
+- [x] **OVERCLOCK-01 : abandonné (décision du propriétaire du 14/11 14:52, « aucun gain réel = inutile ») ; campagne arrêtée sur la .11 (480 MHz, `OVERCLOCK_AUTO=0`). Ne pas reprendre sans un gain mesuré.** Constat : le cœur ARM n'est pas accéléré. SYSCTRL 0x08 règle le domaine vclk / ASIC (120 → 127,5 MHz) ; la
   PLL CPU (0x04 = 0x410013C8 = 400 MHz) ne bouge pas : boucle CPU identique à la .24, encodeur -1 %. La campagne augmente
   le risque côté périphériques sans gain mesuré, et `bogomips_now` ne peut rien voir (étalonné avant l'initcall). À revoir
   avant de poursuivre : nommer correctement la PLL dans 0001 et `overclock-step`, mesurer un vrai gain (enc_ms, ISP) ou
   étudier la PLL CPU (0x04) avec le code d'origine.
+- [ ] **Balance des blancs de la .11 : cause trouvée (14/11 13:53 UTC).** Même avec notre boucle coupée (`awb.off`), l'AWB
+  interne de l'ISP saute de région d'illuminant toutes les ~2 s (9, 7, 6, 4, 3, 2, 1) : éclairage mixte à la frontière de
+  deux températures de couleur ; la .24 reste sur la région 0. Notre boucle ne faisait que poursuivre ces sauts. À faire :
+  hystérésis ou ralentissement de l'AWB de l'ISP (vitesse / plage stable / poids des régions, fichier de tuning ou
+  `AK_ISP_SET_AWB`), ou figer l'AWB de l'ISP une fois stable et laisser notre boucle corriger finement. Vérifier d'abord
+  la .11 avec AWB-03.
 - [x] **AWB-03 écrit (14/11) : attente de 2 mesures après un changement, moyenne de 2, demi-pas ; simulé sans dépassement ; à vérifier sur la .11.** Constat d'origine — **AWB-02 : la boucle oscille encore sur la .11** (erreur u/v qui change de signe presque à chaque mesure, gains
   modifiés 20 fois en 40 s) : pas proportionnel trop fort pour le retard d'une mesure de l'ISP ; diviser le pas ou
   n'agir qu'une mesure sur deux, puis revérifier.

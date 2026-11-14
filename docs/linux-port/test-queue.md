@@ -3487,3 +3487,24 @@ Status: `failed on the .11 2026-11-14`: still oscillates on a static scene (resu
   main from this commit: until the .11 gets a build with it, a reboot of the .11 comes back with `ampdu_tx=Y`.
 - **AWB fix (yes):** AWB-03 above.
 - **Overclock (question):** see the .11 overclock-build results above: the step changes the vclk / ASIC PLL, not the CPU.
+
+### White balance: why the .11 pumps and the .24 is steady (2026-11-14 13:53 UTC; owner: the .24 tint is now normal and stable)
+- `/tmp/cam_awb` sampled 1 s apart. **.24** (main rc43 code): the ISP's own AWB stays on illuminant region `idx=0`, its
+  statistics drift slowly, our extra gains stay at `rex=262 bex=554`, error `u/v` +-1. **.11** (AWB-02 code): `idx`
+  jumps between 9, 7, 2 and 0 every ~2 s and the statistics flip between two groups (~520k / 951k / 93k and
+  ~472k / 1000k / 115k): the scene sits on the border of two colour-temperature regions (mixed lighting).
+- **Decisive check:** our loop switched off for 30 s (`touch /mnt/config/awb.off`, gains 256 / 256, then removed): the ISP's
+  `idx` still jumped between 9, 7, 6, 4, 3, 2, 1. **The ISP's internal AWB is unstable on the .11's lighting; our loop
+  chased its jumps** (and with AWB-02's step and no wait, overshot them).
+- **Consequence for AWB-03:** waiting + averaging stops our loop from amplifying the jumps, but the ISP's own steps
+  remain. Next (implementer): give the ISP's AWB hysteresis or slow it down (vendor AWB attributes: speed / stable
+  range / region weights in the tuning file or `AK_ISP_SET_AWB`), or freeze it once settled (manual ISP AWB at the
+  current gains) and let our loop do the fine correction. Check the .11 after AWB-03 first.
+
+### Overclock stopped on the .11 (owner's decision 2026-11-14 14:52 local: no real gain, so useless)
+- `overclock-step set off` at 13:54 UTC: `mode=off`, `failed_reason=manual_off`, SYSCTRL 0x08 back to `0x010213F0`
+  (480 / ASIC 120 MHz, read with devmem), `OVERCLOCK_AUTO=0`, `OVERCLOCK_TARGET_MHZ=480` in boot.conf (backup
+  `boot.conf.bak-overclock`), stream unaffected (`dropped 0`).
+- Defect for the `overclock` branch: after the live switch back to 480 the microphone ADC reads `adc_hz 8012.82`
+  against `dac_hz 8000.00` (`skew_ppm -1600`): the ADC2 divider of the live path is not the one of a 480 MHz boot. Gone at
+  the next reboot. Not worth fixing unless the branch goes on.
