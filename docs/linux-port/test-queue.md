@@ -3454,6 +3454,21 @@ Mac VM `ping -i 0.5` to the .11, ~8.5 min per run, a stall = a reply later than 
   (VBR), 25 fps, GOP 50, QP 25-48`; mean of 12 STAT lines 1584 / 1576 kbit/s on the indoor day scene (at the ceiling).
   GOP 50 instead of `goplen=64`: intended, `rtsp-launch.sh` ignores the pre-3.0.1 shipped values 64 / 32 (GOP 2 s).
 
+### AWB-04 ISP colour-temperature hysteresis (`[awb]`, `tc100_rtsp.c` `awb_attr_apply()`) — `to test`
+- **Why:** owner, 2026-11-14 19:18 local: the tint still cycles on both cameras (rc44). Our loop was calm (.24: 8 changes of 1-2
+  units a minute, error +-2) but the ISP's own AWB changed region 25 times a minute (.11: 6, 2, 9, 1, 0, 5...; .24: 1, 8,
+  0, 6, 4), and each region change also switches the colour matrix. Both tuning files set `colortemp_stable_cnt_thresh`
+  = 2 (AK_ISP_GET_AWB, read with a test tool): a region wins after 2 frames with a 12 % majority (the same field is the
+  frame count and the margin `(128 + n + 13) / 128`, driver patch 0006).
+- **Live test (`awbattr set 60`, no restart, nothing written):** .11 25 region changes / min -> **0** (60 / 60 samples on
+  one region); .24 -> **0**. Our loop's gain changes unchanged (small steps).
+- **What:** `tc100_rtsp` raises the field to `RTSP_ISP_AWB_STABLE` (default 60, 0 = the tuning file's; never lowers it) at
+  start and checks it every 10 s (the ISP reloads its tuning with the day / night parameter set). Log once: `white
+  balance: ISP colour-temperature hysteresis 2 -> 60 frames`.
+- **Test:** both cameras, evening lamp light and daylight: `/tmp/cam_awb` field 11 for 5 min (a change only when the light
+  really changes), the owner looks at the picture (no tint cycle); switch a lamp on / off: the colour follows within a few
+  seconds; dawn / dusk: no stuck tint. **Pass:** no visible cycle, at most a few region changes an hour on a steady light.
+
 ### AWB-03 White balance loop: wait for the ISP, decide on a mean, half step (`[awb]`, `tc100_rtsp.c` `post_awb_sample()`) — `partly passed 2026-11-14 (.11): half the gain changes, gains 4-8x steadier; the ISP's own AWB still jumps`
 - **Why:** AWB-02 on the .11 (2026-11-14): on a still scene the error changed sign at nearly every sample and the gains moved 20
   times in 40 s. A simulation of an ISP that shows a gain change 2-3 samples later reproduces it with the AWB-02 code

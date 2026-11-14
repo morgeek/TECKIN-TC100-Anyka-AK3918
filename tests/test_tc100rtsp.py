@@ -2045,6 +2045,7 @@ static void awb_hw_init(void) {}
 static int awb_hw_set(void) { hw_writes++; return 0; }
 static void awb_state_save(void) { state_saves++; }
 static void post_luts(void) {}
+static void awb_attr_apply(void) {}
 """ + fn + r"""
 static unsigned char frame[64 * 64 * 3 / 2];
 static void fill(int y, int u_lo, int u_hi, int v)
@@ -2109,6 +2110,25 @@ int main(void)
         self.assertIn('WAKE hw=1 b=551', out)
         self.assertIn('LUMA_FREEZE hw=0', out)
         self.assertIn('PLANT flips=0 converged=1', out)
+
+
+class IspAwbHysteresis(unittest.TestCase):
+    """AWB-04 (2026-11-14): the ISP's colour-temperature hysteresis raised to RTSP_ISP_AWB_STABLE (default 60)."""
+
+    def test_raised_at_start_and_rechecked(self):
+        src = (SRC / 'tc100_rtsp.c').read_text()
+        self.assertIn('#define ISP_GET_AWB _IOR(\'I\', 86, int)', src)
+        self.assertIn('#define ISP_SET_AWB _IOW(\'I\', 85, int)', src)
+        self.assertIn('static int awb_stable_want = 60;', src)
+        self.assertIn('getenv("RTSP_ISP_AWB_STABLE")', src)
+        fn = src[src.index('static void awb_attr_apply(void)'):src.index('static void awb_state_load(void)')]
+        self.assertIn('a.stable >= awb_stable_want) return;', fn)	# never lowers what the tuning file asks
+        init = src[src.index('awb_hw = 1;\n'):][:200]
+        self.assertIn('awb_attr_apply();', init)
+        self.assertIn('if (++chk >= 20) { chk = 0; awb_attr_apply(); }', src)
+        # the structure is the driver's: 16 + 3 + 6 * 10 + 3 + 10 shorts
+        self.assertEqual(16 + 3 + 6 * 10 + 3 + 10, 92)
+
 
 if __name__ == '__main__':
     unittest.main()

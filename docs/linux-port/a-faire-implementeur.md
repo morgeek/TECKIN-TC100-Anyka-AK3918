@@ -39,6 +39,10 @@ micro inactif sans DSP, MQTT / présence sans fork). Mesurer avant / après sur 
   appel, 0 fork, JSON identique.
 
 ### 2. Qualité d'image : balance des blancs de l'ISP (.11) et image de nuit
+- **14/11 19:30 : cause du cycle de teinte restant sur les DEUX caméras trouvée et corrigée (AWB-04).** Le fichier de tuning
+  fixe `colortemp_stable_cnt_thresh` = 2 : l'ISP changeait de région d'illuminant (et de matrice de couleurs) 25 fois par
+  minute sous lampe. Passé à 60 en direct sur les deux caméras : 0 changement. `tc100_rtsp` l'applique désormais
+  (`RTSP_ISP_AWB_STABLE`, défaut 60). À valider sur l'image par le propriétaire avec la prochaine build.
 - **MIS À JOUR 14/11 soir : cause principale trouvée, le filtre IR-cut de la .11 n'était pas en position jour** (image
   magenta, RGB 125/81/109 ; une impulsion jour → 93/99/103, neutre). Correctif : réaffirmation du filtre toutes les 30 min
   (`scripts/ircut-reassert.sh`, `IRCUT_REASSERT_MIN`, b653072). Reste : vérifier sur la .11 avec une build qui contient

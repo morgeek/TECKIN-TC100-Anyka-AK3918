@@ -550,6 +550,32 @@ static int awb_hw = -1, awb_fd = -1, ex_r = 256, ex_b = 256;	/* awb_hw: -1 not t
 static int awb_max = 1536, awb_grey = 1, awb_state_on = 1, awb_saved_r = 256, awb_saved_b = 256, awb_last_tu, awb_last_tv;
 static struct isp_awb_ex awb0;
 
+/* AWB-04 (2026-11-14): the ISP's own white balance changed its colour-temperature region (and with it the colour matrix)
+ * after only 2 frames of a 12 % majority (tuning file: colortemp_stable_cnt_thresh 2): under lamp or mixed light it jumped
+ * between regions 25 times a minute, the tint cycle the owner saw on both cameras. That one field is both the frame count
+ * and the majority margin ((128 + n + 13) / 128); n = 60 kept both cameras on one region for minutes (live test). It is
+ * raised to RTSP_ISP_AWB_STABLE (default 60, 0 = keep the tuning file's) at start and checked every 10 s, because the ISP
+ * loads its tuning again when the day / night parameter set changes. */
+struct isp_awb_attr {
+	unsigned short g_weight[16], y_low, y_high, err_est, gr_low[10], gb_low[10], gr_high[10], gb_high[10], rb_low[10],
+		rb_high[10], auto_wb_step, total_cnt_thresh, stable, envi[10];
+};
+#define ISP_SET_AWB _IOW('I', 85, int)
+#define ISP_GET_AWB _IOR('I', 86, int)
+static int awb_stable_want = 60;
+static void awb_attr_apply(void)
+{
+	struct isp_awb_attr a;
+	static int logged;
+
+	if (awb_fd < 0 || awb_stable_want <= 0) return;
+	memset(&a, 0, sizeof a);
+	if (ioctl(awb_fd, ISP_GET_AWB, &a) < 0 || a.stable >= awb_stable_want) return;
+	if (!logged++) LOG("white balance: ISP colour-temperature hysteresis %u -> %d frames\n", a.stable, awb_stable_want);
+	a.stable = (unsigned short)awb_stable_want;
+	ioctl(awb_fd, ISP_SET_AWB, &a);
+}
+
 static void awb_state_load(void)
 {
 	FILE *f;
@@ -608,6 +634,7 @@ static void awb_hw_init(void)
 	if (em && *em) { int m = atoi_(em); if (m >= 256 && m <= 4096) awb_max = m; }
 	if (eg && eg[0] == '0') awb_grey = 0;
 	if (es && es[0] == '0') awb_state_on = 0;
+	{ const char *ea = getenv("RTSP_ISP_AWB_STABLE"); if (ea && *ea) { int n = atoi_(ea); if (n >= 0 && n <= 1000) awb_stable_want = n; } }
 	awb_hw = 0;
 	if (e && e[0] == '0') return;	/* RTSP_ISPAWB=0: software white balance */
 	if ((awb_fd = open("/dev/isp_char", O_RDWR)) < 0 || ioctl(awb_fd, ISP_GET_AWB_EX, &awb0) < 0) {
@@ -624,6 +651,7 @@ static void awb_hw_init(void)
 	awb_state_load();
 	if (awb_hw_set() < 0) { LOG("white balance: the ISP refused its extra gains: software\n"); close(awb_fd); awb_fd = -1; return; }
 	awb_hw = 1;
+	awb_attr_apply();
 	p_du = p_dv = 0; post_luts();
 	LOG("white balance: in the ISP (extra gains max %d, grey filter %d, tuning file %s)\n",
 	    awb_max, awb_grey, awb0.c[0].rmax == 0xffff ? "without them" : "with them");
@@ -1304,6 +1332,7 @@ static void post_awb_sample(const unsigned char *uv, int bw)
 		/* AWB-03 (2026-11-14): the ISP shows a gain change only two or three samples later. Acting on every sample
 		 * overshot and kept the tint pumping on the .11 (error changing sign at nearly every sample, gains moved 20
 		 * times in 40 s): after a change, wait AWB_HOLD samples, and move half as far (the step below is /512). */
+		{ static int chk; if (++chk >= 20) { chk = 0; awb_attr_apply(); } }	/* every 10 s (AWB-04) */
 		if (hold > 0) { hold--; return; }
 		/* and decide on the mean of AWB_AVG samples: the error of a still scene wanders by +-4 from one sample to the
 		 * next, more than the +-3 lock below */
