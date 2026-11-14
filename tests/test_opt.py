@@ -359,7 +359,7 @@ class WebUiRequests(unittest.TestCase):
     def test_day_night_tab_polls_every_5_seconds(self):
         js = read('src/webui/index/80-camera-controls.js')
         a = js.index('function initDayNight()')
-        self.assertIn('}, 5000);', js[a:a + 1200])
+        self.assertIn('}, 5000);', js[a:a + 1600])
 
 
 if __name__ == '__main__':

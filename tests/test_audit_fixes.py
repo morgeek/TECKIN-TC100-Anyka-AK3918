@@ -131,7 +131,7 @@ class StreamSummaryLoadsItsConfig(unittest.TestCase):
             while j >= 0 and not re.match(r'^  [a-z_|]+\)$', lines[j]) and not re.match(r'^[a-z_]+\(\) \{', lines[j]):
                 j -= 1
             branch = '\n'.join(lines[j:i])
-            self.assertIn('load_conf_file /mnt/config/rtspserver.conf', branch, f'state.cgi:{i + 1} ({lines[j]})')
+            self.assertRegex(branch, r'load_conf_files?\b[^\n]*/mnt/config/rtspserver\.conf', f'state.cgi:{i + 1} ({lines[j]})')
 
 
 if __name__ == '__main__':

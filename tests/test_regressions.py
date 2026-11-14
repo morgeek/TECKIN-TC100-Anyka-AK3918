@@ -1689,17 +1689,19 @@ class CameraPanel(unittest.TestCase):
         html = (ROOT / 'www/index.html').read_text()
         nav = html.split('id="common_nav"')[1].split('navbar-end')[0]
         self.assertLess(nav.index('id="dashboard_nav"'), nav.index('id="home_nav"'))
-        # menus by use (2026-11-03): Image (live picture), Settings, Tools
-        image = nav.split('<span>Image</span>')[1].split('<span>Settings</span>')[0]
-        for tab in ('tab-image', 'tab-overlay', 'tab-daynight'):
-            self.assertIn('data-tab="%s"' % tab, image)
-        settings_menu = nav.split('<span>Settings</span>')[1].split('<span>Tools</span>')[0]
-        for tab in ('tab-video', 'tab-detect', 'tab-record', 'tab-notify', 'tab-network', 'tab-integrations', 'tab-system'):
-            self.assertIn('data-tab="%s"' % tab, settings_menu)
+        # menus by pole: Watch, Camera, Automation, Tools
+        camera = nav.split('<span>Camera</span>')[1].split('<span>Automation</span>')[0]
+        for tab in ('tab-image', 'tab-overlay', 'tab-daynight', 'tab-video'):
+            self.assertIn('data-tab="%s"' % tab, camera)
+        automation = nav.split('<span>Automation</span>')[1].split('<span>Tools</span>')[0]
+        for tab in ('tab-detect', 'tab-record', 'tab-notify', 'tab-integrations'):
+            self.assertIn('data-tab="%s"' % tab, automation)
         tools = nav.split('<span>Tools</span>')[1]
-        for page in ('data-tab="tab-backup"', 'id="services"', 'id="diagnostics"', 'id="logs"', 'id="configeditor"', 'cmd=reboot'):
+        for page in ('data-tab="tab-system"', 'data-tab="tab-network"',
+                     'data-tab="tab-memory"', 'data-tab="tab-backup"', 'id="services"', 'id="diagnostics"',
+                     'id="logs"', 'id="configeditor"', 'cmd=reboot'):
             self.assertIn(page, tools)
-        self.assertLess(nav.index('id="home_nav"'), nav.index('<span>Image</span>'))
+        self.assertLess(nav.index('id="home_nav"'), nav.index('<span>Camera</span>'))
         # every settings deep link names a section that exists
         settings = (ROOT / 'www/settings.html').read_text()
         for tab in re.findall(r'data-tab="([^"]+)"', nav):

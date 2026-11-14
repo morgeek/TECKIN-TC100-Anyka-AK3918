@@ -649,7 +649,7 @@ class RemoteShells(unittest.TestCase):
             (cfg / 'autostart' / f).write_text('x')
         if marker:
             (cfg / '.services_ssh_done').write_text('')
-        code = a[i:j].replace('/mnt/config', str(cfg))
+        code = 'bt() { :; }\n' + a[i:j].replace('/mnt/config', str(cfg))
         r = subprocess.run(SH + ['-c', code], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
         return cfg

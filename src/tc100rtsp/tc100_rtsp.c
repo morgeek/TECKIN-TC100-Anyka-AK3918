@@ -198,7 +198,14 @@ static void *fe_p_open(const struct venc_param *pa)
 	fe_set_vbr(e, (int)pa->rc_vbr);		/* rtspserver.conf [0] vbr: the kbit/s is then a ceiling (rc.h) */
 	if (pa->rc_vbr) {
 		const char *vq = getenv("RTSP_VBR_QP");
-		int vqp = (vq && *vq) ? atoi(vq) : 33;	/* 0 = legacy qmin+2 (27); 33 lets still scenes drop below ceiling */
+		int vqp = 33;	/* 0 = legacy qmin+2 (27); 33 lets still scenes drop below ceiling */
+
+		if (vq && *vq) {
+			int acc = 0, ok = 0;
+
+			for (const char *p = vq; *p >= '0' && *p <= '9'; p++) { acc = acc * 10 + (*p - '0'); ok = 1; }
+			if (ok) vqp = acc;
+		}
 		fe_set_vbr_qp(e, vqp);
 	}
 	LOG("free encoder: %s %dx%d (source stride %d), %u kbit/s %s, %u fps, GOP %d, QP %u-%u (vbr_qp %d)\n", hevc ? "H.265" : "H.264",
