@@ -1240,11 +1240,11 @@ static void osd_tick(void)
 }
 
 #ifndef AWB_HOLD
-#define AWB_HOLD 2	/* samples to wait after a gain change before measuring again (AWB-03) */
+#define AWB_HOLD 4	/* samples (0.5 s each: 2 s) to wait after a gain change before measuring again (AWB-03) */
 #endif
 #define AWB_SETTLE 3	/* good decisions in a row (AWB_AVG samples each) before the gains are locked */
 #ifndef AWB_AVG
-#define AWB_AVG 2	/* samples averaged for one decision (AWB-03) */
+#define AWB_AVG 4	/* samples averaged for one decision (2 s: longer than the ~2 s jumps of the ISP's own AWB on the .11) */
 #endif
 static void post_awb_sample(const unsigned char *uv, int bw)
 {

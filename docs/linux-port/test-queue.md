@@ -3426,8 +3426,8 @@ Mac VM `ping -i 0.5` to the .11, ~8.5 min per run, a stall = a reply later than 
 - **Why:** AWB-02 on the .11 (2026-11-14): on a still scene the error changed sign at nearly every sample and the gains moved 20
   times in 40 s. A simulation of an ISP that shows a gain change 2-3 samples later reproduces it with the AWB-02 code
   (delay 3: endless oscillation, b 370..853).
-- **What:** after a gain change, the next `AWB_HOLD`=2 samples are not acted on; a decision uses the mean of `AWB_AVG`=2
-  samples; the proportional step is halved (/512); the lock needs `AWB_SETTLE`=3 good decisions (6 samples). Fine
+- **What:** after a gain change, the next `AWB_HOLD`=4 samples (0.5 s each: 2 s) are not acted on; a decision uses the mean of
+  `AWB_AVG`=4 samples (2 s, longer than the ~2 s jumps of the ISP's own AWB); the proportional step is halved (/512); the lock needs `AWB_SETTLE`=3 good decisions (6 samples). Fine
   +-1 steps, rounding, luma-jump freeze and the +-3 lock of AWB-02 are kept. Simulated (delay 1-3, noise +-4): no
   overshoot, gains within b 591..599 / r 347..358 after convergence, 20 small writes per 100 samples (AWB-02 code: 95-99,
   b 568..630 or 370..853). Slower start: ~30-50 s from a large error (lamp switched), acceptable for AWB.
@@ -3508,3 +3508,12 @@ Status: `failed on the .11 2026-11-14`: still oscillates on a static scene (resu
 - Defect for the `overclock` branch: after the live switch back to 480 the microphone ADC reads `adc_hz 8012.82`
   against `dac_hz 8000.00` (`skew_ppm -1600`): the ADC2 divider of the live path is not the one of a 480 MHz boot. Gone at
   the next reboot. Not worth fixing unless the branch goes on.
+
+### AWB-03 first try on the .11 (2026-11-14 13:58-14:01 UTC, CI build of 0097192, binary in RAM, stock server restored)
+- `tc100_rtsp` of 0097192 (`AWB_HOLD`=2, `AWB_AVG`=2) run in place of the stock one for 120 s, same arguments, stream kept
+  (`cap 122-124 / 5 s`, `dropped 0`), then the stock server restarted (md5 back to the installed one).
+- Same scene: stock (AWB-02) 13 gain changes in 30 s (26 / min), test 57 in 120 s (28.5 / min); ISP `idx` 0..9 during the
+  test. **No improvement**: the loop runs every 0.5 s (`t_awb` 0.5 s in the capture loop), so 2 + 2 samples = 1 s each,
+  shorter than the ~2 s period of the ISP's own jumps (the simulation had assumed one sample = one 2 s `/tmp/cam_awb` line).
+- **Change:** `AWB_HOLD`=4 and `AWB_AVG`=4 (2 s each): a decision averages over at least one ISP jump. To try again the
+  same way with the next CI build. If the gains still move, the remaining fix is on the ISP's own AWB (above).

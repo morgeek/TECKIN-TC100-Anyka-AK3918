@@ -2008,7 +2008,7 @@ class Sources(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('gcc'), 'needs gcc')
     def test_awb_hysteresis_and_symmetric_rounding(self):
-        # AWB-02 (rounding, unit steps near zero, lock) + AWB-03 (2026-11-14: wait AWB_HOLD samples after a change,
+        # AWB-02 (rounding, unit steps near zero, lock) + AWB-03 (2026-11-14: wait AWB_HOLD samples (0.5 s each) after a change,
         # decide on the mean of AWB_AVG samples, half step): the .11 kept pumping, the error changed sign at nearly
         # every sample because the ISP shows a change only 2-3 samples later
         src = (SRC / 'tc100_rtsp.c').read_text()
@@ -2050,24 +2050,25 @@ int main(void)
 	/* 1. symmetric rounding: 80 % 128 + 20 % 126 -> 0; then 80 % 127 + 20 % 126 -> -1; mean of the two: no change */
 	feed(1, 120, 128, 126, 128); printf("ROUND_A tu=%d hw=%d\n", awb_last_tu, hw_writes);
 	feed(1, 120, 127, 126, 128); printf("ROUND_B tu=%d hw=%d b=%d\n", awb_last_tu, hw_writes, ex_b);
+	feed(AWB_AVG - 2, 120, 128, 128, 128);	/* completes that first decision: mean 0, no change */
 	/* 2. -2 twice: one unit step */
-	feed(2, 120, 126, 126, 128); printf("DAMP hw=%d b=%d\n", hw_writes, ex_b);
+	feed(AWB_AVG, 120, 126, 126, 128); printf("DAMP hw=%d b=%d\n", hw_writes, ex_b);
 	/* 3. the AWB_HOLD samples after a change are not acted on, whatever they read */
-	feed(2, 120, 148, 148, 108); printf("HOLD hw=%d b=%d r=%d\n", hw_writes, ex_b, ex_r);
+	feed(AWB_HOLD, 120, 148, 148, 108); printf("HOLD hw=%d b=%d r=%d\n", hw_writes, ex_b, ex_r);
 	/* 4. three good decisions (6 samples) -> settled, saved, no write */
-	hw_writes = 0; feed(6, 120, 129, 129, 127); printf("SETTLED saves=%d hw=%d\n", state_saves, hw_writes);
+	hw_writes = 0; feed(AWB_SETTLE * AWB_AVG, 120, 129, 129, 127); printf("SETTLED saves=%d hw=%d\n", state_saves, hw_writes);
 	/* 5. +-3 noise keeps the lock */
-	for (i = 0; i < 4; i++) { int u = (i % 2) ? 131 : 125, v = (i % 2) ? 125 : 131; feed(1, 120, u, u, v); }
+	for (i = 0; i < 2 * AWB_AVG; i++) { int u = (i % 2) ? 131 : 125, v = (i % 2) ? 125 : 131; feed(1, 120, u, u, v); }
 	printf("LOCKED hw=%d b=%d\n", hw_writes, ex_b);
 	/* 6. a mean error of 4 wakes the loop: half step */
-	feed(2, 120, 132, 132, 128); printf("WAKE hw=%d b=%d\n", hw_writes, ex_b);
+	feed(AWB_AVG, 120, 132, 132, 128); printf("WAKE hw=%d b=%d\n", hw_writes, ex_b);
 	/* 7. luma jump > 25: that sample is skipped */
-	feed(2, 120, 128, 128, 128); feed(6, 120, 128, 128, 128); hw_writes = 0;
+	feed(AWB_HOLD, 120, 128, 128, 128); feed(AWB_SETTLE * AWB_AVG, 120, 128, 128, 128); hw_writes = 0;
 	feed(1, 155, 140, 140, 128); printf("LUMA_FREEZE hw=%d\n", hw_writes);
 	/* 8. an ISP that shows a gain change 3 samples later (the .11): converges without one overshoot */
 	ex_r = 390; ex_b = 650;
 	for (i = 0; i < 8; i++) { hb[i] = ex_b; hr[i] = ex_r; }
-	for (i = 0; i < 60; i++) {
+	for (i = 0; i < 200; i++) {
 		int bs = hb[(hn + 8 - 3) % 8], rs = hr[(hn + 8 - 3) % 8];
 		int tu = (int)(0.33 * (bs - 600)), tv = (int)(0.33 * (rs - 350));
 		fill(120, 128 + tu, 128 + tu, 128 + tv); post_awb_sample(frame + W * H, 0);
@@ -2076,7 +2077,7 @@ int main(void)
 		if (tu) last = tu;
 		if (ok < 0 && tu >= -2 && tu <= 2 && tv >= -2 && tv <= 2) ok = i;
 	}
-	printf("PLANT flips=%d converged=%d\n", flips, ok >= 0 && ok < 40);
+	printf("PLANT flips=%d converged=%d\n", flips, ok >= 0 && ok < 160);
 	return 0;
 }
 """
