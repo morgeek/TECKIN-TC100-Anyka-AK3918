@@ -9,8 +9,13 @@ Everything in 3.0.1-rc43 below, plus:
   polling stopped on page leave / hidden tab (`multiview.html`, `AbortController` on camera/day-night polls); smooth
   click-to-dismiss toast; 15 s `fullconfig` cache on Settings revisit (invalidated on save), `/` and `Ctrl/Cmd+K` search
   shortcut, and auto-opening matching advanced `<details>` sections during search.
-- **Native `httpfront` polls (`NATIVE-02`):** `tc100-httpfront` answers `daynight` and `hw_state` polls directly in C
-  without spawning CGI shells.
+- **Native `httpfront` polls (`NATIVE-02`):** `tc100-httpfront` answers `daynight`, `hw_state`, and fresh `health.cgi`
+  snapshot cache hits directly in C without spawning CGI shells.
+- **VBR quality QP (`RTSP_VBR_QP`, default `33`):** configurable quality floor in `rc.h` / `tc100_rtsp` so VBR drops
+  bitrate on calm scenes instead of staying pinned at the ceiling (`RTSP_VBR_QP=0` reverts to `qmin + 2`).
+- **Boot & CGI speedups:** symlink `tc100_rtsp` instead of copying to RAM in flash mode, start RTSP before `/tmp/www`
+  symlinks, skip redundant `rwconf` credential writes at boot, batch-load `state.cgi` configs in a single `awk` pass
+  (`load_conf_files`), and avoid reverse DNS lookups (`netstat -n`) + repeated `/proc/net/tcp` reads in `network.cgi`.
 - **Wi-Fi & Kernel (patches 0022 / 0023):** Anyka OTG host no longer reads the URB after giveback; `rtl8xxxu` runtime
   `ampdu_tx` switch and BlockAck counters; `WIFI_AMPDU_TX=0` default (0 stalls on `WIFI-STALL-01`).
 - **IR-cut & AWB:** periodic IR-cut position re-assertion (`IRCUT_REASSERT_MIN`) and closed-loop AWB tint oscillation

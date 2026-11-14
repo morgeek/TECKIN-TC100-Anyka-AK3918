@@ -161,10 +161,10 @@ load_conf_files() {
   done
   [ -n "$_lcfs_list" ] || return 0
   if command -v awk >/dev/null 2>&1; then
-    _lcfs_out="$(awk '
+    _lcfs_out="$(awk -v fskip="${LOAD_CONF_FRIGATE_SKIP:-0}" '
       FNR == 1 {
         sec = ""
-        skip = ((FILENAME ~ /\/(recording|telegram)\.conf$/) && vals["INTEGRATION_PROFILE"] == "frigate_ha")
+        skip = (fskip == 1 && (FILENAME ~ /\/(recording|telegram)\.conf$/) && vals["INTEGRATION_PROFILE"] == "frigate_ha")
       }
       skip { next }
       {
@@ -1077,10 +1077,7 @@ if [ -n "$F_cmd" ]; then
       web_motion_thumbnail_url="${web_base_url}/cgi-bin/motionthumb.cgi"
     fi
 
-    load_conf_file /mnt/config/rtspserver.conf   # read_rtsp_stream_summary reads the C_* variables it sets
-    load_conf_file /mnt/config/boot.conf
-    load_conf_file /mnt/config/onvif.conf
-    load_conf_file /mnt/config/mqtt.conf
+    load_conf_files /mnt/config/rtspserver.conf /mnt/config/boot.conf /mnt/config/onvif.conf /mnt/config/mqtt.conf
     read_rtsp_stream_summary
     manifest_camera_slug="$(slugify_value "$manifest_hostname")"
     [ -n "$manifest_camera_slug" ] || manifest_camera_slug="$(slugify_value "${C_MQTT_CLIENT_ID:-tc100-camera}")"
@@ -1230,12 +1227,8 @@ if [ -n "$F_cmd" ]; then
       printf '%s\n' "$_hs_cached"
     else
     # Load all configs needed for a full state overview
-    load_conf_file /mnt/config/boot.conf
-    load_conf_file /mnt/config/service_trim.conf
-    load_conf_file /mnt/config/rtspserver.conf
-    load_conf_file /mnt/config/mqtt.conf
-    load_conf_file /mnt/config/recording.conf
-    load_conf_file /mnt/config/sound_detection.conf
+    load_conf_files /mnt/config/boot.conf /mnt/config/service_trim.conf /mnt/config/rtspserver.conf \
+      /mnt/config/mqtt.conf /mnt/config/recording.conf /mnt/config/sound_detection.conf
 
     load_or_compute_usage_metrics
     profile="$(get_perf_profile)"
@@ -1313,7 +1306,7 @@ if [ -n "$F_cmd" ]; then
   fullconfig)
     # This command returns ALL configurable values for the UI to populate its tabs.
     # It avoids multiple requests and keeps everything in sync.
-    load_conf_files /mnt/config/boot.conf /mnt/config/rtspserver.conf /mnt/config/mqtt.conf \
+    LOAD_CONF_FRIGATE_SKIP=1 load_conf_files /mnt/config/boot.conf /mnt/config/rtspserver.conf /mnt/config/mqtt.conf \
       /mnt/config/service_trim.conf /mnt/config/motion.conf /mnt/config/daynight.conf \
       /mnt/config/telnetd.conf /mnt/config/sound_detection.conf \
       /mnt/config/recording.conf /mnt/config/telegram.conf /mnt/config/frigate_live.conf

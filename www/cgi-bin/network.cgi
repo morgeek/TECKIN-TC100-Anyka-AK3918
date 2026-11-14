@@ -261,7 +261,20 @@ capture_limited_output() {
 }
 
 LISTEN_TCP=""
-if [ ! -r /proc/net/tcp ]; then
+_LISTEN_PORTS=" "
+_LISTEN_TCP_COUNT=0
+if [ -r /proc/net/tcp ] || [ -r /proc/net/tcp6 ]; then
+  for _pn_f in /proc/net/tcp /proc/net/tcp6; do
+    [ -r "$_pn_f" ] || continue
+    while read -r _pn_sl _pn_loc _pn_rem _pn_st _pn_rest; do
+      [ "$_pn_st" = "0A" ] || continue
+      _LISTEN_TCP_COUNT=$((_LISTEN_TCP_COUNT + 1))
+      _pn_p="${_pn_loc##*:}"
+      case "$_pn_p" in ''|*[!0-9A-Fa-f]*) continue ;; esac
+      _LISTEN_PORTS="${_LISTEN_PORTS}$((0x$_pn_p)) "
+    done < "$_pn_f"
+  done
+else
   LISTEN_TCP="$(with_timeout 5 netstat -lnt 2>/dev/null)"
   if [ -z "$LISTEN_TCP" ]; then
     LISTEN_TCP="$(with_timeout 5 netstat -ln 2>/dev/null)"
@@ -272,16 +285,7 @@ is_port_open_tcp() {
   port="$1"
   case "$port" in ''|*[!0-9]*) return 1 ;; esac
   if [ -r /proc/net/tcp ] || [ -r /proc/net/tcp6 ]; then
-    for _pn_f in /proc/net/tcp /proc/net/tcp6; do
-      [ -r "$_pn_f" ] || continue
-      while read -r _pn_sl _pn_loc _pn_rem _pn_st _pn_rest; do
-        [ "$_pn_st" = "0A" ] || continue
-        _pn_p="${_pn_loc##*:}"
-        case "$_pn_p" in ''|*[!0-9A-Fa-f]*) continue ;; esac
-        [ "$((0x$_pn_p))" -eq "$port" ] 2>/dev/null && return 0
-      done < "$_pn_f"
-    done
-    return 1
+    case "$_LISTEN_PORTS" in *" $port "*) return 0 ;; *) return 1 ;; esac
   fi
   printf '%s\n' "$LISTEN_TCP" | awk -v port="$port" '
     $1 ~ /^tcp/ {
@@ -449,9 +453,9 @@ ${_udp_l}"
 fi
 
 # ── connections ───────────────────────────────────────────────────────────────
-connections_text="$(capture_limited_output "$NETSTAT_CONNECTIONS_MAX_LINES" with_timeout 5 netstat 2>/dev/null)"
+connections_text="$(capture_limited_output "$NETSTAT_CONNECTIONS_MAX_LINES" with_timeout 5 netstat -n 2>/dev/null)"
 if [ -z "$connections_text" ]; then
-  connections_text="$(capture_limited_output "$NETSTAT_CONNECTIONS_MAX_LINES" with_timeout 5 ss 2>/dev/null)"
+  connections_text="$(capture_limited_output "$NETSTAT_CONNECTIONS_MAX_LINES" with_timeout 5 ss -n 2>/dev/null)"
 fi
 if [ -z "$connections_text" ]; then
   connections_text="$(_proc_net_to_text /proc/net/tcp tcp)"
@@ -483,17 +487,8 @@ if [ -n "$dns_text" ]; then
 fi
 [ -n "$dns_servers" ] || dns_servers="n/a"
 
-listen_tcp_count=0
-if [ -r /proc/net/tcp ]; then
-  while read -r _pn_sl _pn_loc _pn_rem _pn_st _pn_rest; do
-    [ "$_pn_st" = "0A" ] && listen_tcp_count=$((listen_tcp_count + 1))
-  done < /proc/net/tcp
-  if [ -r /proc/net/tcp6 ]; then
-    while read -r _pn_sl _pn_loc _pn_rem _pn_st _pn_rest; do
-      [ "$_pn_st" = "0A" ] && listen_tcp_count=$((listen_tcp_count + 1))
-    done < /proc/net/tcp6
-  fi
-elif [ -n "$LISTEN_TCP" ]; then
+listen_tcp_count="$_LISTEN_TCP_COUNT"
+if [ ! -r /proc/net/tcp ] && [ ! -r /proc/net/tcp6 ] && [ -n "$LISTEN_TCP" ]; then
   listen_tcp_count="$(printf '%s\n' "$LISTEN_TCP" | awk '$1 ~ /^tcp/{count++} END{print count+0}')"
 fi
 
