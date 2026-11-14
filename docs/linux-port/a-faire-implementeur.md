@@ -13,6 +13,11 @@ fiabilité. **Avant chaque chantier : vérifier que ce n'est pas déjà fait** (
 micro inactif sans DSP, MQTT / présence sans fork). Mesurer avant / après sur une caméra (règles de test-queue.md).
 
 ### 1. Réactivité de l'interface web : les lectures interrogées en continu, en C dans `httpfront` (plus gros gain)
+- **14/11 soir : `daynight` (5 s) et `hw_state` (2 s) faits** (`src/httpfront/poll.h`, NATIVE-02, fusion 649e993) : JSON
+  identique octet pour octet au CGI dans tous les états testés (busybox ash contre la route native) ; les cas douteux
+  repartent vers httpd. Notes : la ligne d'audit de chaque appel `hw_state` est gardée (comme le CGI) ; `sound_db` et des
+  nombres comme `007` sont imprimés bruts par le CGI (JSON invalide des deux côtés, défaut ancien à corriger dans les
+  deux) ; httpfront +3,3 Ko xz. À mesurer sur caméra avec la prochaine build. Restent 3 et 4 de la liste ci-dessous.
 - **Mesures du 14/11 (rc43, CGI lancés en local sur la caméra, busybox 1.36.1) :** `state.cgi` fullconfig 2,24 s,
   daynight 0,82 s, isp_tune 1,37 s, dashinfo 1,09 s ; `action.cgi` events_info 1,35 s, ha_discovery_info 1,80 s,
   mem_budget 1,57 s, presence_info 1,86 s, rtsp_server_info 1,79 s, sd_card_info 1,54 s, wifi_country_info 1,08 s,
