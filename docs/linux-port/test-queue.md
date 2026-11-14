@@ -3422,7 +3422,7 @@ Mac VM `ping -i 0.5` to the .11, ~8.5 min per run, a stall = a reply later than 
   (VBR), 25 fps, GOP 50, QP 25-48`; mean of 12 STAT lines 1584 / 1576 kbit/s on the indoor day scene (at the ceiling).
   GOP 50 instead of `goplen=64`: intended, `rtsp-launch.sh` ignores the pre-3.0.1 shipped values 64 / 32 (GOP 2 s).
 
-### AWB-03 White balance loop: wait for the ISP, decide on a mean, half step (`[awb]`, `tc100_rtsp.c` `post_awb_sample()`) — `to test`
+### AWB-03 White balance loop: wait for the ISP, decide on a mean, half step (`[awb]`, `tc100_rtsp.c` `post_awb_sample()`) — `partly passed 2026-11-14 (.11): half the gain changes, gains 4-8x steadier; the ISP's own AWB still jumps`
 - **Why:** AWB-02 on the .11 (2026-11-14): on a still scene the error changed sign at nearly every sample and the gains moved 20
   times in 40 s. A simulation of an ISP that shows a gain change 2-3 samples later reproduces it with the AWB-02 code
   (delay 3: endless oscillation, b 370..853).
@@ -3517,3 +3517,14 @@ Status: `failed on the .11 2026-11-14`: still oscillates on a static scene (resu
   shorter than the ~2 s period of the ISP's own jumps (the simulation had assumed one sample = one 2 s `/tmp/cam_awb` line).
 - **Change:** `AWB_HOLD`=4 and `AWB_AVG`=4 (2 s each): a decision averages over at least one ISP jump. To try again the
   same way with the next CI build. If the gains still move, the remaining fix is on the ISP's own AWB (above).
+
+### AWB-03 second try on the .11 (2026-11-14 ~14:10-14:15 UTC, CI build of 4a41b70, `AWB_HOLD`=4 / `AWB_AVG`=4, binary in RAM, stock restored)
+| | gain changes | `rex` span | `bex` span | ISP `idx` |
+|---|---|---|---|---|
+| installed AWB-02, 60 s just before | 30.0 / min | 280..504 (224) | 440..668 (228) | 1,2,3,5,6,7,9 |
+| AWB-03 4/4, 150 s | 14.4 / min | 358..459 (101) | 542..605 (63) | 2,3,4,6,7,9 |
+| AWB-03 4/4, after the first 60 s | 14.7 / min | span 29 | span 52 | |
+- Stream kept (`cap 121 / 5 s`, `dropped 0`); stock server restarted afterwards (md5 of the installed binary).
+- **Better: half the changes and gains 4-8 times steadier once converged; our loop no longer amplifies the ISP's jumps.**
+  The error `u`/`v` still swings +-20 because the ISP's own AWB keeps changing region: the visible tint follows the ISP.
+  The remaining fix is on the ISP's AWB (hysteresis / freeze, a-faire-implementeur.md). AWB-03 can ship as is.

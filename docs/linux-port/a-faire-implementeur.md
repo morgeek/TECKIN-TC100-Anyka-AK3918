@@ -45,7 +45,7 @@ contredise.
   hystérésis ou ralentissement de l'AWB de l'ISP (vitesse / plage stable / poids des régions, fichier de tuning ou
   `AK_ISP_SET_AWB`), ou figer l'AWB de l'ISP une fois stable et laisser notre boucle corriger finement. Vérifier d'abord
   la .11 avec AWB-03.
-- [x] **AWB-03 écrit (14/11) : attente de 2 mesures après un changement, moyenne de 2, demi-pas ; simulé sans dépassement ; à vérifier sur la .11.** Constat d'origine — **AWB-02 : la boucle oscille encore sur la .11** (erreur u/v qui change de signe presque à chaque mesure, gains
+- [x] **AWB-03 (14/11, 4a41b70) : attente 2 s après un changement, moyenne sur 2 s, demi-pas. Essayé sur la .11 (binaire en RAM) : 2 fois moins de changements de gains (14,4 / min contre 30), gains 4 à 8 fois plus stables une fois convergé. Peut partir dans la prochaine rc ; le reste du pompage vient de l'AWB de l'ISP (point ci-dessus).** Constat d'origine — **AWB-02 : la boucle oscille encore sur la .11** (erreur u/v qui change de signe presque à chaque mesure, gains
   modifiés 20 fois en 40 s) : pas proportionnel trop fort pour le retard d'une mesure de l'ISP ; diviser le pas ou
   n'agir qu'une mesure sur deux, puis revérifier.
 
