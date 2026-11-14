@@ -26,6 +26,10 @@ Everything in 3.0.1-rc42 below, plus:
 - **Day / night, stock method:** the daylight white-balance count `AWB_DAY_CNT` is 200 000 by default (was 50 000):
   a dark room still showed 60-66 k and stayed in colour, a dim lamp shows 390 k and more. A value already in
   daynight.conf is kept.
+- **Wi-Fi stall diagnostics (branch `wifi-counters` merged):** kernel patches 0020 / 0021 add read-only (`0444`)
+  counters, rtl8xxxu TX/RX URBs (`/sys/module/rtl8xxxu/parameters/tx_urb_free`, `tx_urb_min`, `txq_stops`, `txq_wakes`,
+  `tx_urb_err`, `tx_last_ms`, `rx_urb_lost`, `rx_urb_alive`) and Anyka HCD NAKs (`/sys/module/otg_hs/parameters/bulk_*`).
+  No behaviour change. `scripts/wifi-stall-watch.sh [seconds]` prints one line per second for the WIFI-STALL-01 test.
 
 ## What is new in 3.0.1-rc42 (test build, branch main)
 Everything in 3.0.1-rc41 below, plus:

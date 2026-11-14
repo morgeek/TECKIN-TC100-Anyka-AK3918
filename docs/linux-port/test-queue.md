@@ -105,9 +105,51 @@ Rules that apply to every entry:
      repeat step 1.
   - Also note whether the RTSP client was on TCP or UDP during the IRQ measurement of 2026-11-12: with UDP the IRQ drop
     alone already shows that TX stopped.
-- **Follow-up for the implementer (only after the evening, no fix is certain yet):** read-only `0444` counters
-  (rtl8xxxu: free TX URBs, queue stops, RX URBs freed on error, current crystal cap; HCD: NAK timeouts per endpoint, age
-  of the oldest pending bulk transfer); a `rtl8xxxu.cfo_track` switch (0644, default on) for H7; requeue an RX URB on a
+- **Step "counters" (test kernel, branch `wifi-counters`, `[wifi-counters]`; read-only, no behaviour change):** patches
+  `0020-wifi-rtl8xxxu-read-only-tx-rx-counters.patch` and `0021-usb-host-anyka-read-only-nak-counters.patch` merged to
+  main on 2026-11-14 (in rc43; read-only, `0444`): the regular rc kernel carries the counters, no separate test kernel needed.
+  - **Build:** GitHub Actions, workflow "Build Linux 6.6", Run workflow on branch `wifi-counters` (~12-19 min); artifact
+    `tc100-linux66-cma16-kernel`: `tc100test/c66.img` + `c66rd.gz`.
+  - **Boot (RAM only, nothing flashed):** copy both to the SD card (`tc100test/`), `pack66/boot66b.sh` as in the AGENTS.md
+    test loop; check `/proc/cmdline` has the full initrd size. A reboot without the card goes back to the flash firmware.
+  - **Run during stalls (on the .11):** `sh /mnt/sd/wifi-stall-watch.sh 600 > /tmp/stall.txt &` (copy
+    `scripts/wifi-stall-watch.sh` to the card; one line per second: `tx/s rx/s irq/s` and the counters; a missing counter
+    is skipped, so on another kernel only the first three show). Keep `ping -i 0.5 192.168.1.11` running from the Mac to
+    know the stall seconds; copy `/tmp/stall.txt` off afterwards.
+  - **Counters.** rtl8xxxu (`/sys/module/rtl8xxxu/parameters/`): `tx_urb_free` (free of 64 TX URBs now), `tx_urb_min`
+    (lowest since start), `txq_stops` / `txq_wakes` (all mac80211 queues stopped below 25 free / woken above 32),
+    `tx_urb_err` (TX URB completions with status != 0), `tx_last_ms` (ms since the last TX URB completion), `rx_urb_lost`
+    (RX URBs freed on error, never resubmitted; it also counts the URBs killed when the interface goes down),
+    `rx_urb_alive` (of 32, in flight or pending). Anyka HCD (`/sys/module/otg_hs/parameters/`): `bulk_out_nak`,
+    `bulk_in_nak` (NAK timeouts of bulk endpoints), `bulk_out_oldest_ms` / `bulk_in_oldest_ms` (age of the head pending bulk
+    transfer per direction, 0 = none; IN is only "time since the last received frame", since rtl8xxxu keeps RX URBs queued
+    permanently, so it is large on a quiet link and is not a fault; OUT is the one that shows a stuck transmit).
+    **Traps:** every interface down/up kills the anchored URBs, so `rx_urb_lost` rises by up to 32 and `tx_urb_err` by the
+    in-flight count: deltas across an interface restart are not stall evidence (also a reassociate that goes through
+    ifdown, or net-guard). `tx_last_ms` reads 0 until the first TX completion after the start; it keeps growing while
+    the interface is down (reset only at start), and a single sample taken exactly at an ifup can be huge or negative
+    (two reads of the stamp): ignore one odd sample, trust a value that grows second after second. A NAK timeout of an
+    interrupt endpoint (if the chip uses one) would also count in `bulk_*_nak`.
+    All `0444`; a value on the command line is refused (`-EPERM`), harmless.
+  - **Reading the patterns (compare a stall second with a normal second):**
+    - `tx_urb_free` near 0 (and `tx_urb_min` low), `txq_stops` rising, `tx_last_ms` growing = TX URBs stuck in the HCD
+      (submitted, never completed); then `bulk_out_oldest_ms` > 1000 says the HCD holds a transfer, and:
+    - `bulk_out_nak` rising in the same seconds = the 8188F NAKs bulk-OUT (adapter FIFO full or busy: the TX side of the
+      chip or its firmware is the one waiting; look at `irq/s` collapsing with it);
+    - `bulk_out_nak` flat with `bulk_out_oldest_ms` large = the HCD does not restart the transfer (IRQ / schedule problem in
+      patch 0003, no NAK timeout involved);
+    - `tx_urb_free` high (about 64, no `txq_stops` change) but `tx_last_ms` large and `tx/s` ~6 = mac80211 / the driver
+      does not submit (frames wait above the driver: queues, rate control, power-save-like holds); the HCD counters stay
+      quiet;
+    - `tx_urb_err` rising = URBs complete with an error (device or bus error), not a wait;
+    - `rx_urb_lost` rising or `rx_urb_alive` below 32 = RX pool shrinking (H3 side); `bulk_in_nak` rising with `rx/s` low
+      goes with it.
+    - `txq_stops` and `txq_wakes` both rising by the same amount, `tx_urb_free` back to ~64 right after = a short stall
+      the driver recovered from by itself; note the stall length in `tx_last_ms`.
+  - **Pass:** at least two stalls recorded with the counters; the pattern above tells where the transmit side waits (record
+    the lines around the stall under this entry). Nothing else is expected from this kernel; do not make it the default.
+- **Follow-up for the implementer (only after the evening, no fix is certain yet):** the read-only `0444` counters are
+  built (step "counters" above; still to add if wanted: the current crystal cap); a `rtl8xxxu.cfo_track` switch (0644, default on) for H7; requeue an RX URB on a
   transient error instead of freeing it (default-off until soaked); `scripts/wifi-try.sh` as designed in
   `audit-2026-11-06.md` before any remote parameter trial.
 - **Pass:** the evening separates H5 / H3 / H7 / H1 with one decisive observation; record the four lines of `s.txt`
