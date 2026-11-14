@@ -4082,3 +4082,30 @@ smart on (rc40 setting). Overflow counter 3895 before the reboot (from the owner
 - **`AWB_DAY_CNT=200000` (.24): passed a full evening, night and dawn.** The .11 (50 000) had no dark-room-in-day case
   this night.
 - The HW-09 night part on the .11 was not done (room lit until ~00:53 UTC, then the Mac bridge was gone).
+
+## rc43 validation on the .11 (2026-11-14 09:37-09:45 UTC, build 495609d, owner's request "valider tous nos changements")
+Installed by the owner through the web update (reboot reason "web update to 3.0.1-rc43", 09:32 UTC). Everything below **passed**.
+- **Version / config kept:** `3.0.1-rc43`, kernel 6.6.0+; `/mnt/config` intact (boot.conf, daynight.conf, authorized_keys,
+  persisted host key of 2026-11-03: the "host key changed" seen from the Mac came from a stale `tc100_known` entry of
+  2026-10-31, not from the update).
+- **Defaults kept / applied:** boot.conf `NR3D=1`, `IRCUT_DAY_GPIO=592` / `IRCUT_NIGHT_GPIO=593`; daynight.conf
+  `DAYNIGHT_SOURCE=vendor`, `AWB_DAY_CNT=200000`. `ak39_vi.nr3d=1`, `nr3d_overflow=0` after boot and after 8 min, and 0 again
+  after the reboot test.
+- **Video:** main stream about 24 fps (`STAT cap 110-125 / 5 s`), `dropped 0`, 1 client; snapshot `currentpic.cgi` 1920x1080 in
+  colour (mean RGB 110/103/122, daylight).
+- **Day / night (vendor):** first `daynight.log` line at the 300 s mark (normal: one line every `DN_LOG_EVERY`=300 s, so no file
+  before): `mode=day src=vendor lum=173`, AWB counts 0.4-0.9 M, well above 200 000.
+- **Wi-Fi / HCD counters (patches 0020/0021, first run on a camera):** all present in `/sys/module/rtl8xxxu/parameters` and
+  `/sys/module/otg_hs/parameters`; at rest `tx_urb_free=64`, `tx_urb_min=24`, `txq_stops=txq_wakes=2`, `tx_urb_err=0`,
+  `rx_urb_lost=0`, `rx_urb_alive=32`, `bulk_out_nak=bulk_in_nak=0`. `scripts/wifi-stall-watch.sh 8`: one line per second
+  as designed (tx/s 180-340, irq/s 700-1300); one `tx_last_ms=-10` sample = the documented two-reads trap.
+- **Web UI (busybox 1.36.1 on the camera):** 12 JSON answers run locally (`state.cgi` fullconfig / daynight / isp_tune / dashinfo,
+  `action.cgi` events_info / rtsp_server_info / hw_state / mem_budget / sd_card_info / wifi_country_info / presence_info /
+  ha_discovery_info, with `format=json`) all parse, 0.5-2.2 s each; `dash`, `health`, `statusline`, `events`, `motionevents`
+  JSON OK. `json_escape` from the installed func.cgi: quote, backslash, tab, CR/LF, `-~`, accents all give valid JSON.
+- **Reboot test (09:41 UTC, `reboot-tracker.sh intent`):** reason in `reboot-history.log`; **`/mnt/config/log/daynight-last.log`
+  written before the reboot** (new in rc43); back on ping after 50 s, milestones `rtsp_launched 34.9 s`, `web_ready 35.8 s`,
+  `boot_complete 63 s`; host key unchanged; all services up (supervisord, mqttd, mdnsd, onvifd, httpfront, tc100_rtsp).
+- Not covered here: the night part (next dusk), a real Wi-Fi stall with the counters (WIFI-STALL-01 step "counters" can now run
+  on the regular rc43 kernel), the .24 (not checked: same stale `tc100_known` entry on the Mac, key not replaced without the
+  owner's OK).
