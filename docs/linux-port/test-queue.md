@@ -4107,5 +4107,15 @@ Installed by the owner through the web update (reboot reason "web update to 3.0.
   written before the reboot** (new in rc43); back on ping after 50 s, milestones `rtsp_launched 34.9 s`, `web_ready 35.8 s`,
   `boot_complete 63 s`; host key unchanged; all services up (supervisord, mqttd, mdnsd, onvifd, httpfront, tc100_rtsp).
 - Not covered here: the night part (next dusk), a real Wi-Fi stall with the counters (WIFI-STALL-01 step "counters" can now run
-  on the regular rc43 kernel), the .24 (not checked: same stale `tc100_known` entry on the Mac, key not replaced without the
-  owner's OK).
+  on the regular rc43 kernel).
+
+### rc43 validation on the .24 (2026-11-14 09:46-09:50 UTC, owner's request; same checks as the .11) — all **passed**
+- Web update to rc43 at 09:36 UTC; config intact, host key of 2026-11-03 (stale Mac `tc100_known` entry replaced with the
+  owner's OK). `NR3D=1`, IR-cut 592/593, `vendor`, `AWB_DAY_CNT=200000`; `nr3d=1`, `nr3d_overflow=0` (8 min and after reboot).
+- Video ~25 fps (`cap 124-125 / 5 s`), `dropped 0`; snapshot 1920x1080 in colour (mean RGB 111/125/124); `daynight.log`
+  `mode=day src=vendor lum=364`, AWB counts up to 1.04 M.
+- Counters: `tx_urb_free=64`, `tx_urb_min=24`, `txq_stops=txq_wakes=17`, `tx_urb_err=0`, `rx_urb_lost=0`, `rx_urb_alive=32`,
+  NAK 0/0. The same 6 daemons as the .11 (rtsp, httpfront, onvifd, supervisord, mqttd, mdnsd).
+- Web: 17/17 JSON answers parse (0.1-2.2 s); `json_escape` 6/6 special cases valid.
+- Reboot test 09:47 UTC: reason logged, `daynight-last.log` saved before the reboot, ping back after 45 s, `rtsp_launched
+  34.8 s`, `boot_complete 64 s`, all daemons up, 0 overflow.
