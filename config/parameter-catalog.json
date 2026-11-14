@@ -408,7 +408,7 @@
         "key": "AWB_DAY_CNT"
       },
       "type": "int",
-      "default": 50000,
+      "default": 200000,
       "label": {
         "en": "Stock method: white balance count of daylight",
         "fr": "Méthode d’origine : compte de balance des blancs du jour"

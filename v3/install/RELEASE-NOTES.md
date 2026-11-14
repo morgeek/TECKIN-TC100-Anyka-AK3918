@@ -17,6 +17,15 @@ Everything in 3.0.1-rc42 below, plus:
 - **Boot milestones, CI & tests:** `web_ready` startup milestone, per-boot reset of `/tmp/boot-milestones.txt` with
   bounded persistent log, dusk/dawn IR-lift hysteresis regression tests (`tests/test_supervisord.py`), GitLab firmware
   mirror fallback, and Docker worktree cleanup in `local-ci.sh`.
+- **Background load:** fewer forks in the periodic jobs (`wifi-quality.sh` uptime-based clock, no `wc`), the MQTT
+  bridge and the CGIs, fewer repeated reads.
+- **3D noise reduction always on by default (`NR3D=1`):** measured with the rc41 memory layout on both test cameras,
+  0 overflow by day at 1080p / 720p, 25 / 20 fps, and 0 overflow for 18-21 h day and night. `NR3D=auto` (night / low
+  light only, at 15 fps or less) is still accepted; `NR3D=0` turns it off. A camera whose boot.conf already holds an
+  `NR3D=` line keeps it.
+- **Day / night, stock method:** the daylight white-balance count `AWB_DAY_CNT` is 200 000 by default (was 50 000):
+  a dark room still showed 60-66 k and stayed in colour, a dim lamp shows 390 k and more. A value already in
+  daynight.conf is kept.
 
 ## What is new in 3.0.1-rc42 (test build, branch main)
 Everything in 3.0.1-rc41 below, plus:

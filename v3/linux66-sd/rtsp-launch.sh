@@ -76,7 +76,7 @@ case "$(dnc LOWLIGHT_FPS_VALUE)" in 15|20) export RTSP_LOWLIGHT_FPS_VALUE=$(dnc 
 bc() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}\$/\1/p" /mnt/config/boot.conf 2>/dev/null | tail -n 1; }
 SUB=$(bc RTSP_SUBSTREAM); case "$SUB" in 0|no|off|false) SUB=0 ;; *) SUB=1 ;; esac
 AUD=${RTSP_AUDIO:-$(bc RTSP_AUDIO)}; case "$AUD" in 0|no|off|false) AUD=0 ;; *) AUD=1 ;; esac
-NR3D_CFG=$(bc NR3D); case "${NR3D_CFG:-auto}" in auto) export RTSP_NR3D_AUTO=1 ;; esac
+NR3D_CFG=$(bc NR3D); case "${NR3D_CFG:-1}" in auto) export RTSP_NR3D_AUTO=1 ;; esac   # absent = 1 (always on)
 # recordings: /mnt/DCIM (the card; in flash mode a link to /mnt/sd/DCIM), what the Recordings page lists
 REC_DIR=/mnt/DCIM
 # microphone gain (Audio page, 0-15, passed as it is) -> codec "LineIn Capture Volume" (0-15)

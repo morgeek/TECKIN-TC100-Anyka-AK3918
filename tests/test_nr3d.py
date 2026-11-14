@@ -142,7 +142,7 @@ class KernelSwitch(unittest.TestCase):
 class Userspace(unittest.TestCase):
     def block(self):
         s = (ROOT / 'v3/autorun-linux66.sh').read_text(encoding='utf-8')
-        i = s.index('  case "${BC_NR3D:-auto}" in')
+        i = s.index('  case "${BC_NR3D:-1}" in')
         j = s.index('  sh $TB/rtsp-launch.sh', i)
         return s[i:j], s, i, j
 
@@ -175,13 +175,13 @@ class Userspace(unittest.TestCase):
 
     def test_nr3d_only_in_boot_conf_dist(self):
         boot = (ROOT / 'config/boot.conf.dist').read_text(encoding='utf-8')
-        self.assertEqual(len(re.findall(r'^NR3D=auto$', boot, re.M)), 1)
+        self.assertEqual(len(re.findall(r'^NR3D=1$', boot, re.M)), 1)
         for p in (ROOT / 'config').glob('*.dist'):
             if p.name == 'boot.conf.dist':
                 continue
             self.assertNotRegex(p.read_text(encoding='utf-8'), r'(?m)^#?\s*NR3D', p.name)
         launch = (ROOT / 'v3/linux66-sd/rtsp-launch.sh').read_text(encoding='utf-8')
-        self.assertIn('NR3D_CFG=$(bc NR3D); case "${NR3D_CFG:-auto}" in auto) export RTSP_NR3D_AUTO=1 ;; esac', launch)
+        self.assertIn('NR3D_CFG=$(bc NR3D); case "${NR3D_CFG:-1}" in auto) export RTSP_NR3D_AUTO=1 ;; esac', launch)
 
 
 if __name__ == '__main__':

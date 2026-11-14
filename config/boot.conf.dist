@@ -336,17 +336,16 @@ RED_LED=0
 # internet access; updates are installed from Settings → Firmware update.
 UPDATE_CHECK=0
 
-# NR3D=auto|1|0: temporal (3D) noise reduction of the ISP, cleaner night/low-light picture (25-34 % less noise measured).
+# NR3D=1|auto|0: temporal (3D) noise reduction of the ISP, cleaner night/low-light picture (25-34 % less noise measured).
 # It keeps a 4050 KiB Y frame in default CMA + 2025 KiB UV in the encoder pool tail (patch 0017), allocated at boot before
-# the video starts. At 1080p @ 25 fps, 3D-NR overflows the DRAM bus (~25/s), while at 10-15 fps (night / low light) it
-# runs with 0 overflow.
-#   auto (default): allocate at boot, keep off by day (25 fps) and turn on live at night or in low light, only while the
-#     capture rate in use is <= 15 fps (night set at 10 fps; low-light 10/15 fps; NIGHT_STYLE=0, a refused night set or a
-#     20 fps low-light rate stay at 25/20 fps: off).
-#   1: always on (use 720p or <= 15 fps).
+# the video starts.
+#   1 (default, owner's decision 2026-11-14): always on. Measured with patch 0017 on both test cameras: 0 overflow by day
+#     at 1080p 25 / 20 fps and 720p (NR3D-02), and 0 overflow for 18-21 h day and night (night set 10 fps).
+#   auto: allocate at boot, keep off by day and turn on live at night or in low light, only while the capture rate in
+#     use is <= 15 fps (an older rule, from overflows seen before patch 0017).
 #   0: off (no reference frame allocated).
 # Recovery if CMA runs out: set NR3D=0, `echo 0 > /sys/module/ak39_vi/parameters/nr3d`, restart rtsp-h26x.
 # Read once at boot / rtsp-h26x restart. Test status: docs/linux-port/test-queue.md NR3D-01.
-NR3D=auto
+NR3D=1
 
 # Camera tampering / occlusion detection: config/tamper.conf (ENABLE, its one switch).

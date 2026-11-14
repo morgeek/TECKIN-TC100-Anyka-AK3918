@@ -245,15 +245,15 @@ elif [ -x $TB/tc100_rtsp ] && [ -c /dev/uio0 ]; then
   # A refusal (-ENOMEM: no room, -EBUSY: already streaming) leaves 3D-NR off. If the 6 MB taken first leaves no room
   # for the capture buffers (1080p: no video), set NR3D=0 in boot.conf, write 0 to the parameter (frees the memory
   # while nothing streams) and restart the video service (controlscripts/rtsp-h26x restart): no reboot.
-  # NR3D=0 or absent: nothing is written (a kernel started with ak39_vi.nr3d=1 keeps it). Test queue NR3D-01.
-  case "${BC_NR3D:-auto}" in
+  # NR3D=0: nothing is written; absent = 1, the default since 2026-11-14 (a kernel started with ak39_vi.nr3d=1 keeps it). Test queue NR3D-01.
+  case "${BC_NR3D:-1}" in
     1|auto)
       if [ ! -e /sys/module/ak39_vi/parameters/nr3d ]; then
-        echo "[tc100-v3] 3D-NR requested (NR3D=${BC_NR3D:-auto}) but this kernel has no ak39_vi.nr3d: left off" > /dev/console
+        echo "[tc100-v3] 3D-NR requested (NR3D=${BC_NR3D:-1}) but this kernel has no ak39_vi.nr3d: left off" > /dev/console
       elif echo 1 > /sys/module/ak39_vi/parameters/nr3d 2>/dev/null; then
-        echo "[tc100-v3] 3D-NR ready (NR3D=${BC_NR3D:-auto}, ak39_vi.nr3d=$(cat /sys/module/ak39_vi/parameters/nr3d 2>/dev/null), overflows $(cat /sys/module/ak39_vi/parameters/nr3d_overflow 2>/dev/null))" > /dev/console
+        echo "[tc100-v3] 3D-NR ready (NR3D=${BC_NR3D:-1}, ak39_vi.nr3d=$(cat /sys/module/ak39_vi/parameters/nr3d 2>/dev/null), overflows $(cat /sys/module/ak39_vi/parameters/nr3d_overflow 2>/dev/null))" > /dev/console
       else
-        echo "[tc100-v3] 3D-NR requested (NR3D=${BC_NR3D:-auto}) but the kernel refused the reference frame (no CMA room or already streaming): left off" > /dev/console
+        echo "[tc100-v3] 3D-NR requested (NR3D=${BC_NR3D:-1}) but the kernel refused the reference frame (no CMA room or already streaming): left off" > /dev/console
       fi
       ;;
   esac

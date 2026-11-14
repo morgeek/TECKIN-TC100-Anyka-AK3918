@@ -20,7 +20,7 @@
 #   vendor          the stock firmware's own method (R12-03, docs/linux-port/vendor-re-findings.md):
 #                     lum = exp_time * total gain / exp_max * 40 / lumi   (cam_ae fields 2-5, 7 and 1)
 #                   night after 3 samples in a row with lum above VENDOR_NIGHT_LUM (3584) while the white balance
-#                   sees no daylight (none of the 10 counts of /tmp/cam_awb above AWB_DAY_CNT, 300000); day after 3
+#                   sees no daylight (none of the 10 counts of /tmp/cam_awb above AWB_DAY_CNT, 200000: a dark room still shows 60-66 k, a dim lamp 390 k and more); day after 3
 #                   samples with lum below VENDOR_DAY_LUM (1536) while it sees visible light (one of the first 5
 #                   counts above AWB_NIGHT_CNT, 15000: the IR LEDs alone leave them low). A switch back within 15 s
 #                   locks the state for VENDOR_LOCK seconds (900) unless lum moves by more than 30 %. Its thresholds
@@ -66,7 +66,7 @@ AE_NIGHT_ABOVE=15000
 AE_DAY_BELOW=3000
 VENDOR_NIGHT_LUM=3584
 VENDOR_DAY_LUM=1536
-AWB_DAY_CNT=50000
+AWB_DAY_CNT=200000
 AWB_NIGHT_CNT=1200
 VENDOR_LOCK=900
 IR_LED_MAX_ON=50400
