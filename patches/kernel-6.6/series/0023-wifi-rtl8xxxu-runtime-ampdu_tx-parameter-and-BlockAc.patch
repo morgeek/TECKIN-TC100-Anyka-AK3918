@@ -1,0 +1,114 @@
+From a9312cfa32a9d494bac83859cacacabe84cfe7ef Mon Sep 17 00:00:00 2001
+From: test <test@localhost>
+Date: Sat, 14 Nov 2026 11:59:28 +0100
+Subject: [PATCH] wifi: rtl8xxxu: runtime ampdu_tx parameter and BlockAck
+ counters
+
+Module parameter ampdu_tx (bool, 0644, default Y = unchanged behaviour). With N the driver no longer asks mac80211 to open a TX BlockAck session (the ieee80211_start_tx_ba_session() call in rtl8xxxu_tx() is skipped); IEEE80211_AMPDU_TX_START itself is not refused, because a refusal makes mac80211 stop and restart the TID queue on every frame. Only new sessions are affected: a session already open stays until the link is set up again, so reassociate after changing the value (echo 0 > /sys/module/rtl8xxxu/parameters/ampdu_tx && wpa_cli -i wlan0 reassociate).
+
+Read-only (0444) counters in the style of the TX/RX ones: ba_tx_start, ba_tx_oper, ba_tx_stop (TX BlockAck session start, operational and stop requests in rtl8xxxu_ampdu_action()), tx_qos_data and tx_other (QoS data frames to a station, and all other frames, reaching rtl8xxxu_tx()). Counters only.
+---
+ .../wireless/realtek/rtl8xxxu/rtl8xxxu_core.c | 27 ++++++++++++++++++-
+ 1 file changed, 26 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
+index f340f23..1f60733 100644
+--- a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
++++ b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
+@@ -40,6 +40,7 @@ static bool rtl8xxxu_dma_aggregation;
+ static int rtl8xxxu_dma_agg_timeout = -1;
+ static int rtl8xxxu_dma_agg_pages = -1;
+ static bool rtl8xxxu_ampdu_rx = true;
++static bool rtl8xxxu_ampdu_tx = true;
+ 
+ MODULE_AUTHOR("Jes Sorensen <Jes.Sorensen@gmail.com>");
+ MODULE_DESCRIPTION("RTL8XXXu USB mac80211 Wireless LAN Driver");
+@@ -71,6 +72,8 @@ module_param_named(dma_agg_pages, rtl8xxxu_dma_agg_pages, int, 0600);
+ MODULE_PARM_DESC(dma_agg_pages, "Set DMA aggregation pages (range 1-127, 0 to disable)");
+ module_param_named(ampdu_rx, rtl8xxxu_ampdu_rx, bool, 0644);
+ MODULE_PARM_DESC(ampdu_rx, "Allow RX A-MPDU (BlockAck) aggregation (default Y)");
++module_param_named(ampdu_tx, rtl8xxxu_ampdu_tx, bool, 0644);
++MODULE_PARM_DESC(ampdu_tx, "Open TX A-MPDU (BlockAck) sessions (default Y); new sessions only, reassociate after a change");
+ 
+ #define USB_VENDOR_ID_REALTEK		0x0bda
+ #define RTL8XXXU_RX_URBS		32
+@@ -92,6 +95,11 @@ static atomic_t rtl8xxxu_dbg_txq_wakes = ATOMIC_INIT(0);
+ static atomic_t rtl8xxxu_dbg_tx_err = ATOMIC_INIT(0);
+ static atomic_t rtl8xxxu_dbg_rx_lost = ATOMIC_INIT(0);
+ static atomic_t rtl8xxxu_dbg_rx_alive = ATOMIC_INIT(0);
++static atomic_t rtl8xxxu_dbg_ba_tx_start = ATOMIC_INIT(0);
++static atomic_t rtl8xxxu_dbg_ba_tx_oper = ATOMIC_INIT(0);
++static atomic_t rtl8xxxu_dbg_ba_tx_stop = ATOMIC_INIT(0);
++static atomic_t rtl8xxxu_dbg_tx_qos_data = ATOMIC_INIT(0);
++static atomic_t rtl8xxxu_dbg_tx_other = ATOMIC_INIT(0);
+ static unsigned long rtl8xxxu_dbg_tx_last;	/* jiffies | 1 of the last TX completion, 0 = none since start */
+ 
+ static int rtl8xxxu_dbg_set(const char *val, const struct kernel_param *kp)
+@@ -129,6 +137,16 @@ RTL8XXXU_DBG_PARAM(rx_urb_lost, atomic_read(&rtl8xxxu_dbg_rx_lost));
+ MODULE_PARM_DESC(rx_urb_lost, "RX URBs freed on error, not resubmitted (read-only)");
+ RTL8XXXU_DBG_PARAM(rx_urb_alive, atomic_read(&rtl8xxxu_dbg_rx_alive));
+ MODULE_PARM_DESC(rx_urb_alive, "RX URBs in flight or pending (read-only)");
++RTL8XXXU_DBG_PARAM(ba_tx_start, atomic_read(&rtl8xxxu_dbg_ba_tx_start));
++MODULE_PARM_DESC(ba_tx_start, "TX BlockAck session starts asked by mac80211 (read-only)");
++RTL8XXXU_DBG_PARAM(ba_tx_oper, atomic_read(&rtl8xxxu_dbg_ba_tx_oper));
++MODULE_PARM_DESC(ba_tx_oper, "TX BlockAck sessions that became operational (read-only)");
++RTL8XXXU_DBG_PARAM(ba_tx_stop, atomic_read(&rtl8xxxu_dbg_ba_tx_stop));
++MODULE_PARM_DESC(ba_tx_stop, "TX BlockAck session stops (read-only)");
++RTL8XXXU_DBG_PARAM(tx_qos_data, atomic_read(&rtl8xxxu_dbg_tx_qos_data));
++MODULE_PARM_DESC(tx_qos_data, "QoS data frames to a station handed to the driver (read-only)");
++RTL8XXXU_DBG_PARAM(tx_other, atomic_read(&rtl8xxxu_dbg_tx_other));
++MODULE_PARM_DESC(tx_other, "Other frames handed to the driver (read-only)");
+ 
+ static int rtl8xxxu_submit_rx_urb(struct rtl8xxxu_priv *priv,
+ 				  struct rtl8xxxu_rx_urb *rx_urb);
+@@ -5653,6 +5671,7 @@ static void rtl8xxxu_tx(struct ieee80211_hw *hw,
+ 	/* (tx_info->flags & IEEE80211_TX_CTL_AMPDU) && */
+ 	ampdu_enable = false;
+ 	if (ieee80211_is_data_qos(hdr->frame_control) && sta) {
++		atomic_inc(&rtl8xxxu_dbg_tx_qos_data);
+ 		if (sta->deflink.ht_cap.ht_supported) {
+ 			u32 ampdu, val32;
+ 			u8 *qc = ieee80211_get_qos_ctl(hdr);
+@@ -5664,11 +5683,14 @@ static void rtl8xxxu_tx(struct ieee80211_hw *hw,
+ 
+ 			ampdu_enable = true;
+ 
+-			if (!test_bit(tid, priv->tx_aggr_started) &&
++			if (rtl8xxxu_ampdu_tx &&
++			    !test_bit(tid, priv->tx_aggr_started) &&
+ 			    !(skb->protocol == cpu_to_be16(ETH_P_PAE)))
+ 				if (!ieee80211_start_tx_ba_session(sta, tid, 0))
+ 					set_bit(tid, priv->tx_aggr_started);
+ 		}
++	} else {
++		atomic_inc(&rtl8xxxu_dbg_tx_other);
+ 	}
+ 
+ 	if (ieee80211_is_data_qos(hdr->frame_control) &&
+@@ -6952,6 +6974,7 @@ rtl8xxxu_ampdu_action(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+ 	switch (action) {
+ 	case IEEE80211_AMPDU_TX_START:
+ 		dev_dbg(dev, "%s: IEEE80211_AMPDU_TX_START\n", __func__);
++		atomic_inc(&rtl8xxxu_dbg_ba_tx_start);
+ 		ampdu_factor = sta->deflink.ht_cap.ampdu_factor;
+ 		ampdu_density = sta->deflink.ht_cap.ampdu_density;
+ 		rtl8xxxu_set_ampdu_factor(priv, ampdu_factor);
+@@ -6964,6 +6987,7 @@ rtl8xxxu_ampdu_action(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+ 	case IEEE80211_AMPDU_TX_STOP_FLUSH:
+ 	case IEEE80211_AMPDU_TX_STOP_FLUSH_CONT:
+ 		dev_dbg(dev, "%s: IEEE80211_AMPDU_TX_STOP\n", __func__);
++		atomic_inc(&rtl8xxxu_dbg_ba_tx_stop);
+ 		rtl8xxxu_set_ampdu_factor(priv, 0);
+ 		rtl8xxxu_set_ampdu_min_space(priv, 0);
+ 		clear_bit(tid, priv->tx_aggr_started);
+@@ -6972,6 +6996,7 @@ rtl8xxxu_ampdu_action(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+ 		break;
+ 	case IEEE80211_AMPDU_TX_OPERATIONAL:
+ 		dev_dbg(dev, "%s: IEEE80211_AMPDU_TX_OPERATIONAL\n", __func__);
++		atomic_inc(&rtl8xxxu_dbg_ba_tx_oper);
+ 		set_bit(tid, priv->tid_tx_operational);
+ 		break;
+ 	case IEEE80211_AMPDU_RX_START:
+-- 
+2.43.0
+

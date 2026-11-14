@@ -52,11 +52,26 @@ white paper / tungsten), UPD-01 (b), WIFI-TRY-01 / WIFI-TXATTEN / WIFI-RXAGG on 
 HW-09 night part, the patch 0003 `finish_request_epx` fix (a-faire-implementeur.md, 13/11), HRTIMER-01, and the
 older `to test` entries below.
 
+### WIFI-AMPDU-TX rtl8xxxu runtime `ampdu_tx` switch and BlockAck counters (`[wifi]`, kernel patch 0023) — `to test`
+- **What:** `0023-wifi-rtl8xxxu-runtime-ampdu_tx-parameter-and-BlockAc.patch` adds `rtl8xxxu.ampdu_tx` (`0644`, default `Y` = unchanged). With `N` the driver no longer opens TX BlockAck sessions (the `ieee80211_start_tx_ba_session()` call is skipped; TX_START itself is not refused), so the AP keeps no reorder buffer for the camera (WIFI-STALL-01, mechanisms 1 and 2 of `frontier/wifi-stall-2026-11-14-reponse.md`). New sessions only: a reassociation is needed after a change. Read-only counters `ba_tx_start`, `ba_tx_oper`, `ba_tx_stop`, `tx_qos_data`, `tx_other`, shown by `scripts/wifi-stall-watch.sh`. `scripts/wifi-try.sh` accepts `ampdu_tx=0|1` and reassociates by itself (`wpa_cli -i wlan0 reassociate`, no interface down/up) after applying and after every revert.
+- **Switch / revert:** `wifi-try.sh revert`, or the end of the window; by hand `echo 1 > /sys/module/rtl8xxxu/parameters/ampdu_tx && wpa_cli -i wlan0 reassociate`. Nothing is stored: a reboot gives `Y` again.
+- **Test (`.11`, kernel with 0023 from the SD card first, RTSP stream running, Mac `ping -i 0.5 192.168.1.11` with timestamps):**
+  1. Reference, `ampdu_tx=1`: `sh wifi-stall-watch.sh 600 > /tmp/stall-on.txt`. Expected `ba_tx_oper` >= 1; note the stall windows (ping) and whether `ba_tx_start` / `ba_tx_stop` move in the stall seconds, and whether `tx_qos_data` keeps rising during a stall.
+  2. `sh wifi-stall-watch.sh 600 > /tmp/stall-off.txt &` then `wifi-try.sh ampdu_tx=0 600` (no confirm: back to `Y` after 600 s). Expected: one short ping gap at the reassociation, `ba_tx_start` flat afterwards.
+  3. Compare the stall windows of the two runs (number, length); repeat once in the other order.
+- **Pass criteria:** stalls gone or much rarer with `ampdu_tx=0`, video still smooth (single MPDUs: lower peak rate, more airtime). Then the owner decides on a default. Unchanged stalls: the hold is not per TID (chip or air), see the answer file for `tx_atten` / CFO.
+
+### KRN-02 Anyka OTG host: URB read after the giveback in `finish_request_epx` (`[kernel]`, kernel patch 0022) — `to test`
+- **What:** `0022-usb-host-anyka-do-not-read-the-URB-after-giveback.patch`: the pipe type is taken before `usb_hcd_giveback_urb()` (the completion runs inline and may free the URB), and the periodic deschedule is left when `ep->period` is 0 (the loop could spin with interrupts off). No other behaviour change; fixes the defect of patch 0003 listed in a-faire-implementeur.md (13/11, point 2).
+- **Switch / revert:** none at run time; revert = previous kernel (test from the SD card in RAM first, nothing in flash).
+- **Test:** boot the kernel from the SD card on one camera; Wi-Fi associates, RTSP stream for 30 min, `wifi-stall-watch.sh 60` shows the HCD counters moving as before (`bulk_out_nak`, `bulk_in_oldest_ms`), one `wpa_cli -i wlan0 reassociate` and one reboot test; `dmesg` without USB error, oops or soft lockup.
+- **Pass criteria:** same behaviour as rc43 (the fault itself is not reproducible on demand: review plus no regression).
+
 ### WIFI-TRY-01 Safe `rtl8xxxu` runtime parameter trial script (`scripts/wifi-try.sh`) — `to test`
 - **What:** Added `scripts/wifi-try.sh` (`<ampdu_rx=0|1|tx_atten=0..30> [window_s]`, plus `confirm`/`revert`/`status`), automating safe parameter trials over SSH without toggling `wlan0`. Refuses if the rescue AP is running or if the default gateway is unreachable beforehand; saves the previous sysfs value in `/tmp/wifi-try/prev` and spawns a detached watcher that reverts automatically after 3 consecutive gateway ping misses or when `window_s` (default 120s) expires without `wifi-try.sh confirm`.
 - **Switch / revert:** Manual `scripts/wifi-try.sh revert` or waiting for the timer window; script writes only to `/sys/module/rtl8xxxu/parameters/{ampdu_rx,tx_atten}` and `/tmp/wifi-try/*`.
 - **Test:** On a camera connected over Wi-Fi (not rescue AP): run `scripts/wifi-try.sh tx_atten=6 30` (do NOT confirm) and verify `tx_atten` returns to `0` after ~30 s; run `scripts/wifi-try.sh ampdu_rx=0 30` followed by `scripts/wifi-try.sh confirm` within 30 s and verify `ampdu_rx` remains `N`.
-- **Pass criteria:** No Wi-Fi drop required, automatic revert restores the exact prior sysfs value on expiry or simulated gateway loss, `confirm` keeps the tested value (host unit tests `tests/test_wifi_try.py`: 7/7 pass).
+- **Pass criteria:** No Wi-Fi drop required, automatic revert restores the exact prior sysfs value on expiry or simulated gateway loss, `confirm` keeps the tested value (host unit tests `tests/test_wifi_try.py` pass).
 
 ### WEBUI-CACHE-01 CGI fork reduction, HTML fragment caching & flash size optimization (`3.0.1-rc43`) — `passed on both cameras, CGI side (2026-11-14, rc43); browser tab check left to the owner`
 - **What:**
