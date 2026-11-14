@@ -67,12 +67,6 @@ older `to test` entries below.
 - **Test:** boot the kernel from the SD card on one camera; Wi-Fi associates, RTSP stream for 30 min, `wifi-stall-watch.sh 60` shows the HCD counters moving as before (`bulk_out_nak`, `bulk_in_oldest_ms`), one `wpa_cli -i wlan0 reassociate` and one reboot test; `dmesg` without USB error, oops or soft lockup.
 - **Pass criteria:** same behaviour as rc43 (the fault itself is not reproducible on demand: review plus no regression).
 
-### WIFI-TRY-01 Safe `rtl8xxxu` runtime parameter trial script (`scripts/wifi-try.sh`) — `to test`
-- **What:** Added `scripts/wifi-try.sh` (`<ampdu_rx=0|1|tx_atten=0..30> [window_s]`, plus `confirm`/`revert`/`status`), automating safe parameter trials over SSH without toggling `wlan0`. Refuses if the rescue AP is running or if the default gateway is unreachable beforehand; saves the previous sysfs value in `/tmp/wifi-try/prev` and spawns a detached watcher that reverts automatically after 3 consecutive gateway ping misses or when `window_s` (default 120s) expires without `wifi-try.sh confirm`.
-- **Switch / revert:** Manual `scripts/wifi-try.sh revert` or waiting for the timer window; script writes only to `/sys/module/rtl8xxxu/parameters/{ampdu_rx,tx_atten}` and `/tmp/wifi-try/*`.
-- **Test:** On a camera connected over Wi-Fi (not rescue AP): run `scripts/wifi-try.sh tx_atten=6 30` (do NOT confirm) and verify `tx_atten` returns to `0` after ~30 s; run `scripts/wifi-try.sh ampdu_rx=0 30` followed by `scripts/wifi-try.sh confirm` within 30 s and verify `ampdu_rx` remains `N`.
-- **Pass criteria:** No Wi-Fi drop required, automatic revert restores the exact prior sysfs value on expiry or simulated gateway loss, `confirm` keeps the tested value (host unit tests `tests/test_wifi_try.py` pass).
-
 ### WEBUI-CACHE-01 CGI fork reduction, HTML fragment caching & flash size optimization (`3.0.1-rc43`) — `passed on both cameras, CGI side (2026-11-14, rc43); browser tab check left to the owner`
 - **What:**
   - `www/cgi-bin/func.cgi`: pure-shell fast path in `json_escape()` skipping `awk` on safe strings `[A-Za-z0-9._:/@=?&+*,~ -]*` (unchanged escaping for quotes/backslashes/control chars/UTF-8).
@@ -85,7 +79,7 @@ older `to test` entries below.
 - **Test:** Open Web UI on a camera, navigate repeatedly across Status / Video / Wi-Fi / Settings tabs (`settings.html` load, `fullconfig=1`, `integrationmanifest=1`, `list_presets`), verify Network tab makes only one GET per HTML fragment per session and Settings loads cleanly with special characters (SSID quotes/UTF-8) intact.
 - **Pass criteria:** Zero JSON syntax errors in browser console, faster tab switches and `settings.html` initial render, `v3/build-stack.sh` image well under flash budget.
 
-### WIFI-TXATTEN rtl8188f runtime `tx_atten` parameter (`[wifi]`) — `to test`
+### WIFI-TXATTEN rtl8188f runtime `tx_atten` parameter (`[wifi]`) — `passed 2026-11-14 as a switch (.11 rc43, tx_atten=12 = -6 dB, 8.4 min): no effect on the stalls (1.7 / min against 1.8 / 2.2); kept at 0`
 
 - **What:** Kernel patch `0019-wifi-rtl8xxxu-8188f-tx_atten-parameter.patch` adds `rtl8xxxu.tx_atten` (`0644`, `0..30`, default `0`) in `rtl8188f_set_tx_power()` to reduce CCK/OFDM/MCS TX power indices in ~0.5 dB steps (e.g. `12` = `-6 dB`, `20` = `-10 dB`) on cameras sitting very close to the AP (like `.11` at `-25 dBm`).
 - **Test (`.11`, after booting the CI kernel):**
@@ -266,7 +260,7 @@ older `to test` entries below.
   password). `RTSP_PERIP` that is not a plain number 1-9 (typo, `-1`, leading space) is ignored with a log line and
   keeps the default 3 (fixed after the re-check; it became 1 before).
 
-### WIFI-RXAGG rtl8xxxu runtime `ampdu_rx` switch (`[wifi]`) — `to test`
+### WIFI-RXAGG rtl8xxxu runtime `ampdu_rx` switch (`[wifi]`) — `passed 2026-11-14 (.11 rc43): ampdu_rx=0 cuts the stalls by about 60 % (0.8 and 0.6 / min against 2.2, 1.8, 1.7), not a cure; default unchanged (owner's decision)`
 
 - **What:** Kernel patch `0018-wifi-rtl8xxxu-runtime-ampdu_rx-parameter.patch` adds `rtl8xxxu.ampdu_rx` (`0644`, default `Y`). When `0`/`N`, `rtl8xxxu_ampdu_action(IEEE80211_AMPDU_RX_START)` returns `-EOPNOTSUPP`, so `mac80211` declines BlockAck RX sessions from the AP and receives frames individually without RX reorder buffering.
 - **Test (`.11`, no reboot needed once kernel is booted):**
@@ -286,7 +280,7 @@ older `to test` entries below.
 - **Fix (rc42, `[whep]`):** two POSTs at once no longer start two daemons: `controlscripts/whep start` takes a lock (`/tmp/whep-start.lock`, `mkdir`, about 10 s wait, a lock of a dead owner is removed) and re-checks the status once it has it; the pid file is written only after the daemon is up (a daemon that cannot bind never overwrites the pid of the live one); `whep.cgi` and `status` trust a pid only if the process is really `tc100-whep` (`/proc/<pid>/comm`, `cmdline`), otherwise the stale file is removed (a pid reused after the 300 s idle exit no longer gives 503/502). `TC100_NET_ALLOW` is still passed. Extra check: open the live view in two browser tabs at the same moment after an idle exit, then `ps` must show one `tc100-whep` and `/var/run/whep.pid` must name it.
 - **Test:** After boot, verify `ps` has no `tc100-whep` (1–4 MB RAM saved), open the web UI live view, verify `tc100-whep` starts on the WebRTC `POST` and streams video cleanly.
 
-### ENC-01 Free encoder: VBR and smart mode drive the free encoder (`[fe-smart]`) — `on, being watched` (2026-11-12, .11 rc40: VBR + smart on both streams; see "rc40 features switched on" at the end)
+### ENC-01 Free encoder: VBR and smart mode drive the free encoder (`[fe-smart]`) — `on, being watched; 2026-11-14: VBR active on both (log '1600 kbit/s ceiling (VBR)', .11 smart=1), mean ~1580 kbit/s on the indoor day scene; still-scene saving needs a covered lens (owner)`
 
 - **Observation (2026-11-12 22:35, `.11` rc40, night):** 58,578 H.265 frames encoded across sessions with `0 failed`;
   `ABR` stepped down `1600 -> 1120 kbit/s` on 3 skipped frames and back up to `1600 kbit/s`. At night without 3D-NR
@@ -3407,3 +3401,23 @@ Installed by the owner through the web update (reboot reason "web update to 3.0.
 - **HW-05 sharpness (.24):** `ISP_TUNE=1` then `SHARPNESS` -50 / 0 / +50: log `medium 1 -> 0 / 1 / 2, high 1 -> 0 / 1 / 2`,
   edge energy of the snapshot 5.69 / 12.97 / 19.88 (base 12.86); boot.conf and isp_tune.conf restored (same md5), stream
   never dropped.
+
+### Wi-Fi trials on the .11 without the owner, 2026-11-14 (rc43; `wifi-try.sh`, automatic revert, reassociate after each change)
+Mac VM `ping -i 0.5` to the .11, ~8.5 min per run, a stall = a reply later than 0.8 s (windows merged). Camera RX level
+-15 to -24 dBm (`iw`), MCS 7.
+| run (UTC) | setting | late replies | stalls | per min | longest |
+|---|---|---|---|---|---|
+| 11:10-11:18 | default | 110 | 19 | 2.2 | 4.9 s |
+| 11:19-11:27 | `ampdu_rx=0` | 33 | 7 | **0.8** | 4.6 s |
+| 11:31-11:39 | default (after revert + reassociate) | 93 | 15 | 1.8 | 5.0 s |
+| 11:40-11:48 | `tx_atten=12` (-6 dB) | 95 | 14 | 1.7 | 5.0 s |
+| 11:51-11:59 | `ampdu_rx=0` (repeat) | 26 | 5 | **0.6** | 4.2 s |
+- **Reading:** turning off RX A-MPDU (AP -> camera BlockAck) removes about 60 % of the stalls and 70 % of the late replies,
+  twice; the camera's own TX power does nothing. The stalls that remain are as long as before: a second mechanism, the TX
+  side BlockAck of Fable's analysis is the next candidate (patch 0023 `ampdu_tx`, in main since e493821, compiled in CI;
+  needs a new build on the .11). The camera was left at the defaults (`ampdu_rx=Y`, `tx_atten=0`, reassociated).
+- **WIFI-TRY-01:** auto revert, confirm and the gateway refusal behave as designed; a single lost ping in the pre-check
+  refused one trial during a stall, so the pre-check now tries three times (test `test_pre_check_survives_one_lost_ping`).
+- **ENC-01 (passive):** both cameras `vbr=1` (`.11` `smart=1`), log `free encoder: H.265 1920x1080, 1600 kbit/s ceiling
+  (VBR), 25 fps, GOP 50, QP 25-48`; mean of 12 STAT lines 1584 / 1576 kbit/s on the indoor day scene (at the ceiling).
+  GOP 50 instead of `goplen=64`: intended, `rtsp-launch.sh` ignores the pre-3.0.1 shipped values 64 / 32 (GOP 2 s).

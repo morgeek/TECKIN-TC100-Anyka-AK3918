@@ -190,7 +190,8 @@ if [ ! -r "$_sysfile" ] || [ ! -w "$_sysfile" ]; then
 fi
 
 _wt_gateway
-if ! _wt_ping; then
+# three tries: a camera with short Wi-Fi stalls (the .11: 2-5 s) must not be refused on one lost ping (2026-11-14)
+if ! { _wt_ping || { ${WT_SLEEP:-sleep} 1; _wt_ping; } || { ${WT_SLEEP:-sleep} 1; _wt_ping; }; }; then
     echo "wifi-try: router unreachable before change (${_gw:-no gateway})" >&2
     exit 1
 fi

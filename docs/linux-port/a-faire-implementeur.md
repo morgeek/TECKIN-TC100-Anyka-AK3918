@@ -30,15 +30,20 @@ contredise.
   conservées.
 
 ### Encore ouvert au 2026-11-14 (par ordre de valeur)
-1. **WIFI-STALL-01 (.11) :** les compteurs montrent le chemin USB au repos pendant les blocages (hypothèse « URB coincées
+1. **WIFI-STALL-01 (.11), mis à jour le 14/11 après-midi :** essais sans le propriétaire (test-queue « Wi-Fi trials on
+   the .11 ») : **`ampdu_rx=0` retire ~60 % des blocages** (0,8 et 0,6 / min contre 2,2 / 1,8 / 1,7), `tx_atten=12` ne
+   change rien. Les patchs **0022** (contrôleur USB, plus de lecture de l'URB après la restitution) et **0023**
+   (`ampdu_tx` + compteurs BlockAck) sont sur `main` (e493821), compilés par la CI ; à essayer sur la .11 avec une nouvelle
+   build (`wifi-try.sh ampdu_tx=0 600`). **Décision du propriétaire :** `ampdu_rx=0` par défaut sur la .11 (ou pour
+   toutes) en attendant ? Historique : les compteurs montrent le chemin USB au repos pendant les blocages (hypothèse « URB coincées
    dans le contrôleur » réfutée). Analyse Fable du 14/11 ([réponse](frontier/wifi-stall-2026-11-14-reponse.md)) : trou dans
    le tampon de réordonnancement de la box après une perte silencieuse en A-MPDU, ou poignée de main ADDBA. **Proposé,
    en attente de l'accord du propriétaire :** patch 0022 = interrupteur `ampdu_tx` (0644, défaut Y, coupe
    `ieee80211_start_tx_ba_session()` dans `rtl8xxxu_tx()`) + compteurs 0444 `ba_tx_start/oper/stop`,
    `tx_qos_data/tx_other` ; `wifi-try.sh ampdu_tx=0`. Le test à deux pings sur deux TID depuis le Mac n'est pas concluant
    (marquage TOS perdu sur le chemin de la VM).
-2. **Patch 0003, `finish_request_epx`** (lecture de l'URB après la restitution) : correctif toujours à faire (point 2
-   ci-dessous).
+2. **Patch 0003, `finish_request_epx` :** corrigé par le patch 0022 (Fable, 14/11, sur `main`, compilé en CI) ; à essayer
+   sur caméra avec la prochaine build.
 3. AWB-01 étape 3 (propriétaire : papier blanc, lampe à incandescence) ; UPD-01 (b) ; WIFI-TRY-01 / WIFI-TXATTEN /
    WIFI-RXAGG sur une caméra ; mesures ENC-01 et AEC-01 ; HW-09 la nuit ; HRTIMER-01 (noyau sur carte SD seulement).
 4. **Pompage / oscillation de teinte AWB (`tc100_rtsp`, constaté sur `.11` et `.24` le 2026-11-14) :**

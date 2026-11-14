@@ -2461,3 +2461,9 @@ Declined after the tester's answer: `cma=16M`, wpa_supplicant out of the RAM ima
   2. Home Assistant (ONVIF integration, "discover") or ONVIF Device Manager finds the camera without typing its IP.
   3. `cat /proc/net/igmp` lists 239.255.255.250 on wlan0 while monvifd runs.
 - **Off:** the previous kernel.
+
+### WIFI-TRY-01 Safe `rtl8xxxu` runtime parameter trial script (`scripts/wifi-try.sh`) — `passed 2026-11-14 (.11 rc43): unconfirmed tx_atten=6 reverted after 30 s, confirm keeps the value, refusal when the gateway does not answer; three 600 s trials reverted on time; pre-check now retried 3 times (the .11 stalls made one try fail)`
+- **What:** Added `scripts/wifi-try.sh` (`<ampdu_rx=0|1|tx_atten=0..30> [window_s]`, plus `confirm`/`revert`/`status`), automating safe parameter trials over SSH without toggling `wlan0`. Refuses if the rescue AP is running or if the default gateway is unreachable beforehand; saves the previous sysfs value in `/tmp/wifi-try/prev` and spawns a detached watcher that reverts automatically after 3 consecutive gateway ping misses or when `window_s` (default 120s) expires without `wifi-try.sh confirm`.
+- **Switch / revert:** Manual `scripts/wifi-try.sh revert` or waiting for the timer window; script writes only to `/sys/module/rtl8xxxu/parameters/{ampdu_rx,tx_atten}` and `/tmp/wifi-try/*`.
+- **Test:** On a camera connected over Wi-Fi (not rescue AP): run `scripts/wifi-try.sh tx_atten=6 30` (do NOT confirm) and verify `tx_atten` returns to `0` after ~30 s; run `scripts/wifi-try.sh ampdu_rx=0 30` followed by `scripts/wifi-try.sh confirm` within 30 s and verify `ampdu_rx` remains `N`.
+- **Pass criteria:** No Wi-Fi drop required, automatic revert restores the exact prior sysfs value on expiry or simulated gateway loss, `confirm` keeps the tested value (host unit tests `tests/test_wifi_try.py` pass).

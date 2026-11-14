@@ -194,6 +194,22 @@ exit 1
         self.assertIn('unreachable', r.stderr)
         self.assertEqual((self.sys / 'tx_atten').read_text().strip(), '0')
 
+    def test_pre_check_survives_one_lost_ping(self):
+        # the .11 has 2-5 s Wi-Fi stalls: one lost ping before the change must not refuse the trial (2026-11-14)
+        ping = self._make_ping(f'''
+c=0
+[ -f "{self.ping_count}" ] && read -r c < "{self.ping_count}"
+c=$((c + 1))
+echo "$c" > "{self.ping_count}"
+[ "$c" -eq 1 ] && exit 1
+exit 0
+''')
+        r = self._run(['tx_atten=6', '30'], self._env(ping))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((self.sys / 'tx_atten').read_text().strip(), '6')
+        self._run(['revert'], self._env(ping))
+        self._wait_watcher_exit()
+
     def test_reverts_after_three_ping_misses(self):
         ping = self._make_ping(f'''
 c=0
