@@ -458,6 +458,30 @@ class Poll(unittest.TestCase):
             # only the right login left a line in the audit log
             self.assertEqual((fb / 'tmp/log/audit.log').read_text().count('\n'), 1)
 
+    def test_health_cache_hit_and_fallback(self):
+        sample = '{"ok":true,"ts":1700000090,"services":{"rtsp-h26x":"running"},"system":{"uptime_sec":100}}\n'
+        with tempfile.TemporaryDirectory() as b:
+            fb = build(b, {
+                'proc/stat': 'cpu  0 0 0 0 0 0 0 0 0 0\nbtime 1700000000\n',
+                'proc/uptime': '100.50 100.00\n',
+                'tmp/health_snapshot.cache': '1700000090\n' + sample,
+            })
+            (fb / 'mnt/www/cgi-bin/health.cgi').write_text(
+                RW.sub(lambda m: str(fb) + '/' + m.group(1) + '/', (ROOT / 'www/cgi-bin/health.cgi').read_text()))
+            self.start(fb)
+            # Fresh cache -> byte-for-byte identical to health.cgi
+            expected = cgi(fb, '/cgi-bin/health.cgi')
+            self.assertEqual(self.native('/cgi-bin/health.cgi', '/cgi-bin/health.cgi'), expected)
+            self.assertEqual(self.native('/cgi-bin/health.cgi?_=123', '/cgi-bin/health.cgi?_=123'), expected)
+            # Expired cache -> falls through to httpd
+            (fb / 'tmp/health_snapshot.cache').write_text('1700000000\n' + sample)
+            resp, req = self.ask('/cgi-bin/health.cgi')
+            self.assertEqual(resp, b'HTTPD:' + req)
+            # Missing cache -> falls through to httpd
+            (fb / 'tmp/health_snapshot.cache').unlink()
+            resp, req = self.ask('/cgi-bin/health.cgi')
+            self.assertEqual(resp, b'HTTPD:' + req)
+
     def test_wiring(self):
         src = (ROOT / 'src/httpfront/httpfront.c').read_text()
         self.assertIn('#include "poll.h"', src)

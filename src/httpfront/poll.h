@@ -38,6 +38,7 @@ static int pl_route(const char *b)
 	const char *q, *e, *cmd = "", *fmt = "";
 	int cl = 0, fl = 0, r;
 
+	if (pfx(b, "GET /cgi-bin/health.cgi") && (b[23] == ' ' || b[23] == '?')) return 5;
 	if (pfx(b, "GET /cgi-bin/state.cgi?")) { r = 3; q = b + 23; }
 	else if (pfx(b, "GET /cgi-bin/action.cgi?")) { r = 4; q = b + 24; }
 	else return 0;
@@ -334,14 +335,53 @@ static int hs_json(const char *root)
 	return !st_bail && hs_audit();
 }
 
-/* route 3 or 4 of pl_route: the whole response, 0 = fall through */
+/* ---- health.cgi cache hit ---- */
+static int hc_json(const char *root)
+{
+	struct lr r;
+	char iv[40], *l, *p, *ts;
+	int t;
+	u64 ttl = 75, cts, age;
+
+	st_root = root ? root : "";
+	st_bail = 0;
+	sl = SO0;
+	if (st_first("/tmp/health_snapshot.interval", iv, sizeof iv, &t) == 1) {
+		if (!t) return 0;
+		if (isdig(iv, slen(iv))) {
+			u64 v = pnum(iv);
+
+			if (st_bail) return 0;
+			if (v >= 10 && v <= 300) ttl = v + 15;
+		}
+	}
+	st_clock();
+	if (st_bail) return 0;
+	if (!lr_open(&r, "/tmp/health_snapshot.cache")) return 0;
+	l = lr_get(&r, &t);
+	if (!l || r.cut) { lr_close(&r); return 0; }
+	p = l;
+	ts = tok(&p);
+	cts = pnum(ts);
+	if (st_bail || st_now < cts) { lr_close(&r); return 0; }
+	age = st_now - cts;
+	if (age >= ttl) { lr_close(&r); return 0; }
+	while ((l = lr_get(&r, &t))) {
+		if (r.cut) { lr_close(&r); return 0; }
+		if (t || l[0]) { o_r(l); o_c('\n'); }
+	}
+	lr_close(&r);
+	return !st_bail && sl > SO0;
+}
+
+/* route 3, 4 or 5 of pl_route: the whole response, 0 = fall through */
 static const char *poll_response(int route, const char *root, u32 ip, int *len)
 {
 	static const char h1[] = "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nPragma: no-cache\r\n"
 		"Cache-Control: max-age=0, no-store, no-cache\r\nConnection: close\r\nContent-Length: ";
 
 	pl_ip = ip;
-	return (route == 3 ? dn_json(root) : hs_json(root)) ? wrap_response(h1, len) : 0;
+	return (route == 3 ? dn_json(root) : route == 4 ? hs_json(root) : hc_json(root)) ? wrap_response(h1, len) : 0;
 }
 
 #pragma GCC pop_options
