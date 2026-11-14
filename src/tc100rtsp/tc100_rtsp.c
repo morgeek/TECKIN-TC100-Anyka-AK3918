@@ -595,6 +595,22 @@ static int awb_hw_set(void)
 	return ioctl(awb_fd, ISP_SET_AWB_EX, &a);
 }
 
+#ifndef AWB_MANUAL_AFTER
+#define AWB_MANUAL_AFTER 20	/* samples (0.5 s each: 10 s) of the ISP's automatic mode before the manual mode takes over */
+#endif
+static void awb_manual_start(void)
+{
+	if (awb_manual_on() == 0) {
+		/* the base is the ISP's automatic result; our saved extra gains (awb.state) belong to the automatic mode: 1x */
+		ex_r = ex_b = 256;
+		awb_hw_set();
+		LOG("white balance: ISP in manual mode at its gains r %d g %d b %d, steered by the grey-world loop\n", mwb_r, mwb_g, mwb_b);
+	} else {
+		awb_manual = 0;
+		LOG("white balance: the ISP refused the manual mode: its automatic mode stays, with extra gains\n");
+	}
+}
+
 /* AWB-04 (2026-11-14): the ISP's own white balance changed its colour-temperature region (and with it the colour matrix)
  * after only 2 frames of a 12 % majority (tuning file: colortemp_stable_cnt_thresh 2): under lamp or mixed light it jumped
  * between regions 25 times a minute, the tint cycle the owner saw on both cameras. That one field is both the frame count
@@ -694,17 +710,9 @@ static void awb_hw_init(void)
 	if (awb_hw_set() < 0) { LOG("white balance: the ISP refused its extra gains: software\n"); close(awb_fd); awb_fd = -1; return; }
 	awb_hw = 1;
 	{ const char *ma = getenv("RTSP_AWB_MANUAL"); if (ma && ma[0] == '0') awb_manual = 0; }
-	if (awb_manual) {
-		/* the base is the ISP's automatic result; our saved extra gains (awb.state) belong to the automatic mode: start at 1x */
-		if (awb_manual_on() == 0) {
-			ex_r = ex_b = 256;
-			awb_hw_set();
-			LOG("white balance: ISP in manual mode at its gains r %d g %d b %d, steered by the grey-world loop\n", mwb_r, mwb_g, mwb_b);
-		} else {
-			awb_manual = 0;
-			LOG("white balance: the ISP refused the manual mode: its automatic mode stays, with extra gains\n");
-		}
-	}
+	/* AWB-05: the manual mode starts after AWB_MANUAL_AFTER samples (awb_manual_start, from post_awb_sample): at the first
+	 * sample the ISP still shows its seed gains (r 429 g 418 b 256 on the .11, 2026-11-14; its converged result was about
+	 * r 291-360 g 264 b 301-461), and the loop then needed 2 minutes to bring the picture back to neutral */
 	awb_attr_apply();
 	p_du = p_dv = 0; post_luts();
 	LOG("white balance: in the ISP (extra gains max %d, grey filter %d, tuning file %s)\n",
@@ -1387,6 +1395,7 @@ static void post_awb_sample(const unsigned char *uv, int bw)
 		 * overshot and kept the tint pumping on the .11 (error changing sign at nearly every sample, gains moved 20
 		 * times in 40 s): after a change, wait AWB_HOLD samples, and move half as far (the step below is /512). */
 		{ static int chk; if (++chk >= 20) { chk = 0; awb_attr_apply(); } }	/* every 10 s (AWB-04) */
+		if (awb_manual && !mwb_r) { static int mn; if (++mn >= AWB_MANUAL_AFTER) awb_manual_start(); }	/* AWB-05 */
 		if (hold > 0) { hold--; return; }
 		/* and decide on the mean of AWB_AVG samples: the error of a still scene wanders by +-4 from one sample to the
 		 * next, more than the +-3 lock below */

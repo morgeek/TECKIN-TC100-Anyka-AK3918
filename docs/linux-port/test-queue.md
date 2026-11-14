@@ -3472,6 +3472,11 @@ Mac VM `ping -i 0.5` to the .11, ~8.5 min per run, a stall = a reply later than 
   belongs to the automatic mode, so the loop starts at 1x in manual mode. Re-asserted every 10 s with AWB-04 (a tuning
   reload with the day / night parameter set puts the ISP back in automatic). `RTSP_AWB_MANUAL=0` = rc44 behaviour.
   Log: `white balance: ISP in manual mode at its gains r .. g .. b .., steered by the grey-world loop`.
+- **First try on the .11 (2026-11-14 ~19:05 UTC, CI build of e40480e, in RAM, stock restored):** log `ISP in manual mode at its
+  gains r 429 g 418 b 256`; picture over 2 min: **Cb / Cr sd 2.0 / 0.8, 1.4 / 0.6, 1.2 / 0.8** per 40 s (stock: 10-13), gains
+  in small steps; but the base was the ISP's seed (taken at the first sample), so the loop needed 2 min to bring the picture
+  to neutral (Cb mean -13.8, -8.2, -4.7). **Change:** the manual mode starts after `AWB_MANUAL_AFTER` = 20 samples (10 s of
+  the ISP's automatic mode), at its converged gains.
 - **Test:** the binary of the CI build in place of the stock one (in RAM, as for AWB-03), 2 min of `stream.jpg` once a second:
   Cb / Cr sd < 2 on a steady scene; then switch a lamp: the colour follows within ~1 min; daylight / dusk; night (B&W) not
   affected. **Pass:** no visible tint cycle (owner's eye), gains moving by small steps only when the light changes.

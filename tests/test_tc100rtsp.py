@@ -2046,6 +2046,9 @@ static int awb_hw_set(void) { hw_writes++; return 0; }
 static void awb_state_save(void) { state_saves++; }
 static void post_luts(void) {}
 static void awb_attr_apply(void) {}
+static int awb_manual, mwb_r;
+static void awb_manual_start(void) {}
+#define AWB_MANUAL_AFTER 20
 """ + fn + r"""
 static unsigned char frame[64 * 64 * 3 / 2];
 static void fill(int y, int u_lo, int u_hi, int v)
@@ -2127,7 +2130,10 @@ class IspAwbHysteresis(unittest.TestCase):
         self.assertIn('awb_attr_apply();', init)
         # AWB-05: manual white balance steered by our loop, RTSP_AWB_MANUAL=0 keeps the automatic mode
         self.assertIn('getenv("RTSP_AWB_MANUAL")', init)
-        self.assertIn('awb_manual_on() == 0', init)
+        self.assertIn('if (awb_manual && !mwb_r) { static int mn; if (++mn >= AWB_MANUAL_AFTER) awb_manual_start(); }', src)
+        st = src[src.index('static void awb_manual_start(void)'):][:600]
+        self.assertIn('awb_manual_on() == 0', st)
+        self.assertIn('#define AWB_MANUAL_AFTER 20', src)
         self.assertIn('#define ISP_SET_MWB _IOW(\'I\', 99, int)', src)
         self.assertIn('#define ISP_SET_WB_TYPE _IOW(\'I\', 83, int)', src)
         self.assertIn('#define ISP_GET_AWB_STAT _IOR(\'I\', 89, int)', src)
