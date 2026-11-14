@@ -2427,3 +2427,37 @@ Declined after the tester's answer: `cma=16M`, wpa_supplicant out of the RAM ima
 - **Pass:** all six; `MemAvailable` gain present; nothing worse than rc7.
 - **Fail / revert:** `ak39_vi.slots=4` on the command line (card boot) or `RTSP_ISPOSD=0` / `RTSP_ISPMASK=0` in
   `rtsp.env`; whole build: reinstall rc7 with `update66.sh`.
+
+### R9-03 Anti-flicker (`POWER_HZ`, Settings, Picture) — `passed 2026-11-14 (.24 rc43): POWER_HZ=50 live, log and status follow, off again restores; the tuning file is already 50 Hz (281 lines), brightness unchanged; no default change needed`
+- **What:** the field is back (Settings, Picture: Off / 50 Hz / 60 Hz), applied by `tc100_rtsp` whatever live tuning
+  is: `AK_ISP_SET_AE` with `exp_step` = the sensor lines of one lamp pulse (28125 lines/s on the JX-F23: 281 lines at
+  50 Hz, 234 at 60 Hz). The ISP's auto exposure then keeps every exposure longer than a pulse at whole pulses (its own
+  code: `ak39_isp2_3a.c`, `exp_step`). **Default Off** (the tuning file's step, unchanged). `RTSP_LINE_RATE` overrides
+  the line rate.
+- **Test:**
+  1. Indoors under mains lighting (LED bulbs or tubes), daytime mode, live tuning off: Off, look at the picture (VLC):
+     dark bands rolling up or down, or a pulsing brightness? Then 50 Hz (Save): `tc100_rtsp.log` `anti-flicker: 50 Hz
+     (exposure step N -> 281 lines, exp_time_max 1125)`, `/var/run/isp_tune.status` `POWER_HZ=50`. The bands stop.
+  2. Outdoors or a bright window (exposure under 10 ms): the picture is not darker or blown out with 50 Hz.
+  3. Night (IR): nothing changes (exposure at the maximum).
+  4. With `EXPOSURE_MAX_PCT=30` also set: both lines in the log, the exposure cap still applies.
+  5. Off again: `anti-flicker: off (exposure step 281 -> <tuning value> lines ...)`.
+- **Pass:** 1-5. **Then** (rc10): 50 Hz by default for a camera set to a European time zone? (owner's choice); the Home
+  Assistant select comes back. **Fail:** Off; write what was seen (the step value of the tuning file is in the log).
+
+### HW-05 Sharpness by the ISP (Image page, `SHARPNESS`) — `passed 2026-11-14 (.24 rc43): sharpness -50 / 0 / +50 live, log medium/high 0/1/2, edge energy 5.7 / 13.0 / 19.9; config restored (same md5)`
+- **What:** the Sharpness slider is back on the Image page. `tc100_rtsp` scales the tuning file's medium and high
+  frequency gains (`AK_ISP_SET_SHARP`, manual and 9 gain-linked sets) by 2 % per step. On by default (nothing is written
+  while the slider is at 0).
+- **Test:** live tuning on, sharpness -50, 0, +50: log `sharpness: N in the ISP (medium a -> b, high c -> d)`; the
+  picture gets softer / sharper (compare snapshots of the same scene); bit rate goes down / up a little. The "Applied on
+  the camera" line under the form shows the value.
+- **Fail:** picture broken or unchanged at ±50: note the logged gains; `RTSP_ISPTUNE` does not cover it, set SHARPNESS=0.
+
+### P-01 IP multicast in the kernel (ONVIF discovery) — `passed 2026-11-14: wlan0 joined 224.0.0.251 and 239.255.255.250; WS-Discovery Probe answered by both cameras with their XAddrs`
+- **What:** `CONFIG_IP_MULTICAST=y` in `defconfig_cma`; ONVIF WS-Discovery needs it.
+- **Test:**
+  1. Turn ONVIF on in Services.
+  2. Home Assistant (ONVIF integration, "discover") or ONVIF Device Manager finds the camera without typing its IP.
+  3. `cat /proc/net/igmp` lists 239.255.255.250 on wlan0 while monvifd runs.
+- **Off:** the previous kernel.

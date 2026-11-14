@@ -191,7 +191,7 @@ older `to test` entries below.
 - **Pass:** the evening separates H5 / H3 / H7 / H1 with one decisive observation; record the four lines of `s.txt`
   around a stall and the step-1 verdict under this entry.
 
-### MDNS-01 mDNS daemon: four correctness fixes after a read-only review (`[mdns]`) — `to test`
+### MDNS-01 mDNS daemon: four correctness fixes after a read-only review (`[mdns]`) — `partly passed 2026-11-14 (rc43, Mac): names, browse and rate limit OK; iPhone / Windows / HA by the owner`
 - **Host update (2026-11-13 — three remaining limits resolved on host):**
   1. Unified reply header + RFC 6762 §6.7 verbatim legacy question copy in `mdns_reply_head()` (`src/mdnsd/mdns_pkt.h`), eliminating the unchecked `n + 4` legacy copy in `mdns_answer()` and echoing exact original `q[4..5]` and `q[12..p)`.
   2. Added per-source-IP + global answer rate limiter (`struct mdns_ip_rl`, 16 IP slots x 20/s, global 80/s cap) in `src/mdnsd/mdns_pkt.h` and `src/mdnsd/mdnsd.c`.
@@ -225,7 +225,7 @@ older `to test` entries below.
   in-subnet sender at >= 20 matching queries/s takes each second's answers until it stops. Candidates for a later
   small change.
 
-### RTSP-AUTH-01 tc100_rtsp: slot DoS, Digest replay, failed-login lockout, UDP talk source port, Content-Length (`[rtsp-auth]`) — `to test`
+### RTSP-AUTH-01 tc100_rtsp: slot DoS, Digest replay, failed-login lockout, UDP talk source port, Content-Length (`[rtsp-auth]`) — `partly passed 2026-11-14 (rc43, .24): 50-connection slot flood, Frigate stream kept; Digest / lockout / talk with the owner`
 
 - **Review (2026-11-13, read-only, `src/tc100rtsp/tc100_rtsp.c`):** no buffer overflow, no injection and no authentication
   bypass found (request line, header scanner, base64 and Digest field copies are all bounded; the password check cannot be
@@ -415,7 +415,7 @@ older `to test` entries below.
   through the safe aplay + duck fallback). Count the "keeps underrunning" log lines during the test; if they
   appear, re-prefill after PREPARE in a follow-up.
 
-### ONVIF-02 onvifd: lockout per address, full answers on slow links, connection and discovery limits (`[onvifd-review]`) — `to test` (next RC, owner: NVR + Home Assistant)
+### ONVIF-02 onvifd: lockout per address, full answers on slow links, connection and discovery limits (`[onvifd-review]`) — `partly passed 2026-11-14 (rc43): discovery and auth refusal OK; (b) lockout needs the owner's password`
 
 - **What (read-only Fable review of `tc100-onvifd`, 2026-11-12: no authentication bypass, no out-of-bounds access):**
   - Wrong logins are counted per address (20 a minute locks that address only; 127/8 never; 32 slots, a locked
@@ -467,7 +467,7 @@ older `to test` entries below.
 - **Pass:** (a)-(c); a browser that does not send consent checks would be dropped after 30 s: if one is seen, report
   which one.
 
-### UPD-01 Web update: no upload / discard during an install, stricter package, true failure message (`[update-review]`) — `(a) passed 2026-11-14 (rc41 -> rc43 web updates on both cameras); (b) to test`
+### UPD-01 Web update: no upload / discard during an install, stricter package, true failure message (`[update-review]`) — `(a) passed, (c) passed 2026-11-14; (b) to test (owner, during a real install)`
 
 - **What (read-only Fable review of `update66.sh`, `update.cgi`, `boot-guard`, 2026-11-12: no brick path):**
   - `update.cgi` refuses `upload` and `discard` while `/tmp/update66.running` exists. Before, a second tab or API call
@@ -795,36 +795,10 @@ or requires U-Boot prompt commands.
   method value"; Save and reload the page: every value comes back. Settings, Picture: anti-flicker "Camera default" and
   the 50 Hz line. In French too.
 
-### R9-03 Anti-flicker (`POWER_HZ`, Settings, Picture) — `to test`
-- **What:** the field is back (Settings, Picture: Off / 50 Hz / 60 Hz), applied by `tc100_rtsp` whatever live tuning
-  is: `AK_ISP_SET_AE` with `exp_step` = the sensor lines of one lamp pulse (28125 lines/s on the JX-F23: 281 lines at
-  50 Hz, 234 at 60 Hz). The ISP's auto exposure then keeps every exposure longer than a pulse at whole pulses (its own
-  code: `ak39_isp2_3a.c`, `exp_step`). **Default Off** (the tuning file's step, unchanged). `RTSP_LINE_RATE` overrides
-  the line rate.
-- **Test:**
-  1. Indoors under mains lighting (LED bulbs or tubes), daytime mode, live tuning off: Off, look at the picture (VLC):
-     dark bands rolling up or down, or a pulsing brightness? Then 50 Hz (Save): `tc100_rtsp.log` `anti-flicker: 50 Hz
-     (exposure step N -> 281 lines, exp_time_max 1125)`, `/var/run/isp_tune.status` `POWER_HZ=50`. The bands stop.
-  2. Outdoors or a bright window (exposure under 10 ms): the picture is not darker or blown out with 50 Hz.
-  3. Night (IR): nothing changes (exposure at the maximum).
-  4. With `EXPOSURE_MAX_PCT=30` also set: both lines in the log, the exposure cap still applies.
-  5. Off again: `anti-flicker: off (exposure step 281 -> <tuning value> lines ...)`.
-- **Pass:** 1-5. **Then** (rc10): 50 Hz by default for a camera set to a European time zone? (owner's choice); the Home
-  Assistant select comes back. **Fail:** Off; write what was seen (the step value of the tuning file is in the log).
-
 ## Hardware use and memory (2026-10-30, commits `[hwaccel] ...`)
 
 Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was compiled or run before it was pushed
 (no compiler on the author's machine): the first check is that the CI run is green.
-
-### HW-05 Sharpness by the ISP (Image page, `SHARPNESS`) — `to test`
-- **What:** the Sharpness slider is back on the Image page. `tc100_rtsp` scales the tuning file's medium and high
-  frequency gains (`AK_ISP_SET_SHARP`, manual and 9 gain-linked sets) by 2 % per step. On by default (nothing is written
-  while the slider is at 0).
-- **Test:** live tuning on, sharpness -50, 0, +50: log `sharpness: N in the ISP (medium a -> b, high c -> d)`; the
-  picture gets softer / sharper (compare snapshots of the same scene); bit rate goes down / up a little. The "Applied on
-  the camera" line under the form shows the value.
-- **Fail:** picture broken or unchanged at ±50: note the logged gains; `RTSP_ISPTUNE` does not cover it, set SHARPNESS=0.
 
 ### HW-09 Noise reduction by the ISP (Image page, `DENOISE`, item 37) — `partly passed` (2026-11-12, .11 rc37, daylight)
 - **What:** a Noise reduction slider on the Image page. `tc100_rtsp` stretches the weight curves of the tuning file's
@@ -955,14 +929,6 @@ Baseline to note before flashing the new build: `grep -E 'MemTotal|MemAvailable|
 (count the `sh` processes), `scripts/cpu-profile.sh 30`, `ls -l /tmp/logs`. Same commands after; one line per result.
 
 ## Tester's accepted proposals (2026-10-30 night, build 3.0.1-rc7)
-
-### P-01 IP multicast in the kernel (ONVIF discovery) — `to test`
-- **What:** `CONFIG_IP_MULTICAST=y` in `defconfig_cma`; ONVIF WS-Discovery needs it.
-- **Test:**
-  1. Turn ONVIF on in Services.
-  2. Home Assistant (ONVIF integration, "discover") or ONVIF Device Manager finds the camera without typing its IP.
-  3. `cat /proc/net/igmp` lists 239.255.255.250 on wlan0 while monvifd runs.
-- **Off:** the previous kernel.
 
 ### P-06 Reference profile of each build (`scripts/perf-baseline.sh`) — tool
 - **What:** 60 s, one RTSP client: the CPU split (user, system, irq, softirq, idle), interrupts per second per source
@@ -3422,3 +3388,22 @@ Installed by the owner through the web update (reboot reason "web update to 3.0.
 - **Kept open:** R14-01 (safe check passed; real failure not seen), R9-03 anti-flicker, R12-05 IR LED protection (night),
   R12-07 and F-01 (owner, browser), F-03 `IDLE_FPS` (opt-in), HW-05 sharpness, HW-09 night, P-01 (ONVIF discovery),
   R17-01 (flash, owner).
+
+### Network and picture checks without the owner, 2026-11-14 (rc43; Mac VM behind NAT, read-only unless said)
+- **MDNS-01:** `dig -p 5353 @camera <name>.local` resolves both cameras; `_rtsp._tcp` / `_http._tcp` browse lists them
+  (TXT `fw=3.0.1-rc43`, `rssi` -15 on the .11, -57 on the .24); 200 queries in 0.53 s -> 39 answers (rate limiter on).
+  Left: iPhone, Windows, Home Assistant (owner).
+- **P-01 / ONVIF-02 (a, partial):** groups 224.0.0.251 and 239.255.255.250 joined on wlan0; a WS-Discovery Probe gets a
+  ProbeMatch with `http://<ip>:8081/onvif/device_service` from both; `GetSystemDateAndTime` answers without auth,
+  `GetDeviceInformation` without auth answers `NotAuthorized`. Lockout (b) needs the password: owner.
+- **RTSP-AUTH-01 (slot flood part):** 50 TCP connections to :554, one every 0.3 s, held 1 s, from the Mac to the .24:
+  all accepted, Frigate's stream kept (`clients 1`, `dropped 0`, 24-25 fps), OPTIONS 200 right after, DESCRIBE without
+  auth 401.
+- **UPD-01 (c):** `update66.sh check` on dummy packages in /tmp of the .24: extra `/dev/zero` line and the tab trick ->
+  "MD5SUMS names other files"; `VERSION` link -> "VERSION is a link"; clean format with dummy files -> refused later
+  ("c66rd.gz has not the size..."). Nothing written.
+- **R9-03 anti-flicker (.24):** `POWER_HZ=50` written live: `anti-flicker: 50 Hz (exposure step 281 -> 281 lines)`,
+  status `POWER_HZ=50`; back to empty: `camera default`; mean luma 118 / 114.6 / 115.9 (scene). File restored (same md5).
+- **HW-05 sharpness (.24):** `ISP_TUNE=1` then `SHARPNESS` -50 / 0 / +50: log `medium 1 -> 0 / 1 / 2, high 1 -> 0 / 1 / 2`,
+  edge energy of the snapshot 5.69 / 12.97 / 19.88 (base 12.86); boot.conf and isp_tune.conf restored (same md5), stream
+  never dropped.
