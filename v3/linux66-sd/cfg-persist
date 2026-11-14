@@ -83,7 +83,11 @@ slot_info() {
 slot_data() {  # name -> payload on stdout (after the header line)
   m=$(find_mtd "$1"); n=$(slot_info "$1"); set -- $n
   hl=$(dd if=/dev/${m}ro bs=96 count=1 2>/dev/null | head -n 1 | wc -c)
-  dd if=/dev/${m}ro bs=1 skip=$hl count=$2 2>/dev/null
+  # the slot is read in 4 KiB blocks (one SPI read each) and cut with tail/head. 2026-11-14: "dd bs=1" made one flash
+  # read per byte, 16 000 for a 16 KB slot, 2.5 s of CPU at 100 % (polled SPI) per slot, twice per save: every save
+  # stalled the camera ~10 s (a busy loop ran 2.4x slower) and slowed the boot
+  case "$hl$2" in *[!0-9]*|'') return 1 ;; esac
+  dd if=/dev/${m}ro bs=4096 2>/dev/null | tail -c +$((hl + 1)) | head -c "$2"
 }
 slot_valid() {
   n=$(slot_info "$1") || return 1; [ -n "$n" ] || return 1; set -- $n

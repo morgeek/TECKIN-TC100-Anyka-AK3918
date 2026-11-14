@@ -71,6 +71,10 @@ micro inactif sans DSP, MQTT / présence sans fork). Mesurer avant / après sur 
   (aujourd'hui appliqué à chaud seulement).
 
 ### 5. Temps de démarrage
+- **14/11 soir, cause principale trouvée et corrigée :** chaque sauvegarde des réglages en flash bloquait le CPU à 100 %
+  ~10 s (lecture des deux emplacements octet par octet, `dd bs=1`), au démarrage et à chaque changement de réglage.
+  Lecture par blocs de 4 Kio (0,15 s au lieu de 2,5 s par emplacement, vérifié sur la .24) et compteur de boot-guard
+  sauvé en arrière-plan. À vérifier avec la prochaine build (trace de démarrage, `rtsp_launched` visé ~25 s).
 - **14/11 soir :** traces par étape ajoutées (`/tmp/boot-trace.txt`, 37 marqueurs sans fork). Étape suivante : lire le
   profil sur les deux caméras avec la prochaine build, puis déplacer ce qui ne sert pas à la première image.
 - **Mesures (rc43) :** `autorun_start` 17,6 s, `network_ready` 20,7 s, `rtsp_launched` 32,8-34,9 s, `web_ready` 33,8-35,8 s,

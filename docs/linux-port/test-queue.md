@@ -3601,3 +3601,20 @@ Status: `failed on the .11 2026-11-14`: still oscillates on a static scene (resu
   is not needed for the first picture after `rtsp_launched` (keeping boot-guard / reboot-tracker before the services:
   the safe-mode decision needs them).
 - **Point 1, native CGIs:** being written (Fable, separate branch), to be merged after review and tests.
+
+### Boot profile of rc44 and the flash-save CPU hog (2026-11-14 evening, both cameras on rc44 since ~17:50 UTC)
+- `/tmp/boot-trace.txt` (.11; the .24 within 1 s): `step_1f` 22.7 -> `step_2` 32.1 (**9.4 s**, boot-guard), `step_4a` 32.2 ->
+  `step_5` 35.2 (video launch), `step_8` 36.3 -> `step_9` 42.3 (6 s), `step_9` -> `step_9b` 55.1 (**12.8 s**), `step_10` ->
+  `step_11` 7 s, `step_12b2` -> `step_12b2b` 9.5 s; `boot_complete` ~75 s. At runtime the same commands of step 9 take
+  0.67 s (IR-cut pulse) and 0.11 s (auto-night start): the boot steps are slowed by something running beside them.
+- **Cause: every `cfg-persist save` held the CPU at 100 % for ~10 s** (.24: idle 22 % busy; during a save 100 %, 78 % sys;
+  a shell loop 4.2 s alone, 10.1 s during a save). `sh -x` of a save: the flash write (`flashcp`) 0.2 s, but `slot_data`
+  read each slot with `dd bs=1 count=16561`, one SPI read per byte, **2.5 s per slot, both slots** (`best()` checks
+  both md5s before choosing the target). Saves happen at boot (boot-guard count, settings touched by the start) and
+  whenever a setting changes.
+- **Fixes (this commit):** `slot_data` reads the slot in 4 KiB blocks and cuts it with `tail -c` / `head -c`: checked on
+  the .24 (read-only) for both slots, same md5 as the header, **0.15 s instead of 2.5 s**. `boot-guard start` saves its
+  count in the background (`set_count ... bg`; `BG_SYNC=1` keeps it synchronous for tests; saves are serialised by
+  the cfg-persist lock): the ~10 s it held in front of the video are gone. Step 9 got a sub-marker (`step_9_ircut_done`).
+- **To check with the next build:** the boot trace on both cameras (expected `rtsp_launched` ~25 s instead of ~35 s, no
+  10 s gaps), `cfg-persist save` time (expected ~1-2 s), the safe-mode count still correct (`config/.boot-guard`).

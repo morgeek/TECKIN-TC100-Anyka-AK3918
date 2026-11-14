@@ -385,6 +385,7 @@ bt step_9
 _ic=""
 [ -r /var/run/ircut ] && read -r _ic < /var/run/ircut 2>/dev/null
 sh /mnt/bin/setconf -k e -v "${_ic:-1}" </dev/null >/dev/null 2>&1
+bt step_9_ircut_done
 DN=
 if [ -r /mnt/config/rtspserver.conf ]; then
   while IFS='=' read -r _k _v; do [ "$_k" = daynight ] && { DN=$_v; break; }; done < /mnt/config/rtspserver.conf

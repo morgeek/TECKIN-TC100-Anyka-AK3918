@@ -1268,7 +1268,7 @@ class BootGuard(unittest.TestCase):
         self.env = dict(BG_CFG=str(self.d / 'cfg'), BG_FLASHMODE=str(self.d / 'flashmode'),
                         BG_FLAG=str(self.d / 'safemode'), BG_MOTD=str(self.d / 'motd'),
                         BG_UPTIME=str(self.d / 'uptime'), BG_OK_S='3600', BG_NO_TIMER='1',
-                        BG_PERSIST='sh %s' % (self.d / 'persist.sh'))
+                        BG_PERSIST='sh %s' % (self.d / 'persist.sh'), BG_SYNC='1')
 
     def tearDown(self):
         shutil.rmtree(self.d)
@@ -1284,6 +1284,21 @@ class BootGuard(unittest.TestCase):
     def saves(self):
         p = self.d / 'saves'
         return len(p.read_text().split()) if p.exists() else 0
+
+    def test_boot_save_runs_in_the_background(self):
+        # 2026-11-14: the flash save (~10 s) no longer delays the boot; the count in RAM is written at once
+        slow = self.d / 'slow.sh'
+        slow.write_text('sleep 2; echo "$CFG" >> %s\n' % (self.d / 'saves'))
+        env = dict(self.env, BG_PERSIST='sh %s' % slow); env.pop('BG_SYNC')
+        t0 = time.time()
+        r = sh('sh %s start' % (ROOT / 'v3/linux66-sd/boot-guard'), env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertLess(time.time() - t0, 1.5)
+        self.assertEqual(self.count(), '1')
+        for _ in range(50):
+            if (self.d / 'saves').exists(): break
+            time.sleep(0.1)
+        self.assertTrue((self.d / 'saves').exists())
 
     def test_three_short_runs_then_safe_mode_and_cap(self):
         for n in (1, 2, 3):
@@ -1349,3 +1364,20 @@ class BootGuard(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class CfgPersistBlockRead(unittest.TestCase):
+    """2026-11-14: cfg-persist reads a slot in 4 KiB blocks, not one flash read per byte (dd bs=1: 2.5 s at 100 % CPU)."""
+
+    def test_slot_data_reads_blocks_and_cuts_exactly(self):
+        src = (ROOT / 'v3/linux66-sd/cfg-persist').read_text()
+        fn = src[src.index('slot_data() {'):src.index('slot_valid() {')]
+        self.assertNotIn('bs=1 ', fn)
+        with tempfile.TemporaryDirectory() as t:
+            payload = bytes(range(256)) * 70 + b'\xff\x00end'
+            hdr = b'TC1CFG 5 %d deadbeef\n' % len(payload)
+            dev = Path(t, 'mtd7ro'); dev.write_bytes(hdr + payload + b'\xff' * (36864 - len(hdr) - len(payload)))
+            code = ('find_mtd() { echo mtd7; }\nslot_info() { echo "5 %d deadbeef"; }\n' % len(payload) +
+                    fn.replace('/dev/${m}ro', t + '/${m}ro') + '\nslot_data cfga > %s/out\n' % t)
+            subprocess.run(['sh', '-c', code], check=True)
+            self.assertEqual(Path(t, 'out').read_bytes(), payload)
