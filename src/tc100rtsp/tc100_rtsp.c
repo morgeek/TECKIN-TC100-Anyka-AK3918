@@ -1278,26 +1278,37 @@ static void post_awb_sample(const unsigned char *uv, int bw)
 		if (ng >= n / 20 && ng > 0) { su = gu; sv = gv; n = ng; }
 	}
 	if (awb_hw == 1) {	/* the ISP's picture itself is measured: move its gains until the mean is grey */
-		int tu = (int)(su / n) - 128, tv = (int)(sv / n) - 128, r = ex_r, b = ex_b;
+		int tu = (int)((su + n / 2) / n) - 128, tv = (int)((sv + n / 2) / n) - 128, r = ex_r, b = ex_b;
 
 		awb_last_tu = tu; awb_last_tv = tv;
 		tu = tu > 40 ? 40 : tu < -40 ? -40 : tu;
 		tv = tv > 40 ? 40 : tv < -40 ? -40 : tv;
-		if (tv > 1 || tv < -1) r = r * (256 - tv) / 256;	/* V high: too red */
-		if (tu > 1 || tu < -1) b = b * (256 - tu * 5 / 4) / 256;	/* U high: too blue; accelerate blue correction to avoid warm cast */
-		r = r < 128 ? 128 : r > awb_max ? awb_max : r;
-		b = b < 128 ? 128 : b > awb_max ? awb_max : b;
-		if (r != ex_r || b != ex_b) { ex_r = r; ex_b = b; awb_hw_set(); }
-		if (tu >= -2 && tu <= 2 && tv >= -2 && tv <= 2) {
-			if (++settled >= 6) awb_state_save();
-		} else {
+		/* once converged (settled >= 6), keep ISP gains locked across +-3 noise to avoid ramping against the kernel step (>5) */
+		if (settled >= 6 && (tu >= 4 || tu <= -4 || tv >= 4 || tv <= -4))
 			settled = 0;
+		if (settled < 6) {
+			if (tv > 1 || tv < -1) {
+				int dr = (tv >= -3 && tv <= 3) ? (tv > 0 ? -1 : 1) : r * (256 - tv) / 256 - r;
+				r += dr;
+			}
+			if (tu > 1 || tu < -1) {
+				int db = (tu >= -3 && tu <= 3) ? (tu > 0 ? -1 : 1) : b * (256 - tu * 5 / 4) / 256 - b;
+				b += db;
+			}
+			r = r < 128 ? 128 : r > awb_max ? awb_max : r;
+			b = b < 128 ? 128 : b > awb_max ? awb_max : b;
+			if (r != ex_r || b != ex_b) { ex_r = r; ex_b = b; awb_hw_set(); }
+			if (tu >= -2 && tu <= 2 && tv >= -2 && tv <= 2) {
+				if (++settled >= 6) awb_state_save();
+			} else {
+				settled = 0;
+			}
 		}
 		if (dbg_on) LOG("AWB u %d v %d (ng %d) -> rgain_ex %d bgain_ex %d\n", tu, tv, ng, ex_r, ex_b);
 		return;
 	}
 	{
-		int tu = (int)(su / n) - 128, tv = (int)(sv / n) - 128, ou = p_du, ov = p_dv;
+		int tu = (int)((su + n / 2) / n) - 128, tv = (int)((sv + n / 2) / n) - 128, ou = p_du, ov = p_dv;
 
 		awb_last_tu = tu; awb_last_tv = tv;
 		tu = tu > 85 ? 85 : tu < -85 ? -85 : tu;

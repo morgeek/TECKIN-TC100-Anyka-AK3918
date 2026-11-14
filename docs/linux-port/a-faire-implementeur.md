@@ -42,11 +42,12 @@ contredise.
    `ieee80211_start_tx_ba_session()` dans `rtl8xxxu_tx()`) + compteurs 0444 `ba_tx_start/oper/stop`,
    `tx_qos_data/tx_other` ; `wifi-try.sh ampdu_tx=0`. Le test à deux pings sur deux TID depuis le Mac n'est pas concluant
    (marquage TOS perdu sur le chemin de la VM).
-2. **Patch 0003, `finish_request_epx` :** corrigé par le patch 0022 (Fable, 14/11, sur `main`, compilé en CI) ; à essayer
-   sur caméra avec la prochaine build.
-3. AWB-01 étape 3 (propriétaire : papier blanc, lampe à incandescence) ; UPD-01 (b) ; WIFI-TRY-01 / WIFI-TXATTEN /
-   WIFI-RXAGG sur une caméra ; mesures ENC-01 et AEC-01 ; HW-09 la nuit ; HRTIMER-01 (noyau sur carte SD seulement).
-4. **Pompage / oscillation de teinte AWB (`tc100_rtsp`, constaté sur `.11` et `.24` le 2026-11-14) :**
+2. **Patch 0003, `finish_request_epx` :** **[Implémenté le 14/11 : patch `0022` sur `main`, `e493821`, compilé en CI]** ; à essayer sur
+   caméra avec la prochaine build.
+3. AWB-01 étape 3 (propriétaire : papier blanc, lampe à incandescence) ; **AWB-02** (contrôle fin d'oscillation ci-dessous) ;
+   UPD-01 (b) ; WIFI-TRY-01 / WIFI-TXATTEN / WIFI-RXAGG sur une caméra ; mesures ENC-01 et AEC-01 ; HW-09 la nuit ; HRTIMER-01
+   (noyau sur carte SD seulement).
+4. **Pompage / oscillation de teinte AWB (`tc100_rtsp`, constaté sur `.11` et `.24` le 2026-11-14) — [Implémenté dans `tc100_rtsp.c` le 14/11, à valider sur caméra (`AWB-02`)] :**
    - **Mesure terrain (2026-11-14, propriétaire) :** légers changements réguliers de teinte sur les deux caméras. Avec
      `touch /mnt/config/awb.off` (`rex=256 bex=256`, boucle `tc100_rtsp` coupée), l'image prend un voile vert mais reste
      **100 % fixe** (prouve que le capteur et l'ISP noyau ne dérivent pas seuls). Avec `rm -f /mnt/config/awb.off`, les
@@ -63,12 +64,12 @@ contredise.
      3. Observation annexe sur la zone DMA ISP (`0006`, l. 6450-6451, 7077, 16907) : `MD_stat[24][32]` fait `24 * 32`
         demi-mots = `384` mots (`256 + 128`, mots `771..1154`), donc le bloc lu quand `awb_live=0` (`word 1032`, `128`
         mots avant les vraies stats AWB à `word 1160`) recouvre les lignes `16..21` de `MD_stat`.
-   - **Correctif à faire dans `src/tc100rtsp/tc100_rtsp.c` (espace utilisateur uniquement, sans toucher au noyau) :**
-     - Arrondir symétriquement autour de 128 (`(su + n / 2) / n - 128` et `(sv + n / 2) / n - 128`) ;
-     - Ajouter une hystérésis après stabilisation (`settled >= 6`) : verrouiller `ex_r`/`ex_b` tant que
-       `|tu| <= 3 && |tv| <= 3`, ne réactiver la convergence (jusqu'à `|tu| <= 1 && |tv| <= 1`) que si
-       `|tu| >= 4 || |tv| >= 4` (ou après saut de luminance `|my - prev_y| > 25`), et amortir le pas près de zéro pour
-       éviter l'accumulation contre le seuil `> 5` du noyau ; ajouter un test unitaire ciblé dans `tests/`.
+   - **Correctif implémenté dans `src/tc100rtsp/tc100_rtsp.c` (`post_awb_sample()`) :**
+     - Arrondi symétrique autour de 128 (`(su + n / 2) / n - 128` et `(sv + n / 2) / n - 128`) ;
+     - Hystérésis après stabilisation (`settled >= 6`) : `ex_r`/`ex_b` verrouillés tant que `|tu| <= 3 && |tv| <= 3`,
+       réveil uniquement si `|tu| >= 4 || |tv| >= 4` (ou après saut de luminance `|my - prev_y| > 25`), et pas unitaire
+       `±1` près de zéro (`|tu|, |tv| <= 3`) pour éviter l'empilement contre le seuil `> 5` du noyau ;
+     - Test unitaire C compilé ajouté dans `tests/test_tc100rtsp.py` (`test_awb_hysteresis_and_symmetric_rounding`).
 
 ## Noyau d'essai Wi-Fi et défaut du patch 0003 (2026-11-13 après-midi, coordinateur)
 

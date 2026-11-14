@@ -2006,6 +2006,107 @@ class Sources(unittest.TestCase):
         self.assertEqual(len(re.findall(r'nr3d_auto_sync\(', s)), 3)  # definition + the two callers, no argument
         self.assertNotIn('nr3d_auto_sync(night', s)
 
+    @unittest.skipUnless(shutil.which('gcc'), 'needs gcc')
+    def test_awb_hysteresis_and_symmetric_rounding(self):
+        src = (SRC / 'tc100_rtsp.c').read_text()
+        start = src.index('static void post_awb_sample(')
+        end = src.index('\n/* The capture memory is uncached', start)
+        fn = src[start:end]
+        harness = r'''
+#include <stdint.h>
+#include <stdio.h>
+#define LOG(...) printf(__VA_ARGS__)
+static int W = 64, H = 64;
+static int sensor_fps_want, tune_dirty, p_awb = 1, awb_hw = 1, awb_grey = 1;
+static int ex_r = 256, ex_b = 556, awb_max = 1536, awb_last_tu, awb_last_tv;
+static int p_du, p_dv, dbg_on = 1, hw_writes, state_saves;
+static void sensor_fps_set(void) {}
+static void tune_hw_apply(void) {}
+static void ispx_apply(void) {}
+static void awb_hw_init(void) {}
+static int awb_hw_set(void) { hw_writes++; return 0; }
+static void awb_state_save(void) { state_saves++; }
+static void post_luts(void) {}
+''' + fn + r'''
+static void fill(unsigned char *buf, int y, int u_lo, int u_hi, int v)
+{
+	int ysz = W * H, i, idx = 0;
+	for (i = 0; i < ysz; i++) buf[i] = (unsigned char)y;
+	for (i = 0; i < W * H / 2 - 2; i += 4) {
+		int u = (idx++ % 5 == 0) ? u_hi : u_lo;
+		buf[ysz + i] = (unsigned char)u;
+		buf[ysz + i + 1] = (unsigned char)v;
+		buf[ysz + i + 2] = (unsigned char)u;
+		buf[ysz + i + 3] = (unsigned char)v;
+	}
+}
+int main(void)
+{
+	unsigned char frame[64 * 64 * 3 / 2];
+	int i;
+
+	/* 1. Symmetric rounding: 80% 128 + 20% 126 = 127.6 -> tu=0 (old truncation gave -1).
+	 *    80% 127 + 20% 126 = 126.8 -> tu=-1 (old truncation gave -2). */
+	fill(frame, 120, 128, 126, 128);
+	post_awb_sample(frame + W * H, 0);
+	printf("ROUND_A tu=%d hw=%d\n", awb_last_tu, hw_writes);
+	fill(frame, 120, 127, 126, 128);
+	post_awb_sample(frame + W * H, 0);
+	printf("ROUND_B tu=%d hw=%d b=%d\n", awb_last_tu, hw_writes, ex_b);
+
+	/* 2. Fine step near zero: tu=-2 at bex=556 must step by +1 (not overshoot by +6). */
+	fill(frame, 120, 126, 126, 128);
+	post_awb_sample(frame + W * H, 0);
+	printf("DAMP tu=%d hw=%d b=%d\n", awb_last_tu, hw_writes, ex_b);
+
+	/* 3. Converge for 6 samples at (129, 127) -> settled, then lock across +-3 noise. */
+	hw_writes = 0;
+	for (i = 0; i < 6; i++) {
+		fill(frame, 120, 129, 129, 127);
+		post_awb_sample(frame + W * H, 0);
+	}
+	printf("SETTLED saves=%d hw=%d\n", state_saves, hw_writes);
+	for (i = 0; i < 4; i++) {
+		int u = (i % 2) ? 131 : 125;	/* tu = +3 / -3 */
+		int v = (i % 2) ? 125 : 131;	/* tv = -3 / +3 */
+		fill(frame, 120, u, u, v);
+		post_awb_sample(frame + W * H, 0);
+	}
+	printf("LOCKED hw=%d r=%d b=%d\n", hw_writes, ex_r, ex_b);
+
+	/* 4. Deviation |tu| >= 4 wakes convergence and updates gains. */
+	fill(frame, 120, 132, 132, 128);
+	post_awb_sample(frame + W * H, 0);
+	printf("WAKE hw=%d b=%d\n", hw_writes, ex_b);
+
+	/* 5. Re-converge, then luma jump > 25 resets settled so the next +-2 sample reacts again. */
+	for (i = 0; i < 6; i++) {
+		fill(frame, 120, 128, 128, 128);
+		post_awb_sample(frame + W * H, 0);
+	}
+	hw_writes = 0;
+	fill(frame, 155, 132, 132, 128);
+	post_awb_sample(frame + W * H, 0);
+	printf("LUMA_FREEZE hw=%d\n", hw_writes);
+	fill(frame, 155, 130, 130, 128);
+	post_awb_sample(frame + W * H, 0);
+	printf("AFTER_LUMA hw=%d\n", hw_writes);
+	return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as t:
+            Path(t, 'awb.c').write_text(harness)
+            subprocess.run(['gcc', '-Wall', '-Wextra', '-o', str(Path(t, 'awb')), str(Path(t, 'awb.c'))], check=True)
+            out = subprocess.run([str(Path(t, 'awb'))], capture_output=True, text=True, check=True).stdout
+        self.assertIn('ROUND_A tu=0 hw=0', out)
+        self.assertIn('ROUND_B tu=-1 hw=0 b=556', out)
+        self.assertIn('DAMP tu=-2 hw=1 b=557', out)
+        self.assertIn('SETTLED saves=1 hw=0', out)
+        self.assertIn('LOCKED hw=0 r=256 b=557', out)
+        self.assertIn('WAKE hw=1 b=546', out)
+        self.assertIn('LUMA_FREEZE hw=0', out)
+        self.assertIn('AFTER_LUMA hw=1', out)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -3421,3 +3421,18 @@ Mac VM `ping -i 0.5` to the .11, ~8.5 min per run, a stall = a reply later than 
 - **ENC-01 (passive):** both cameras `vbr=1` (`.11` `smart=1`), log `free encoder: H.265 1920x1080, 1600 kbit/s ceiling
   (VBR), 25 fps, GOP 50, QP 25-48`; mean of 12 STAT lines 1584 / 1576 kbit/s on the indoor day scene (at the ceiling).
   GOP 50 instead of `goplen=64`: intended, `rtsp-launch.sh` ignores the pre-3.0.1 shipped values 64 / 32 (GOP 2 s).
+
+### AWB-02 — Hystérésis et arrondi symétrique AWB (fin du pompage de teinte)
+Status: `to test`
+- **What:** `src/tc100rtsp/tc100_rtsp.c` (`post_awb_sample()`): nearest-integer rounding `(su + n / 2) / n - 128` and
+  `(sv + n / 2) / n - 128`, unit damping for fine errors `|tu|, |tv| <= 3`, and post-convergence hysteresis (`settled >= 6`
+  locks `ex_r`/`ex_b` across `|tu|, |tv| <= 3` noise and wakes at `>= 4` or after a luma jump `> 25`).
+- **Switch to turn it off:** `touch /mnt/config/awb.off` disables the loop completely (`rex=256 bex=256`, reboot/restart-free),
+  or `RTSP_ISPAWB=0` in `/mnt/config/rtsp.env` switches to software white balance.
+- **Test (real scene on `.11` / `.24`):**
+  1. Watch the live video for 2-3 minutes on a static indoor scene: verify the subtle cyclic tint shift is gone and
+     `/tmp/cam_awb` holds steady `rex` / `bex` values once converged.
+  2. Hold a white sheet or warm/cool lamp in front of the lens (triggering `|tu| >= 4` / `|tv| >= 4` or a luma jump) and
+     verify `tc100_rtsp` adapts to the new lighting, then re-locks cleanly.
+- **Pass criteria:** No periodic tint oscillation on static scenes, `0` spurious `ISP_SET_AWB_EX` updates once settled, and
+  prompt adaptation when scene white balance genuinely shifts.
