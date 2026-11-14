@@ -12,7 +12,8 @@ Everything in 3.0.1-rc43 below, plus:
 - **Native `httpfront` polls (`NATIVE-02`):** `tc100-httpfront` answers `daynight`, `hw_state`, and fresh `health.cgi`
   snapshot cache hits directly in C without spawning CGI shells.
 - **VBR quality QP (`RTSP_VBR_QP`, default `33`):** configurable quality floor in `rc.h` / `tc100_rtsp` so VBR drops
-  bitrate on calm scenes instead of staying pinned at the ceiling (`RTSP_VBR_QP=0` reverts to `qmin + 2`).
+  bitrate on calm scenes instead of staying pinned at the ceiling (`RTSP_VBR_QP=0` reverts to `qmin + 2`; parsed without
+  `atoi` for uClibc compatibility).
 - **Boot & CGI speedups:** symlink `tc100_rtsp` instead of copying to RAM in flash mode, start RTSP before `/tmp/www`
   symlinks, skip redundant `rwconf` credential writes at boot, batch-load `state.cgi` configs in a single `awk` pass
   (`load_conf_files`), and avoid reverse DNS lookups (`netstat -n`) + repeated `/proc/net/tcp` reads in `network.cgi`.
