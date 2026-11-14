@@ -48,6 +48,11 @@ contredise.
 - [x] **AWB-03 (14/11, 4a41b70) : attente 2 s après un changement, moyenne sur 2 s, demi-pas. Essayé sur la .11 (binaire en RAM) : 2 fois moins de changements de gains (14,4 / min contre 30), gains 4 à 8 fois plus stables une fois convergé. Peut partir dans la prochaine rc ; le reste du pompage vient de l'AWB de l'ISP (point ci-dessus).** Constat d'origine — **AWB-02 : la boucle oscille encore sur la .11** (erreur u/v qui change de signe presque à chaque mesure, gains
   modifiés 20 fois en 40 s) : pas proportionnel trop fort pour le retard d'une mesure de l'ISP ; diviser le pas ou
   n'agir qu'une mesure sur deux, puis revérifier.
+- [x] **MQTT / Home Assistant mis à niveau (`[mqtt]`, 14/11) — à valider sur caméra (`MQTT-HA-01` dans `test-queue.md`) :**
+  correctif de `handle_command_payload()` dans `scripts/mqtt-bridge.sh` (la commande `privacy` manquait dans le `case "$cmd"`),
+  réactivation du sélecteur `isp_power_hz` (`unchanged`/`50`/`60`/`auto`), et ajout des trois interrupteurs HA
+  `local_recording`, `flip` et `mirror` (avec `rec_local_on`, `flip_on`, `mirror_on` dans `/health` et parité complète
+  entre `scripts/mqtt-bridge.sh` et `src/mqttd/mqttd.c`).
 
 ### Encore ouvert au 2026-11-14 (par ordre de valeur)
 1. **WIFI-STALL-01 (.11), mis à jour le 14/11 après-midi :** essais sans le propriétaire (test-queue « Wi-Fi trials on

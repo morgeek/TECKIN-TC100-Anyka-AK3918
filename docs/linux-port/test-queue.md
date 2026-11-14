@@ -49,7 +49,7 @@ Validated on the cameras and made the default where it applies; the entries are 
 
 **Still open (in priority order):** WIFI-STALL-01 (next: `ampdu_tx` switch, owner's decision), AWB-01 step 3 (owner,
 white paper / tungsten), UPD-01 (b), WIFI-TRY-01 / WIFI-TXATTEN / WIFI-RXAGG on a camera, ENC-01 and AEC-01 measurements,
-HW-09 night part, the patch 0003 `finish_request_epx` fix (a-faire-implementeur.md, 13/11), HRTIMER-01, and the
+HW-09 night part, the patch 0003 `finish_request_epx` fix (a-faire-implementeur.md, 13/11), HRTIMER-01, MQTT-HA-01, and the
 older `to test` entries below.
 
 ### WIFI-AMPDU-TX rtl8xxxu runtime `ampdu_tx` switch and BlockAck counters (`[wifi]`, kernel patch 0023) — `PASSED 2026-11-14 (.11, build of branch overclock 4f43f3e): ampdu_tx=0 -> 0 stalls in 8 min (max 0.2 s); back to Y -> stalls again. Root cause of WIFI-STALL-01 found; default change = owner's decision`
@@ -3528,3 +3528,16 @@ Status: `failed on the .11 2026-11-14`: still oscillates on a static scene (resu
 - **Better: half the changes and gains 4-8 times steadier once converged; our loop no longer amplifies the ISP's jumps.**
   The error `u`/`v` still swings +-20 because the ISP's own AWB keeps changing region: the visible tint follows the ISP.
   The remaining fix is on the ISP's AWB (hysteresis / freeze, a-faire-implementeur.md). AWB-03 can ship as is.
+
+### MQTT-HA-01 Home Assistant `privacy` switch fix, `isp_power_hz` select, and `local_recording` / `flip` / `mirror` switches (`[mqtt]`) — `to test`
+- **What:**
+  - `scripts/mqtt-bridge.sh`: fixed `handle_command_payload()` missing `privacy` in the toggle `case "$cmd"` list (previously failed with unsupported command even though `apply_toggle_command()` and HA discovery exposed `privacy`); re-enabled the `isp_power_hz` `select` HA discovery entity (`unchanged`, `50`, `60`, `auto`) backed by `<root>/isp/state`; added three HA `switch` entities (`local_recording`, `flip`, `mirror`), matching `rec_local_on`, `flip_on`, `mirror_on` booleans in `/health` (from `/mnt/config/boot.conf` `REC_LOCAL` and `/mnt/config/rtspserver.conf` `imageflip` bitmask), and command handlers (`local_recording`/`rec_local` updating `REC_LOCAL`, `flip`/`mirror` toggling bit `1`/`2` of `imageflip` via `/mnt/bin/rwconf` + live `/mnt/bin/setconf -k f -v`).
+  - `src/mqttd/mqttd.c`: updated C HA discovery (`MQTT_DISCOVERY_IMPL=c`, default) in lockstep with `scripts/mqtt-bridge.sh` for `local_recording`, `flip`, `mirror`, and `isp_power_hz`.
+- **Switch / revert:** Toggle back in Home Assistant or via MQTT `<root>/command`; `MQTT_DISCOVERY_IMPL=c` and `sh` emit identical discovery payloads.
+- **Test (`.11` or `.24`, MQTT + Home Assistant Discovery enabled):**
+  1. Restart `controlscripts/mqtt-bridge restart` with default `MQTT_DISCOVERY_IMPL=c`; verify HA discovers valid configs for `switch/.../privacy`, `local_recording`, `flip`, `mirror`, and `select/.../isp_power_hz` (`unchanged`/`50`/`60`/`auto`).
+  2. Toggle `privacy` ON/OFF from HA -> `/tmp/tc100_privacy` toggles and `/health` `privacy_on` reflects it.
+  3. Toggle `local_recording` ON/OFF -> `REC_LOCAL` in `/mnt/config/boot.conf` updates and `/health` `rec_local_on` updates.
+  4. Toggle `flip` and `mirror` independently -> `/mnt/config/rtspserver.conf` `imageflip` bitmask updates (`0..3`), video orientation updates live via `setconf -k f -v`, and `/health` `flip_on` / `mirror_on` update.
+  5. Select `isp_power_hz` (`50`, `60`, `auto`, `unchanged`) -> `isp_tune_set POWER_HZ` updates config and `<root>/isp/state` reports the applied value.
+- **Pass criteria:** All 5 HA entities execute cleanly with positive `<root>/command/result`, `/health` and `/isp/state` match HA entity states, and `DiscoveryParity` passes on CI.

@@ -305,7 +305,7 @@ class Daemon(unittest.TestCase):
         self.assertIn(b'"sw":"9.9"', cpu[0][1])
         self.assertEqual(b.pub('ha/switch/n1/privacy_shield/config')[0][1:], (b'', True))   # removal of an old entity
         self.assertFalse(b.pub('ha/camera/n1/live/config') or b.pub('ha/number/n1/isp_hue/config'))
-        self.assertEqual(len([p for p in b.pubs if p[0].startswith('ha/')]), 44)
+        self.assertEqual(len([p for p in b.pubs if p[0].startswith('ha/')]), 47)
         self.assertEqual((self.d / 'startarg').read_text(), 'nodisc\n')            # the script skips its own discovery
         order = [p[0] for p in b.pubs]
         self.assertLess(order.index('ha/sensor/n1/cpu/config'), order.index('t/health'))
@@ -547,6 +547,8 @@ class Worker(unittest.TestCase):
         self.assertEqual(via_sink, via_nc)                                           # same topics, bytes, retain flags, order
         topics = [x[0] for x in via_sink]
         for t in ('homeassistant/sensor/Cam-One/cpu/config', 'homeassistant/switch/Cam-One/ir_led/config',
+                  'homeassistant/switch/Cam-One/local_recording/config', 'homeassistant/switch/Cam-One/flip/config',
+                  'homeassistant/switch/Cam-One/mirror/config', 'homeassistant/select/Cam-One/isp_power_hz/config',
                   'homeassistant/button/Cam-One/reboot/config', 'homeassistant/camera/Cam-One/live/config',
                   'homeassistant/select/Cam-One/profile/config'):
             self.assertIn(t, topics)
@@ -593,6 +595,48 @@ class Worker(unittest.TestCase):
         self.assertTrue(recs['cam/one/health'][2])                                   # retained
         self.assertTrue(recs['cam/one/health'][1].startswith(b'{'))
         self.assertEqual(self.forged(), [])                                          # nothing went to nc in sink mode
+
+    def test_commands_privacy_recording_flip_mirror_and_antiflicker(self):
+        import json
+        (self.mnt / 'controlscripts').mkdir(parents=True, exist_ok=True)
+        shutil.copy(ROOT / 'controlscripts/privacy', self.mnt / 'controlscripts/privacy')
+        priv = self.mnt / 'controlscripts/privacy'
+        priv.write_text(priv.read_text().replace('/tmp/', str(self.tmp) + '/').replace('/mnt/', str(self.mnt) + '/'))
+        priv.chmod(0o755)
+        (self.mnt / 'config/boot.conf').write_text('REC_LOCAL=0\nPRIVACY_SCREEN=0\n')
+        (self.mnt / 'config/rtspserver.conf').write_text('imageflip=0\n')
+
+        env = {'MQTT_HOST_RESOLVED': 'x'}
+        for step, payload in enumerate((
+            '{"cmd":"privacy","value":"on"}',
+            '{"cmd":"local_recording","value":"on"}',
+            '{"cmd":"flip","value":"on"}',
+            '{"cmd":"mirror","value":"on"}',
+            '{"cmd":"isp_power_hz","value":"auto"}',
+        )):
+            (self.tmp / 'mqtt_cmd_last').unlink(missing_ok=True)
+            r, data = self.run_script('command', payload, 'mqtt', env=env, sink=True)
+            self.assertEqual(r.returncode, 0, (step, payload, r.stderr))
+            recs = dict((k, v) for k, v, _ in sink_records(data))
+            self.assertIn('cam/one/command/result', recs)
+            self.assertTrue(json.loads(recs['cam/one/command/result'])['ok'], payload)
+
+        r, data = self.run_script('health-cycle', env=env, sink=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        recs = dict((k, v) for k, v, _ in sink_records(data))
+        health = json.loads(recs['cam/one/health'])
+        self.assertEqual((health['privacy_on'], health['rec_local_on'], health['flip_on'], health['mirror_on']), (1, 1, 1, 1))
+        isp = json.loads(recs['cam/one/isp/state'])
+        self.assertEqual(isp['conf']['POWER_HZ'], 'auto')
+
+        # Turn flip off while mirror stays on -> imageflip=2 (flip_on=0, mirror_on=1), and disable privacy & recording
+        for payload in ('{"cmd":"flip","value":"off"}', '{"cmd":"privacy","value":"off"}', '{"cmd":"local_recording","value":"off"}'):
+            (self.tmp / 'mqtt_cmd_last').unlink(missing_ok=True)
+            r, _ = self.run_script('command', payload, 'mqtt', env=env, sink=True)
+            self.assertEqual(r.returncode, 0, (payload, r.stderr))
+        r, data = self.run_script('health-cycle', env=env, sink=True)
+        health = json.loads(dict((k, v) for k, v, _ in sink_records(data))['cam/one/health'])
+        self.assertEqual((health['privacy_on'], health['rec_local_on'], health['flip_on'], health['mirror_on']), (0, 0, 0, 1))
 
 
 HAVE_BUSYBOX = shutil.which('busybox') is not None

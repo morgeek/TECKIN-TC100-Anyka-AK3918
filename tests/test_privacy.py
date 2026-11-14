@@ -50,6 +50,7 @@ class Wiring(unittest.TestCase):
     def test_mqtt_switch_and_boot(self):
         m = text('scripts/mqtt-bridge.sh')
         self.assertIn('for cmd in ir_led front_led red_led motion_detection night_mode auto_night_mode privacy; do', m)
+        self.assertIn('|auto_night_mode|privacy|ftp|', m)
         self.assertIn('script="/mnt/controlscripts/privacy"', m)
         self.assertIn('"red_led_on":%s,"privacy_on":%s,"ir_led_on":%s,', m)
         self.assertIn('"$red_led_on" "$privacy_on" "$ir_led_on"', m)

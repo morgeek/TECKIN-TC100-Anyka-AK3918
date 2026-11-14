@@ -266,17 +266,17 @@ class Regressions(unittest.TestCase):
         r = run(code + block)
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = (self.base / 'disc').read_text().strip().split('\n')
-        self.assertEqual(len(lines), 9)   # 7 numbers (noise reduction since 2026-11-11) + anti-flicker removal + switch
+        self.assertEqual(len(lines), 9)   # 7 numbers + anti-flicker select + switch
         for line in lines:
             topic, payload = line.split('\t', 1)
-            if '/select/' in topic:
-                # anti-flicker is not applied on 3.0: an empty retained payload removes the old entity
-                self.assertTrue(topic.endswith('/isp_power_hz/config'), topic)
-                self.assertEqual(payload, '')
-                continue
             d = json.loads(payload)
             self.assertEqual(d['stat_t'], 'cam/x/isp/state', topic)
-            if '/number/' in topic:
+            if '/select/' in topic:
+                self.assertTrue(topic.endswith('/isp_power_hz/config'), topic)
+                self.assertEqual(d['options'], ['unchanged', '50', '60', 'auto'])
+                cmd = d['cmd_tpl'].replace('{{ value }}', '50')
+                self.assertEqual(json.loads(cmd), {'cmd': 'isp_power_hz', 'value': '50'})
+            elif '/number/' in topic:
                 cmd = d['cmd_tpl'].replace('{{ value | int }}', '7')
                 self.assertTrue(json.loads(cmd)['cmd'].startswith('isp_'))
         sw = json.loads([l for l in lines if '/switch/' in l][0].split('\t', 1)[1])

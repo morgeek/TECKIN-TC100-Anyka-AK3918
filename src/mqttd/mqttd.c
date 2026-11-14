@@ -14,7 +14,7 @@
  *         F<retain><topic> NUL <file>    NUL        (publish the content of this file, e.g. the snapshot)
  *     which this program publishes over its own connection. It runs only when there is something to do (once after
  *     connecting, every MQTT_HEALTH_INTERVAL_SECONDS, once per command), one job at a time.
- *   - MQTT_DISCOVERY_IMPL=c (config/mqtt.conf, off by default): the Home Assistant discovery topics are built here
+ *   - MQTT_DISCOVERY_IMPL=c (config/mqtt.conf, on by default): the Home Assistant discovery topics are built here
  *     (discovery_publish, byte for byte what publish_homeassistant_discovery of the script gives) and the startup job
  *     is run as `startup nodisc`; with `sh` (the default) the script does it as before;
  *   - `mqtt-bridge.sh publish ...` called by the other scripts (motion, sound, tamper...) writes the same records to
@@ -523,6 +523,11 @@ static void discovery_publish(void)
 		{ "auto_night_mode", "Auto Night Mode", "mdi:theme-light-dark", "auto_night_enabled" },
 		{ "privacy", "Privacy Mode", "mdi:eye-off", "privacy_on" },
 	};
+	static const struct { const char *cmd, *name, *ic, *field; } sw2_tab[] = {
+		{ "local_recording", "Local Recording", "mdi:record-rec", "rec_local_on" },
+		{ "flip", "Flip Vertical", "mdi:flip-vertical", "flip_on" },
+		{ "mirror", "Mirror Horizontal", "mdi:flip-horizontal", "mirror_on" },
+	};
 	static const struct { const char *key, *name, *ic, *tpl; int min, max, step; } isp_tab[] = {
 		{ "brightness", "Brightness", "mdi:brightness-6", "{{ value_json.conf.BRIGHTNESS }}", -50, 50, 1 },
 		{ "contrast", "Contrast", "mdi:contrast-box", "{{ value_json.conf.CONTRAST }}", -50, 50, 1 },
@@ -575,6 +580,13 @@ static void discovery_publish(void)
 		     dn, sw_tab[i].name, uid, ht, sw_tab[i].field, cj, sw_tab[i].cmd, sw_tab[i].cmd, av, sw_tab[i].ic, di, dn);
 	}
 	dpub_raw("switch", "privacy_shield", "");	/* removed on 3.0: drops what older versions announced */
+	for (size_t i = 0; i < sizeof sw2_tab / sizeof sw2_tab[0]; i++) {
+		char uid[400];
+
+		snprintf(uid, sizeof uid, "%s_%s", C.node, sw2_tab[i].cmd);
+		dpub("switch", sw2_tab[i].cmd, "{\"name\":\"%s %s\",\"uniq_id\":\"%s\",\"stat_t\":\"%s\",\"val_tpl\":\"{{ \\\"ON\\\" if value_json.%s == 1 else \\\"OFF\\\" }}\",\"cmd_t\":\"%s\",\"pl_on\":\"{\\\"cmd\\\":\\\"%s\\\",\\\"value\\\":\\\"on\\\"}\",\"pl_off\":\"{\\\"cmd\\\":\\\"%s\\\",\\\"value\\\":\\\"off\\\"}\",\"avty_t\":\"%s\",\"ic\":\"%s\"," DEV "}",
+		     dn, sw2_tab[i].name, uid, ht, sw2_tab[i].field, cj, sw2_tab[i].cmd, sw2_tab[i].cmd, av, sw2_tab[i].ic, di, dn);
+	}
 
 	dpub("sensor", "wifi_quality", "{\"name\":\"%s Wi-Fi Quality\",\"uniq_id\":\"%s_wifi_quality\",\"stat_t\":\"%s\",\"val_tpl\":\"{{ value_json.diag.wifi_quality }}\",\"unit_of_meas\":\"%%\",\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:wifi-check\",%s,%s}", dn, di, ht, avtyj, devj);
 	dpub("sensor", "storage_used", "{\"name\":\"%s Storage Used\",\"uniq_id\":\"%s_storage_used\",\"stat_t\":\"%s\",\"val_tpl\":\"{{ value_json.storage_used_percent }}\",\"unit_of_meas\":\"%%\",\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\",\"ic\":\"mdi:harddisk\",%s,%s}", dn, di, ht, avtyj, devj);
@@ -590,7 +602,8 @@ static void discovery_publish(void)
 			     dn, isp_tab[i].name, di, isp_tab[i].key, ist, isp_tab[i].tpl, cj, isp_tab[i].key, isp_tab[i].min, isp_tab[i].max, isp_tab[i].step,
 			     !strcmp(isp_tab[i].key, "exposure_max_pct") ? ",\"unit_of_meas\":\"%\"" : "", av, isp_tab[i].ic, di, dn);
 		}
-		dpub_raw("select", "isp_power_hz", "");	/* anti-flicker is not applied on 3.0: no entity */
+		dpub("select", "isp_power_hz", "{\"name\":\"%s Anti-flicker\",\"uniq_id\":\"%s_isp_power_hz\",\"stat_t\":\"%s\",\"val_tpl\":\"{{ value_json.conf.POWER_HZ | string if value_json.conf.POWER_HZ else 'unchanged' }}\",\"cmd_t\":\"%s\",\"cmd_tpl\":\"{\\\"cmd\\\":\\\"isp_power_hz\\\",\\\"value\\\":\\\"{{ value }}\\\"}\",\"options\":[\"unchanged\",\"50\",\"60\",\"auto\"],\"ent_cat\":\"config\",\"avty_t\":\"%s\",\"ic\":\"mdi:sine-wave\"," DEV "}",
+		     dn, di, ist, cj, av, di, dn);
 		dpub("switch", "isp_tune", "{\"name\":\"%s Image Tuning\",\"uniq_id\":\"%s_isp_tune\",\"stat_t\":\"%s\",\"val_tpl\":\"{{ 'ON' if value_json.enabled == 1 else 'OFF' }}\",\"cmd_t\":\"%s\",\"pl_on\":\"{\\\"cmd\\\":\\\"isp_tune\\\",\\\"value\\\":\\\"on\\\"}\",\"pl_off\":\"{\\\"cmd\\\":\\\"isp_tune\\\",\\\"value\\\":\\\"off\\\"}\",\"ent_cat\":\"config\",\"avty_t\":\"%s\",\"ic\":\"mdi:tune\"," DEV "}", dn, di, ist, cj, av, di, dn);
 	}
 

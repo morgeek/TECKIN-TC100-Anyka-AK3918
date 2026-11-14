@@ -1075,6 +1075,18 @@ DIAG
   # Privacy Shield was removed on 3.0 (it only stopped services until the reboot): drop the entity older versions announced
   publish_discovery_config "${discovery_prefix}/switch/${node_id}/privacy_shield/config" ""
 
+  for cmd in local_recording flip mirror; do
+    uniq_id="${node_id}_${cmd}"
+    case "$cmd" in
+      local_recording) name_suffix="Local Recording"; ic="mdi:record-rec"; stat_field="rec_local_on" ;;
+      flip)            name_suffix="Flip Vertical"; ic="mdi:flip-vertical"; stat_field="flip_on" ;;
+      mirror)          name_suffix="Mirror Horizontal"; ic="mdi:flip-horizontal"; stat_field="mirror_on" ;;
+    esac
+    switch_cfg_topic="${discovery_prefix}/switch/${node_id}/${cmd}/config"
+    switch_cfg_payload="$(printf '{"name":"%s %s","uniq_id":"%s","stat_t":"%s","val_tpl":"{{ \"ON\" if value_json.%s == 1 else \"OFF\" }}","cmd_t":"%s","pl_on":"{\"cmd\":\"%s\",\"value\":\"on\"}","pl_off":"{\"cmd\":\"%s\",\"value\":\"off\"}","avty_t":"%s","ic":"%s","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$name_suffix" "$uniq_id" "$health_topic_json" "$stat_field" "$cmd_json" "$cmd" "$cmd" "$avail_topic_json" "$ic" "$device_id_json" "$device_name_json")"
+    publish_discovery_config "$switch_cfg_topic" "$switch_cfg_payload"
+  done
+
   # Additional V3 Telemetry Sensors (Wi-Fi Quality, Storage Used, IP Address)
   publish_discovery_config "${discovery_prefix}/sensor/${node_id}/wifi_quality/config" \
     "$(printf '{"name":"%s Wi-Fi Quality","uniq_id":"%s_wifi_quality","stat_t":"%s","val_tpl":"{{ value_json.diag.wifi_quality }}","unit_of_meas":"%%","stat_cla":"measurement","ent_cat":"diagnostic","ic":"mdi:wifi-check",%s,%s}' \
@@ -1107,9 +1119,12 @@ DIAG
         "$(printf '{"name":"%s %s","uniq_id":"%s_isp_%s","stat_t":"%s","val_tpl":"%s","cmd_t":"%s","cmd_tpl":"%s","min":%s,"max":%s,"step":%s,"mode":"slider","ent_cat":"config"%s,"avty_t":"%s","ic":"%s","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' \
           "$device_name_json" "$isp_name" "$device_id_json" "$isp_key" "$isp_state_json" "$isp_tpl_json" "$cmd_json" "$isp_cmd_tpl_json" "$isp_min" "$isp_max" "$isp_step" "$isp_unit" "$avail_topic_json" "$isp_ic" "$device_id_json" "$device_name_json")"
     done
-    # Anti-flicker (POWER_HZ) is not applied by the ISP code on 3.0: no entity (an empty retained payload removes the
-    # one older versions announced). The "isp_power_hz" command below stays harmless.
-    publish_discovery_config "${discovery_prefix}/select/${node_id}/isp_power_hz/config" ""
+    # Anti-flicker (POWER_HZ: unchanged, 50, 60, auto — applied live by tc100_rtsp whatever ISP_TUNE is).
+    isp_hz_tpl_json="$(json_escape "{{ value_json.conf.POWER_HZ | string if value_json.conf.POWER_HZ else 'unchanged' }}")"
+    isp_hz_cmd_json="$(json_escape "{\"cmd\":\"isp_power_hz\",\"value\":\"{{ value }}\"}")"
+    publish_discovery_config "${discovery_prefix}/select/${node_id}/isp_power_hz/config" \
+      "$(printf '{"name":"%s Anti-flicker","uniq_id":"%s_isp_power_hz","stat_t":"%s","val_tpl":"%s","cmd_t":"%s","cmd_tpl":"%s","options":["unchanged","50","60","auto"],"ent_cat":"config","avty_t":"%s","ic":"mdi:sine-wave","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' \
+        "$device_name_json" "$device_id_json" "$isp_state_json" "$isp_hz_tpl_json" "$cmd_json" "$isp_hz_cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
     isp_en_tpl_json="$(json_escape "{{ 'ON' if value_json.enabled == 1 else 'OFF' }}")"
     isp_pl_on_json="$(json_escape '{"cmd":"isp_tune","value":"on"}')"
     isp_pl_off_json="$(json_escape '{"cmd":"isp_tune","value":"off"}')"
@@ -1648,6 +1663,20 @@ build_health_payload()
   elif [ "$(/mnt/bin/setconf -g n 2>/dev/null)" = "2" ]; then
     auto_night_enabled=1
   fi
+  rec_local_on=0
+  if [ -r /mnt/config/boot.conf ]; then
+    read_kv_config_value /mnt/config/boot.conf REC_LOCAL 0 var
+    is_truthy_local "$READ_KV_VAL" && rec_local_on=1
+  fi
+  flip_on=0; mirror_on=0
+  if [ -r /mnt/config/rtspserver.conf ]; then
+    read_kv_config_value /mnt/config/rtspserver.conf imageflip 0 var
+    case "$READ_KV_VAL" in
+      1) flip_on=1 ;;
+      2) mirror_on=1 ;;
+      3) flip_on=1; mirror_on=1 ;;
+    esac
+  fi
 
   motion_active=0
   if [ -r /tmp/rec_control ]; then
@@ -1700,8 +1729,8 @@ build_health_payload()
   json_escape "$primary_ip" var; primary_ip_json="$JSON_ESCAPE_VAL"
   build_diag_payload
 
-  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","presence_mode":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"front_led_on":%s,"red_led_on":%s,"privacy_on":%s,"ir_led_on":%s,"night_mode_on":%s,"auto_night_enabled":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s,"diag":%s}' \
-    "$now_ts" "$hostname_json" "$uptime_seconds" "$reboot_epoch" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json" "$presence_mode_json" "$security_hardening_mode" "$motion_active" "$motion_enabled" "$ftp_enabled" "$telnet_enabled" "$rtsp_enabled" "$onvif_enabled" "$front_led_on" "$red_led_on" "$privacy_on" "$ir_led_on" "$night_mode_on" "$auto_night_enabled" "$storage_total_mb" "$storage_used_mb" "$storage_avail_mb" "$storage_used_percent" "$primary_ip_json" "$dns_server_count" "$port_https_open" "$port_http_open" "$port_rtsp_open" "$port_onvif_open" "$port_ftp_open" "$port_telnet_open" "$diag_payload"
+  printf '{"ts":%s,"hostname":"%s","uptime_seconds":%s,"reboot_epoch":%s,"cpu":%s,"ram_used_kb":%s,"ram_total_kb":%s,"ram_percent":%s,"chip_temp_c":%s,"power_estimate_enabled":%s,"power_estimated_mw":%s,"power_estimated_current_ma":%s,"power_voltage_mv":%s,"power_sensor_path":"%s","web_mode":"%s","perfprofile":"%s","presence_mode":"%s","security_hardening_mode":%s,"motion_active":%s,"motion_enabled":%s,"ftp_enabled":%s,"telnet_enabled":%s,"rtsp_enabled":%s,"onvif_enabled":%s,"front_led_on":%s,"red_led_on":%s,"privacy_on":%s,"ir_led_on":%s,"night_mode_on":%s,"auto_night_enabled":%s,"rec_local_on":%s,"flip_on":%s,"mirror_on":%s,"storage_total_mb":%s,"storage_used_mb":%s,"storage_avail_mb":%s,"storage_used_percent":%s,"primary_ip":"%s","dns_server_count":%s,"port_https_open":%s,"port_http_open":%s,"port_rtsp_open":%s,"port_onvif_open":%s,"port_ftp_open":%s,"port_telnet_open":%s,"diag":%s}' \
+    "$now_ts" "$hostname_json" "$uptime_seconds" "$reboot_epoch" "$cpu" "$mem_used" "$mem_total" "$ram_percent" "$chip_temp_json" "$power_estimated_enabled_json" "$power_estimated_mw_json" "$power_estimated_current_ma_json" "$power_voltage_mv_json" "$power_sensor_path_json" "$web_mode_json" "$profile_json" "$presence_mode_json" "$security_hardening_mode" "$motion_active" "$motion_enabled" "$ftp_enabled" "$telnet_enabled" "$rtsp_enabled" "$onvif_enabled" "$front_led_on" "$red_led_on" "$privacy_on" "$ir_led_on" "$night_mode_on" "$auto_night_enabled" "$rec_local_on" "$flip_on" "$mirror_on" "$storage_total_mb" "$storage_used_mb" "$storage_avail_mb" "$storage_used_percent" "$primary_ip_json" "$dns_server_count" "$port_https_open" "$port_http_open" "$port_rtsp_open" "$port_onvif_open" "$port_ftp_open" "$port_telnet_open" "$diag_payload"
 }
 
 publish_health()
@@ -2208,7 +2237,7 @@ handle_command_payload()
         command_rc=1
       fi
       ;;
-    motion|motion_detection|ir_led|front_led|red_led|night_mode|auto_night_mode|ftp|telnet|rtsp|onvif)
+    motion|motion_detection|ir_led|front_led|red_led|night_mode|auto_night_mode|privacy|ftp|telnet|rtsp|onvif)
       if apply_toggle_command "$cmd" "$value"; then
         publish_event_simple "command.${cmd}" "${value:-toggle}"
         publish_command_result "$cmd" "applied" "Applied ${cmd}=${value:-toggle}." 1 "$command_source" command
@@ -2229,6 +2258,60 @@ handle_command_payload()
             publish_command_result "$cmd" "failed" "Failed to apply ${cmd}=${value}." 0 "$command_source" command
             ;;
         esac
+        command_rc=1
+      fi
+      ;;
+    local_recording|rec_local)
+      _lr_want="$(normalize_toggle_value "$value")"
+      if [ "$_lr_want" = "toggle" ]; then
+        read_kv_config_value /mnt/config/boot.conf REC_LOCAL 0 var
+        if is_truthy_local "$READ_KV_VAL"; then _lr_want="off"; else _lr_want="on"; fi
+      fi
+      case "$_lr_want" in
+        on)  _lr_num=1 ;;
+        off) _lr_num=0 ;;
+        *)   _lr_num="" ;;
+      esac
+      if [ -n "$_lr_num" ]; then
+        install_config /mnt/config/boot.conf >/dev/null 2>&1 || [ -f /mnt/config/boot.conf ] || : > /mnt/config/boot.conf
+        rewrite_config /mnt/config/boot.conf REC_LOCAL "$_lr_num"
+        sh /mnt/scripts/presence-mode.sh manual >/dev/null 2>&1 || true
+        publish_event_simple "command.${cmd}" "$_lr_want"
+        publish_command_result "$cmd" "applied" "Applied ${cmd}=${_lr_want}." 1 "$command_source" command
+        refresh_state=1
+      else
+        publish_event_simple "command.${cmd}" "invalid-value:${value}"
+        publish_command_result "$cmd" "invalid_value" "Invalid value ${value}." 0 "$command_source" command
+        command_rc=1
+      fi
+      ;;
+    flip|mirror)
+      _fm_want="$(normalize_toggle_value "$value")"
+      read_kv_config_value /mnt/config/rtspserver.conf imageflip 0 var
+      case "$READ_KV_VAL" in 1|2|3) _fm_cur="$READ_KV_VAL" ;; *) _fm_cur=0 ;; esac
+      [ "$cmd" = "flip" ] && _fm_bit=1 || _fm_bit=2
+      if [ "$_fm_want" = "toggle" ]; then
+        if [ $((_fm_cur & _fm_bit)) -ne 0 ]; then _fm_want="off"; else _fm_want="on"; fi
+      fi
+      case "$_fm_want" in
+        on)  _fm_new=$((_fm_cur | _fm_bit)) ;;
+        off) _fm_new=$((_fm_cur & (3 ^ _fm_bit))) ;;
+        *)   _fm_new="" ;;
+      esac
+      if [ -n "$_fm_new" ]; then
+        install_config /mnt/config/rtspserver.conf >/dev/null 2>&1 || [ -f /mnt/config/rtspserver.conf ] || : > /mnt/config/rtspserver.conf
+        if [ -x /mnt/bin/rwconf ]; then
+          /mnt/bin/rwconf /mnt/config/rtspserver.conf w " " imageflip "$_fm_new"
+        else
+          rewrite_config /mnt/config/rtspserver.conf imageflip "$_fm_new"
+        fi
+        [ -x /mnt/bin/setconf ] && /mnt/bin/setconf -k f -v "$_fm_new" >/dev/null 2>&1 || true
+        publish_event_simple "command.${cmd}" "$_fm_want"
+        publish_command_result "$cmd" "applied" "Applied ${cmd}=${_fm_want} (imageflip=${_fm_new})." 1 "$command_source" command
+        refresh_state=1
+      else
+        publish_event_simple "command.${cmd}" "invalid-value:${value}"
+        publish_command_result "$cmd" "invalid_value" "Invalid value ${value}." 0 "$command_source" command
         command_rc=1
       fi
       ;;
