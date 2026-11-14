@@ -2,6 +2,23 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
+## What is new in 3.0.1-rc44 (test build, branch main)
+Everything in 3.0.1-rc43 below, plus:
+- **Web UI organization & responsiveness:** navigation and Settings sidebar organized into 4 logical poles (`Watch`, `Camera`,
+  `Automation`, `Tools` with `Configuration`/`Diagnostics`/`Maintenance` subsections) and `Memory` tab linked; background
+  polling stopped on page leave / hidden tab (`multiview.html`, `AbortController` on camera/day-night polls); smooth
+  click-to-dismiss toast; 15 s `fullconfig` cache on Settings revisit (invalidated on save), `/` and `Ctrl/Cmd+K` search
+  shortcut, and auto-opening matching advanced `<details>` sections during search.
+- **Native `httpfront` polls (`NATIVE-02`):** `tc100-httpfront` answers `daynight` and `hw_state` polls directly in C
+  without spawning CGI shells.
+- **Wi-Fi & Kernel (patches 0022 / 0023):** Anyka OTG host no longer reads the URB after giveback; `rtl8xxxu` runtime
+  `ampdu_tx` switch and BlockAck counters; `WIFI_AMPDU_TX=0` default (0 stalls on `WIFI-STALL-01`).
+- **IR-cut & AWB:** periodic IR-cut position re-assertion (`IRCUT_REASSERT_MIN`) and closed-loop AWB tint oscillation
+  fixes (symmetric rounding, hysteresis, 4-sample hold/average).
+- **MQTT, DSP & Boot trace:** skip idle mic DSP, reduce MQTT/presence forks, fix hrtimer venc reset pulse, fix MQTT
+  privacy dispatch, restore `isp_power_hz`, add recording/flip/mirror Home Assistant switches, and fork-free
+  `/tmp/boot-trace.txt` step logging.
+
 ## What is new in 3.0.1-rc43 (test build, branch main)
 Everything in 3.0.1-rc42 below, plus:
 - **Web UI responsiveness:** pure-shell fast path for `json_escape` (`func.cgi`), batched configuration loading and
