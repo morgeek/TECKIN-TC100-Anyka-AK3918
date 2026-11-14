@@ -52,7 +52,7 @@ white paper / tungsten), UPD-01 (b), WIFI-TRY-01 / WIFI-TXATTEN / WIFI-RXAGG on 
 HW-09 night part, the patch 0003 `finish_request_epx` fix (a-faire-implementeur.md, 13/11), HRTIMER-01, and the
 older `to test` entries below.
 
-### WIFI-AMPDU-TX rtl8xxxu runtime `ampdu_tx` switch and BlockAck counters (`[wifi]`, kernel patch 0023) — `to test`
+### WIFI-AMPDU-TX rtl8xxxu runtime `ampdu_tx` switch and BlockAck counters (`[wifi]`, kernel patch 0023) — `PASSED 2026-11-14 (.11, build of branch overclock 4f43f3e): ampdu_tx=0 -> 0 stalls in 8 min (max 0.2 s); back to Y -> stalls again. Root cause of WIFI-STALL-01 found; default change = owner's decision`
 - **What:** `0023-wifi-rtl8xxxu-runtime-ampdu_tx-parameter-and-BlockAc.patch` adds `rtl8xxxu.ampdu_tx` (`0644`, default `Y` = unchanged). With `N` the driver no longer opens TX BlockAck sessions (the `ieee80211_start_tx_ba_session()` call is skipped; TX_START itself is not refused), so the AP keeps no reorder buffer for the camera (WIFI-STALL-01, mechanisms 1 and 2 of `frontier/wifi-stall-2026-11-14-reponse.md`). New sessions only: a reassociation is needed after a change. Read-only counters `ba_tx_start`, `ba_tx_oper`, `ba_tx_stop`, `tx_qos_data`, `tx_other`, shown by `scripts/wifi-stall-watch.sh`. `scripts/wifi-try.sh` accepts `ampdu_tx=0|1` and reassociates by itself (`wpa_cli -i wlan0 reassociate`, no interface down/up) after applying and after every revert.
 - **Switch / revert:** `wifi-try.sh revert`, or the end of the window; by hand `echo 1 > /sys/module/rtl8xxxu/parameters/ampdu_tx && wpa_cli -i wlan0 reassociate`. Nothing is stored: a reboot gives `Y` again.
 - **Test (`.11`, kernel with 0023 from the SD card first, RTSP stream running, Mac `ping -i 0.5 192.168.1.11` with timestamps):**
@@ -61,7 +61,7 @@ older `to test` entries below.
   3. Compare the stall windows of the two runs (number, length); repeat once in the other order.
 - **Pass criteria:** stalls gone or much rarer with `ampdu_tx=0`, video still smooth (single MPDUs: lower peak rate, more airtime). Then the owner decides on a default. Unchanged stalls: the hold is not per TID (chip or air), see the answer file for `tx_atten` / CFO.
 
-### KRN-02 Anyka OTG host: URB read after the giveback in `finish_request_epx` (`[kernel]`, kernel patch 0022) — `to test`
+### KRN-02 Anyka OTG host: URB read after the giveback in `finish_request_epx` (`[kernel]`, kernel patch 0022) — `running 2026-11-14 on the .11 (build 4f43f3e): no oops / hang since boot; no specific trigger to test`
 - **What:** `0022-usb-host-anyka-do-not-read-the-URB-after-giveback.patch`: the pipe type is taken before `usb_hcd_giveback_urb()` (the completion runs inline and may free the URB), and the periodic deschedule is left when `ep->period` is 0 (the loop could spin with interrupts off). No other behaviour change; fixes the defect of patch 0003 listed in a-faire-implementeur.md (13/11, point 2).
 - **Switch / revert:** none at run time; revert = previous kernel (test from the SD card in RAM first, nothing in flash).
 - **Test:** boot the kernel from the SD card on one camera; Wi-Fi associates, RTSP stream for 30 min, `wifi-stall-watch.sh 60` shows the HCD counters moving as before (`bulk_out_nak`, `bulk_in_oldest_ms`), one `wpa_cli -i wlan0 reassociate` and one reboot test; `dmesg` without USB error, oops or soft lockup.
@@ -92,7 +92,7 @@ older `to test` entries below.
 - **Test kernel only (2026-11-13):** 9d37efe had put both options in the base `defconfig_cma`, so every CI kernel (the next RC too) carried a timer mode no camera had ever booted; the read-only review classed it brick-class for a flash (if the one-shot path of patch 0001 misbehaves, the tick dies before the initramfs: SD recovery only), with side effects to watch: exact `usleep_range` before `ispdrv_ae_work()` (exposure writes earlier in the frame) and the `venc_soft_reset` pulse shortened from >= 10 ms to ~0.2 ms (patch 0008). The base config is back to `HZ_PERIODIC`; build the test kernel with the workflow input `test_hrtimers` (packages get `-testkernel` in their version, see the 2026-10 entry below).
 - **Test (SD kernel from a `test_hrtimers` run, nothing flashed):** Boot on SD (`boot66b.sh`), check `/proc/timer_list` shows `resolution: 1 nsecs` / `Event Handler: hrtimer_interrupt`, and run a 2 h H.265 soak + `RTSP_PACING_US=200` test; also check the picture for exposure flicker and the encoder after a reset (`vencreset`). Only after a pass, with the owner's agreement, move the two options into `defconfig_cma` as a change of its own.
 
-### WIFI-STALL-01 The ~8 s downstream stall of the .11: one evening to tell TX, RX, AP and scans apart (`[wifi]`) — `steps 1-3 + counters done; USB/HCD path refuted 2026-11-14; next: ampdu_tx switch (owner's decision)` (results at the end)
+### WIFI-STALL-01 The ~8 s downstream stall of the .11: one evening to tell TX, RX, AP and scans apart (`[wifi]`) — `ROOT CAUSE FOUND 2026-11-14: TX A-MPDU (BlockAck) sessions; ampdu_tx=0 removes the stalls (results at the end)`
 
 - **Diagnosis (read-only Fable analysis of the rtl8xxxu / mac80211 sources of the CI kernel, 2026-11-13; key facts
   checked):**
@@ -3423,7 +3423,7 @@ Mac VM `ping -i 0.5` to the .11, ~8.5 min per run, a stall = a reply later than 
   GOP 50 instead of `goplen=64`: intended, `rtsp-launch.sh` ignores the pre-3.0.1 shipped values 64 / 32 (GOP 2 s).
 
 ### AWB-02 — Hystérésis et arrondi symétrique AWB (fin du pompage de teinte)
-Status: `to test`
+Status: `failed on the .11 2026-11-14`: still oscillates on a static scene (results at the end)
 - **What:** `src/tc100rtsp/tc100_rtsp.c` (`post_awb_sample()`): nearest-integer rounding `(su + n / 2) / n - 128` and
   `(sv + n / 2) / n - 128`, unit damping for fine errors `|tu|, |tv| <= 3`, and post-convergence hysteresis (`settled >= 6`
   locks `ex_r`/`ex_b` across `|tu|, |tv| <= 3` noise and wakes at `>= 4` or after a luma jump `> 25`).
@@ -3436,3 +3436,32 @@ Status: `to test`
      verify `tc100_rtsp` adapts to the new lighting, then re-locks cleanly.
 - **Pass criteria:** No periodic tint oscillation on static scenes, `0` spurious `ISP_SET_AWB_EX` updates once settled, and
   prompt adaptation when scene white balance genuinely shifts.
+
+### .11 on the `overclock` build (4f43f3e, installed by the owner 13:03 UTC), checks 2026-11-14 13:09-13:38 UTC
+- **Health:** `3.0.1-rc43` (same VERSION), kernel built 12:55 UTC; boot `rtsp_launched 43.6 s`, `boot_complete 89 s`
+  (rc43 main: 34.9 / 63 s, the overclock baseline + step runs during boot); 6 daemons, `nr3d_overflow=0`, MemAvailable
+  ~17.5 MB, no oops / SPI / I2C / MMC error in `dmesg`, 25 fps after the first minute (the first STAT lines after the 510 MHz
+  step were 19-20 fps), `adc_hz 8000.75`, `av_drift +5.6 ms/min`.
+- **OVERCLOCK-01, first finding: the ARM core is not overclocked.** `devmem 0x08000008` = `0x010212AA` (510, applied) but
+  the CPU PLL `devmem 0x08000004` = `0x410013C8` on both cameras (m 200, n 3, od 1 = **400 MHz**), unchanged. The same
+  shell loop at `nice -20` takes 5.64-6.41 s on the .11 "at 510" and 5.44-5.67 s on the .24 at 480; CPU ticks of a 40 000
+  loop 855-858 vs 837-888; the camera clock runs true (uptime 127.09 s in 127.17 s real), so this is not a time-base
+  artefact. BogoMIPS 199.06 = ~400 MHz on ARM926 and is calibrated before the early_initcall, so `bogomips_now` cannot see
+  any step. Encoder time per frame 30.68 ms (.11) vs 30.96 ms (.24): -1 %, within noise. **So SYSCTRL 0x08 sets the
+  vclk / ASIC domain (ASIC 120 -> 127.5 MHz: ISP, bus, peripherals), not the CPU**; the campaign raises the risk on the
+  peripheral side with no measurable gain. The comment "core PLL 480 MHz" in patch 0001 should say ASIC/vclk PLL;
+  a real CPU step would be register 0x04 (stock `cpu_freq` code path to check before touching it).
+- **AWB-02 does not stop the tint pumping on the .11:** static indoor scene (luma 104-121), 40 samples 1 s apart: `u`/`v`
+  error changes sign almost every sample (7/5, -3/-5, 5/-2, -2/5, -15/4, 17/-10, -7/10, ...; sd 7.2 / 5.2), gains
+  changed 20 times in 40 s (`rex` 300-391, `bex` 562-654), never 6 settled samples in a row. Sign alternation = the
+  proportional step overshoots the ISP's delayed response (one sample of latency): lower the step (e.g. half) or apply
+  a change only every second sample, then the +-3 lock can engage. The .24 (main rc43, no AWB-02) held `rex=256 bex=562`
+  for 8/8 samples on its scene.
+- **WIFI-AMPDU-TX / WIFI-STALL-01, decisive:** Mac ping every 0.5 s.
+  | run (UTC) | setting | late replies | stalls | per min | longest |
+  |---|---|---|---|---|---|
+  | 13:22-13:30 | `ampdu_tx=0` (`wifi-try.sh`, BA sessions stopped: `ba_tx_stop` 0 -> 3, no new start) | **0** | **0** | **0** | **0.2 s** |
+  | 13:32-13:38 | back to `ampdu_tx=Y` (BA restarted: start 12, oper 7, stop 9) | 37 | 6 | 1.1 | 4.8 s |
+  With today's earlier runs (default 1.7-2.2 / min, `ampdu_rx=0` 0.6-0.8 / min, `tx_atten` no effect): **the stalls are
+  the camera's TX BlockAck sessions** (Fable 2026-11-14, mechanism 1 or 2). Proposed: `ampdu_tx=0` at boot (boot.conf
+  switch, applied before wlan0 associates); cost: no TX aggregation, far above the 1.6 Mbit/s stream. Owner's decision.
