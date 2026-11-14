@@ -39,7 +39,11 @@ micro inactif sans DSP, MQTT / présence sans fork). Mesurer avant / après sur 
   appel, 0 fork, JSON identique.
 
 ### 2. Qualité d'image : balance des blancs de l'ISP (.11) et image de nuit
-- **14/11 19:30 : cause du cycle de teinte restant sur les DEUX caméras trouvée et corrigée (AWB-04).** Le fichier de tuning
+- **14/11 19:45 : AWB-04 ne suffit pas (le propriétaire voit encore le cycle, plus rapide). Vraie cause mesurée : l'AWB
+  automatique de l'ISP lui-même** fait osciller la couleur (Cb/Cr ±20 d'une seconde à l'autre) même sur une région fixe ;
+  figé en manuel, la même scène reste à ±1,4. **AWB-05 :** ISP en balance des blancs manuelle, nos gains de boucle pilotent
+  les gains manuels (`RTSP_AWB_MANUAL`, défaut 1). À valider à l'œil.
+- **14/11 19:30 (AWB-04) :** Le fichier de tuning
   fixe `colortemp_stable_cnt_thresh` = 2 : l'ISP changeait de région d'illuminant (et de matrice de couleurs) 25 fois par
   minute sous lampe. Passé à 60 en direct sur les deux caméras : 0 changement. `tc100_rtsp` l'applique désormais
   (`RTSP_ISP_AWB_STABLE`, défaut 60). À valider sur l'image par le propriétaire avec la prochaine build.

@@ -550,6 +550,51 @@ static int awb_hw = -1, awb_fd = -1, ex_r = 256, ex_b = 256;	/* awb_hw: -1 not t
 static int awb_max = 1536, awb_grey = 1, awb_state_on = 1, awb_saved_r = 256, awb_saved_b = 256, awb_last_tu, awb_last_tv;
 static struct isp_awb_ex awb0;
 
+/* AWB-05 (2026-11-14): the ISP's own automatic white balance recomputes its gains every few frames and swung the colour
+ * of a still, steadily lit scene by +-20 (Cb / Cr of the whole picture, one sample a second) even on one colour-temperature
+ * region and with our loop off; frozen (manual mode, the same gains) the same scene stayed within +-1.4 (the .11, evening
+ * lamp light). So by default the ISP runs in manual white balance (AK_ISP_SET_WB_TYPE 0) at the gains its automatic mode
+ * had reached, and our grey-world loop (AWB-03: slow, averaged, locked) moves those manual gains: mwb = base * ex / 256.
+ * In manual mode the ISP applies AK_ISP_SET_MWB and nothing else (the extra gains of AWB_EX are not used). RTSP_AWB_MANUAL=0
+ * keeps the ISP's automatic mode with our extra gains on top (rc44). The mode is checked every 10 s with the hysteresis
+ * (awb_attr_apply): the ISP loads its tuning again with the day / night parameter set. */
+struct isp_mwb { unsigned short r, g, b; short ro, go, bo; };
+struct isp_wb_stat { unsigned int R[10], G[10], B[10], cnt[10]; unsigned short r, g, b; short ro, go, bo; unsigned short idx, st[10]; };
+#define ISP_SET_WB_TYPE _IOW('I', 83, int)
+#define ISP_GET_WB_TYPE _IOR('I', 84, int)
+#define ISP_GET_AWB_STAT _IOR('I', 89, int)
+#define ISP_SET_MWB _IOW('I', 99, int)
+static int awb_manual = 1, mwb_r, mwb_g, mwb_b;	/* awb_manual: wanted; mwb_*: the base (the ISP's automatic gains at start) */
+static int awb_manual_on(void)
+{
+	struct isp_wb_stat st;
+	unsigned short t = 0;
+
+	if (!mwb_r) {
+		memset(&st, 0, sizeof st);
+		if (ioctl(awb_fd, ISP_GET_AWB_STAT, &st) < 0 || !st.r || !st.g || !st.b) return -1;
+		mwb_r = st.r; mwb_g = st.g; mwb_b = st.b;
+	}
+	if (ioctl(awb_fd, ISP_SET_WB_TYPE, &t) < 0) return -1;
+	return 0;
+}
+static int awb_hw_set(void)
+{
+	if (awb_manual && mwb_r) {
+		struct isp_mwb m = { 0 };
+		int r = mwb_r * ex_r / 256, b = mwb_b * ex_b / 256;
+
+		m.r = (unsigned short)(r < 1 ? 1 : r > 4095 ? 4095 : r);
+		m.g = (unsigned short)mwb_g;
+		m.b = (unsigned short)(b < 1 ? 1 : b > 4095 ? 4095 : b);
+		return ioctl(awb_fd, ISP_SET_MWB, &m);
+	}
+	struct isp_awb_ex a = awb0;
+
+	for (int i = 0; i < 10; i++) { a.c[i].rex = awb0.c[i].rex * ex_r / 256; a.c[i].bex = awb0.c[i].bex * ex_b / 256; }
+	return ioctl(awb_fd, ISP_SET_AWB_EX, &a);
+}
+
 /* AWB-04 (2026-11-14): the ISP's own white balance changed its colour-temperature region (and with it the colour matrix)
  * after only 2 frames of a 12 % majority (tuning file: colortemp_stable_cnt_thresh 2): under lamp or mixed light it jumped
  * between regions 25 times a minute, the tint cycle the owner saw on both cameras. That one field is both the frame count
@@ -568,7 +613,12 @@ static void awb_attr_apply(void)
 	struct isp_awb_attr a;
 	static int logged;
 
-	if (awb_fd < 0 || awb_stable_want <= 0) return;
+	if (awb_fd < 0) return;
+	if (awb_manual && mwb_r) {	/* AWB-05: the tuning reloaded with a parameter set puts the ISP back in automatic */
+		unsigned short t = 1;
+		if (ioctl(awb_fd, ISP_GET_WB_TYPE, &t) == 0 && t != 0 && awb_manual_on() == 0) awb_hw_set();
+	}
+	if (awb_stable_want <= 0) return;
 	memset(&a, 0, sizeof a);
 	if (ioctl(awb_fd, ISP_GET_AWB, &a) < 0 || a.stable >= awb_stable_want) return;
 	if (!logged++) LOG("white balance: ISP colour-temperature hysteresis %u -> %d frames\n", a.stable, awb_stable_want);
@@ -619,14 +669,6 @@ static void awb_state_save(void)
 	}
 }
 
-static int awb_hw_set(void)
-{
-	struct isp_awb_ex a = awb0;
-
-	for (int i = 0; i < 10; i++) { a.c[i].rex = awb0.c[i].rex * ex_r / 256; a.c[i].bex = awb0.c[i].bex * ex_b / 256; }
-	return ioctl(awb_fd, ISP_SET_AWB_EX, &a);
-}
-
 static void awb_hw_init(void)
 {
 	const char *e = getenv("RTSP_ISPAWB"), *em = getenv("RTSP_AWB_MAX"), *eg = getenv("RTSP_AWB_GREY"), *es = getenv("RTSP_AWB_STATE");
@@ -651,6 +693,18 @@ static void awb_hw_init(void)
 	awb_state_load();
 	if (awb_hw_set() < 0) { LOG("white balance: the ISP refused its extra gains: software\n"); close(awb_fd); awb_fd = -1; return; }
 	awb_hw = 1;
+	{ const char *ma = getenv("RTSP_AWB_MANUAL"); if (ma && ma[0] == '0') awb_manual = 0; }
+	if (awb_manual) {
+		/* the base is the ISP's automatic result; our saved extra gains (awb.state) belong to the automatic mode: start at 1x */
+		if (awb_manual_on() == 0) {
+			ex_r = ex_b = 256;
+			awb_hw_set();
+			LOG("white balance: ISP in manual mode at its gains r %d g %d b %d, steered by the grey-world loop\n", mwb_r, mwb_g, mwb_b);
+		} else {
+			awb_manual = 0;
+			LOG("white balance: the ISP refused the manual mode: its automatic mode stays, with extra gains\n");
+		}
+	}
 	awb_attr_apply();
 	p_du = p_dv = 0; post_luts();
 	LOG("white balance: in the ISP (extra gains max %d, grey filter %d, tuning file %s)\n",

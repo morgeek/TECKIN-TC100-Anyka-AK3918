@@ -2123,8 +2123,21 @@ class IspAwbHysteresis(unittest.TestCase):
         self.assertIn('getenv("RTSP_ISP_AWB_STABLE")', src)
         fn = src[src.index('static void awb_attr_apply(void)'):src.index('static void awb_state_load(void)')]
         self.assertIn('a.stable >= awb_stable_want) return;', fn)	# never lowers what the tuning file asks
-        init = src[src.index('awb_hw = 1;\n'):][:200]
+        init = src[src.index('awb_hw = 1;\n'):][:1500]
         self.assertIn('awb_attr_apply();', init)
+        # AWB-05: manual white balance steered by our loop, RTSP_AWB_MANUAL=0 keeps the automatic mode
+        self.assertIn('getenv("RTSP_AWB_MANUAL")', init)
+        self.assertIn('awb_manual_on() == 0', init)
+        self.assertIn('#define ISP_SET_MWB _IOW(\'I\', 99, int)', src)
+        self.assertIn('#define ISP_SET_WB_TYPE _IOW(\'I\', 83, int)', src)
+        self.assertIn('#define ISP_GET_AWB_STAT _IOR(\'I\', 89, int)', src)
+        hw = src[src.index('static int awb_hw_set(void)'):src.index('/* AWB-04 (2026-11-14)')]
+        self.assertIn('mwb_r * ex_r / 256', hw)
+        self.assertIn('ISP_SET_MWB', hw)
+        self.assertIn('ISP_SET_AWB_EX', hw)	# the automatic mode keeps the extra gains
+        self.assertLess(src.index('static int awb_hw_set(void)'), src.index('static void awb_attr_apply(void)'))
+        ap = src[src.index('static void awb_attr_apply(void)'):src.index('static void awb_state_load(void)')]
+        self.assertIn('ISP_GET_WB_TYPE', ap)	# re-asserted after a tuning reload
         self.assertIn('if (++chk >= 20) { chk = 0; awb_attr_apply(); }', src)
         # the structure is the driver's: 16 + 3 + 6 * 10 + 3 + 10 shorts
         self.assertEqual(16 + 3 + 6 * 10 + 3 + 10, 92)

@@ -3454,6 +3454,28 @@ Mac VM `ping -i 0.5` to the .11, ~8.5 min per run, a stall = a reply later than 
   (VBR), 25 fps, GOP 50, QP 25-48`; mean of 12 STAT lines 1584 / 1576 kbit/s on the indoor day scene (at the ceiling).
   GOP 50 instead of `goplen=64`: intended, `rtsp-launch.sh` ignores the pre-3.0.1 shipped values 64 / 32 (GOP 2 s).
 
+### AWB-05 ISP white balance in manual mode, steered by our grey-world loop (`[awb]`, `tc100_rtsp.c`) — `to test`
+- **Why:** owner 2026-11-14 19:32 local, after AWB-04 live: "the same, but faster". Picture measured on the .11 (one `stream.jpg`
+  a second, 40 s, mean Cb / Cr of the whole picture, evening lamp light, ISP region fixed at 9, exposure fixed):
+  | state | Cb / Cr spread (sd) |
+  |---|---|
+  | ISP automatic + our loop | 10.8 / 9.6 (swings of +-20 from one second to the next) |
+  | ISP automatic, our loop off (`awb.off`) | 6.0 / 11.8 |
+  | ISP automatic, `auto_wb_step` 10 -> 2 | 10.4 / 13.3 |
+  | **ISP manual (frozen at its own gains r 291 g 264 b 461), our loop off** | **1.35 / 1.01** |
+  The light is steady; the ISP's automatic white balance itself swings (it recomputes its gains every few frames and
+  averages them half-and-half), whatever its region or step. Tools used live: `awbattr`, `wbmode` (scratch, AK_ISP_GET/
+  SET_AWB 86/85, GET_AWB_STAT_INFO 89, SET_MWB 99, SET_WB_TYPE 83).
+- **What:** at start the ISP is put in manual white balance (WB type 0) at the gains its automatic mode had reached (the
+  base), and our loop (AWB-03 dynamics: 2 s hold, 2 s mean, half step, lock) moves the manual gains: `mwb = base * ex /
+  256` (in manual mode the ISP applies `SET_MWB` only; the AWB_EX extra gains are not used). The saved `awb.state`
+  belongs to the automatic mode, so the loop starts at 1x in manual mode. Re-asserted every 10 s with AWB-04 (a tuning
+  reload with the day / night parameter set puts the ISP back in automatic). `RTSP_AWB_MANUAL=0` = rc44 behaviour.
+  Log: `white balance: ISP in manual mode at its gains r .. g .. b .., steered by the grey-world loop`.
+- **Test:** the binary of the CI build in place of the stock one (in RAM, as for AWB-03), 2 min of `stream.jpg` once a second:
+  Cb / Cr sd < 2 on a steady scene; then switch a lamp: the colour follows within ~1 min; daylight / dusk; night (B&W) not
+  affected. **Pass:** no visible tint cycle (owner's eye), gains moving by small steps only when the light changes.
+
 ### AWB-04 ISP colour-temperature hysteresis (`[awb]`, `tc100_rtsp.c` `awb_attr_apply()`) — `to test`
 - **Why:** owner, 2026-11-14 19:18 local: the tint still cycles on both cameras (rc44). Our loop was calm (.24: 8 changes of 1-2
   units a minute, error +-2) but the ISP's own AWB changed region 25 times a minute (.11: 6, 2, 9, 1, 0, 5...; .24: 1, 8,
