@@ -408,6 +408,7 @@ window.tc100I18nFr = {
     "Config File Editor": "Éditeur des fichiers de configuration",
     "Config Profiles": "Profils de configuration",
     "Config editor": "Éditeur de configuration",
+    "Configuration": "Configuration",
     "Configuration applied": "Configuration appliquée",
     "Configuration profiles": "Profils de configuration",
     "Configured": "Configuré",
