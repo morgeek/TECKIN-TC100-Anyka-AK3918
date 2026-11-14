@@ -4125,3 +4125,14 @@ Installed by the owner through the web update (reboot reason "web update to 3.0.
   `bulk_out_oldest_ms=0`, `tx_urb_err=0`, `rx_urb_lost=0`**, while wlan0 tx/s falls from ~244 to ~4 and comes back as a burst.
 - **The USB / HCD part of H5 is refuted:** the frames never reach rtl8xxxu; they wait above it (qdisc, mac80211 iTXQ,
   aggregation state). Next: Fable read-only analysis of that path with this data (brief of 2026-11-14).
+- **Fable analysis (read-only, 2026-11-14):** `frontier/wifi-stall-2026-11-14-reponse.md`. It corrects the reading above:
+  wlan0 `tx_packets` counts at iTXQ dequeue on the fast path but at enqueue on the slow path, and `tx_last_ms` < 0.5 s
+  during stalls means frames still reach the chip about twice a second, so "held above the driver" is not proven. Best fit
+  (inferred): an operational TX BlockAck session, an MPDU dropped silently by the chip, no BlockAck Request (rtl8xxxu never
+  sets `IEEE80211_TX_STAT_AMPDU_NO_BACK`), so the **AP's reorder buffer** holds the TID until its own flush; second: the
+  ADDBA handshake (TID stopped 1 s per unanswered request). Proposed: a 0644 `ampdu_tx` switch (gate
+  `ieee80211_start_tx_ba_session()`), plus 0444 counters `ba_tx_start/oper/stop`, `tx_qos_data/tx_other`.
+- **Two-TID ping test (10:20 UTC, Mac VM, `ping -Q 0xb8` next to a normal ping, 320 each):** both stalled on exactly the same
+  sequence numbers (max 3.1 s), but **inconclusive**: the replies come back with TOS 0 (marking lost on the VM NAT path or
+  not echoed), so the VO ping did not really use another TID. A real per-TID test needs a LAN host without NAT or the
+  `ampdu_tx` switch.
