@@ -4021,3 +4021,22 @@ smart on (rc40 setting). Overflow counter 3895 before the reboot (from the owner
   white-balance counts see a lamp): nothing changed, retries scheduled. 00:39 UTC (last retry): the link to the owner's
   computer (Mac bridge) was gone, so the camera could not be reached. Nothing was changed on the .11 (DENOISE untouched,
   `NR3D=1`, `nr3d_overflow=0` at 23:53). To redo on a night when the room is dark, or with the room light off on purpose.
+
+## Night 2026-11-13/14, both cameras (morning check 07:18 UTC; raw logs frontier/data/raw/daynight-*-2026-11-14.log)
+| | .11 (`vendor`, AWB 50 000, `NR3D=1`) | .24 (`vendor`, AWB 200 000, `NR3D=1`) |
+|---|---|---|
+| reboots | none (up 18 h 40, since the 12:37 test) | none (up 21 h 26, since the 09:51 test) |
+| stream | 0 dropped (856 STAT kept), 1 encoder reopen (client) | 0 dropped (1443 STAT kept), 5 encoder reopens (client) |
+| 3D-NR | `nr3d_overflow=0` all night (night set, 10 fps) | `nr3d_overflow=0` all night |
+| evening | lamps / dim light: day (colour) | dim lamp 19:48-23:18 UTC, counts 390-618 k: day (colour), as wanted |
+| night | 00:53 night, 00:58 day (a lamp: counts 212 404, lum 12 660), 01:08 night: a real light event, not an IR bounce | 23:28 night, no switch until dawn |
+| morning | still night at 07:14 UTC (dark room, lum 2911 and counts ~8 000 flat since 01:08: no daylight reaches it); day at ~07:18 | dawn: lum 2554 -> 1627 between 06:33 and 06:53, **day at 06:58** (07:58 local), no bounce |
+| memory | MemAvailable 17.6 MB, CmaFree 1.9 MB | 17.3 MB, 1.6 MB |
+
+- **3D-NR with `NR3D=1` (always on): 0 overflow on both cameras, by day (25 fps) and at night (10 fps), for 18-21 h.**
+  The .11 overflows of 2026-11-12 (3895) remain unexplained: not the night set (10 fps, 0 here), not the day rate
+  (0 here at 25 fps). Candidate: the rc40 / early rc41 builds (before patch 0017's "UV in venc pool"), the owner's test
+  on 2026-11-12 23:xx used them.
+- **`AWB_DAY_CNT=200000` (.24): passed a full evening, night and dawn.** The .11 (50 000) had no dark-room-in-day case
+  this night.
+- The HW-09 night part on the .11 was not done (room lit until ~00:53 UTC, then the Mac bridge was gone).

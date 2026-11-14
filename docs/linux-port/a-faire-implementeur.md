@@ -25,6 +25,14 @@ foi. La liste d'origine date de rc25 ; les audits des 3, 4 et 6 novembre sont de
    restitution, comme le fait le patch 0021 pour ses compteurs), par `implementer-heavy`, relu avant fusion, noyau sur
    carte SD d'abord.
 
+## Nuit du 13 au 14/11 (rapport du 14 au matin ; détail dans test-queue.md « Night 2026-11-13/14 »)
+- **3D-NR toujours active (`NR3D=1`) : 0 dépassement sur les deux caméras, de jour (25 i/s) comme de nuit (10 i/s), 18 à
+  21 h.** La règle `auto` (<= 15 i/s, donc la nuit seulement) n'a plus de raison mesurée ; les 3895 dépassements de la
+  .11 du 12/11 datent d'un build antérieur au patch 0017 (UV dans la réserve de l'encodeur) : à confirmer en relisant
+  ce test. **Décision du propriétaire :** `NR3D=1` (toujours) par défaut, ou `auto` sans condition de cadence.
+- **`AWB_DAY_CNT=200000` validé sur la .24** (soirée sous lampe faible en couleur, nuit dans le noir, aube sans rebond).
+  **Décision du propriétaire :** le mettre sur la .11 et comme valeur par défaut.
+
 ## Trouvailles du 2026-11-13 matin (tests à distance, les deux caméras en rc41 ; détail et chiffres dans test-queue.md « Results 2026-11-13 morning », données dans frontier/data/raw/)
 
 1. **Wi-Fi .11 (WIFI-STALL-01) : c'est l'émission de la caméra qui se bloque (H5).** 16 blocages de 1 à 4,6 s en 10 min

@@ -14,3 +14,4 @@ briefs carry; these files let anyone check a number against its source.
 | `rtsp-11-rc37-*-2026-11-11.txt` | .11 on rc37: baseline 120 s, then `RTSP_PROFILE=1` at 24 fps (10 min) and 10 fps (5 min): per thread reads, STAT and PROF lines | `../rtsp-prof-2026-11-11.md` |
 | `wifi-stall-11-*-2026-11-13.txt` | WIFI-STALL-01 steps 1-3 on the .11 (rc41), 09:40-09:50 UTC: per-second camera counters (Icmp InEchos / OutEchoReps, wlan0 rx / tx packets, USB IRQ, beacon rx, tx retries / failed), camera -> gateway ping, Mac -> camera ping every 0.5 s (epoch timestamps) | test-queue WIFI-STALL-01 |
 | `nr3d02-24-2026-11-13.txt` | NR3D-02 cases A-D on the .24 (rc41, NR3D=1, by day) | test-queue NR3D-02 |
+| `daynight-{11,24}-2026-11-14.log` | night 2026-11-13/14, both on rc41 `vendor` and `NR3D=1` (.11 AWB 50 000, .24 AWB 200 000) | test-queue "Night 2026-11-13/14" |
