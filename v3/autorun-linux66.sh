@@ -237,8 +237,10 @@ ln -sfn /tmp/stream.jpg /tmp/frame_ch0.jpg
 
 bt step_4
 # 4. Wait for /dev/video0 and start Hardware V4L2 Optical Streamer
-for i in $(seq 1 25); do
+_vwait=0
+while [ "$_vwait" -lt 25 ]; do
   [ -c /dev/video0 ] && break
+  _vwait=$((_vwait + 1))
   sleep 0.2
 done
 
@@ -259,7 +261,11 @@ elif [ -x $TB/tc100_rtsp ] && [ -c /dev/uio0 ]; then
   for f in /vendor/isp.conf ${ISPN:+/mnt/config/$ISPN /mnt/sd/config/$ISPN} /mnt/config/isp_f23_mipi_2lane.conf /mnt/sd/config/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi2lane.conf /mnt/config/isp.conf; do
     [ -f $f ] && { cp $f /lib/firmware/anyka/isp.conf; break; }
   done
-  cp $TB/tc100_rtsp /tmp/tc100_rtsp; chmod +x /tmp/tc100_rtsp
+  if [ -f /tmp/flashmode ]; then
+    ln -sf $TB/tc100_rtsp /tmp/tc100_rtsp
+  else
+    cp $TB/tc100_rtsp /tmp/tc100_rtsp; chmod +x /tmp/tc100_rtsp
+  fi
   PWD_FILE=/mnt/config/user.pwd
   [ -s "$PWD_FILE" ] || { [ -s "$PWD_FILE.dist" ] && cp "$PWD_FILE.dist" "$PWD_FILE"; }
   # The vendor services (recording, ONVIF...) and the web UI read codec, bit rate and credentials from rtspserver.conf.
