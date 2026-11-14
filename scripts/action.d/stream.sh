@@ -401,7 +401,14 @@
           # points to this IP.
           fl_cam="$(/mnt/bin/curl -s -m 6 "$fl_url/api/config" 2>/dev/null |
             LC_ALL=C awk -f /mnt/scripts/jsonflat.awk 2>/dev/null | LC_ALL=C awk -F '\t' -v ip="$fl_ip" '
-            function has_ip(u,   r) { r = ip; gsub(/\./, "\\.", r); return u ~ ("[@/]" r "([:/]|$)") }
+            # ip after "@" or "/", then ":", "/" or the end; a literal search (a regex built with gsub depends on the
+            # awk version: busybox 1.37 no longer escapes the dots)
+            function has_ip(u,   k, p, j, c) {
+              for (k = 1; k <= 2; k++) { p = (k == 1 ? "@" : "/") ip
+                while ((j = index(u, p)) > 0) { c = substr(u, j + length(p), 1)
+                  if (c == "" || c == ":" || c == "/") return 1
+                  u = substr(u, j + 1) } }
+              return 0 }
             $2 == "s" && index($1, ".go2rtc.streams.") == 1 {
               n = substr($1, 17); sub(/\[[0-9]+\]$/, "", n); if (has_ip($3)) st[n] = 1; next }
             $2 == "s" && $1 ~ /^\.cameras\.[^.]+\.ffmpeg\.inputs\[[0-9]+\]\.path$/ {

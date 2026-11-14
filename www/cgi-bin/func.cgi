@@ -193,14 +193,20 @@ JSON_ERROR_SERVICE_UNAVAILABLE="service_unavailable"
 # Escape JSON string values (fast pure-shell path for plain strings avoids spawning awk)
 json_escape() {
   case "$1" in
-    # '-' last so it is a literal, not a range: '~-\ ' was a reversed range from '~' to space, which some shells /
-    # libcs read as every printable character (the CI's busybox): '"' then took the fast path unescaped
+    # '-' last in the class: a literal, not a range
     *[!A-Za-z0-9._:/@=?\&+*,~\ -]*)
-      # Use awk for correct multi-char escaping on BusyBox sed (sed \n/\t in patterns is unreliable).
-      # awk processes line-by-line; NR>1 inserts \n between lines for embedded newlines.
+      # One character at a time, no gsub: busybox 1.37 awk (Ubuntu 26.04, the CI runner) reads a backslash in a gsub
+      # replacement differently from 1.36 (the camera), gsub(/"/, "\\\"") gave a"b there. awk is line by line: NR > 1
+      # puts \n between the lines of a value with newlines.
       printf '%s' "$1" | awk '
         NR > 1 { printf "\\n" }
-        { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\t/, "\\t"); gsub(/\r/, "\\r"); printf "%s", $0 }
+        { o = ""; n = length($0)
+          for (i = 1; i <= n; i++) {
+            c = substr($0, i, 1)
+            if (c == "\\") o = o "\\\\"; else if (c == "\"") o = o "\\\""
+            else if (c == "\t") o = o "\\t"; else if (c == "\r") o = o "\\r"; else o = o c
+          }
+          printf "%s", o }
       '
       ;;
     *)

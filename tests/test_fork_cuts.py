@@ -333,9 +333,22 @@ class WebActionForkCuts(unittest.TestCase):
         for sh in ([ASH, "ash"] if ASH else [], ["/bin/dash"], ["/bin/bash", "--posix"]):
             if not sh or not Path(sh[0]).exists() and sh[0] != ASH:
                 continue
-            for raw, want in (('a"b', 'a\\"b'), ("a\\b", "a\\\\b"), ("x y-z~", "x y-z~"), ("t\tu", "t\\tu")):
+            for raw, want in (('a"b', 'a\\"b'), ("a\\b", "a\\\\b"), ("x y-z~", "x y-z~"), ("t\tu", "t\\tu"),
+                              ("r\rs\nt", "r\\rs\\nt")):
                 r = subprocess.run(sh + ["-c", f + '\njson_escape "$1"', "x", raw], capture_output=True, text=True)
                 self.assertEqual(r.stdout, want, (sh, raw))
+
+    def test_frigate_has_ip_is_a_literal_match(self):
+        # busybox 1.37 awk no longer escapes the dots of a regex built with gsub (192x168.1.5 matched 192.168.1.5)
+        src = (ROOT / "scripts/action.d/stream.sh").read_text(encoding="utf-8")
+        fn = src[src.index("function has_ip(u,"):src.index("return 0 }", src.index("function has_ip(u,")) + len("return 0 }")]
+        self.assertNotIn("gsub", fn)
+        urls = ["rtsp://u:p@192.168.1.5:554/x", "rtsp://u@192x168.1.5/x", "rtsp://192.168.1.5/v", "rtsp://192.168.1.50/v",
+                "http://h/192.168.1.5", "rtsp://a@192.168.1.55/", "rtsp://192.168.1.5"]
+        awk = [ASH, "awk"] if ASH else ["awk"]
+        r = subprocess.run(awk + ["-v", "ip=192.168.1.5", fn + '\n{ printf "%d", has_ip($0) } END { print "" }'],
+                           input="\n".join(urls) + "\n", capture_output=True, text=True)
+        self.assertEqual(r.stdout.strip(), "1010101", r.stderr)
 
     def test_events_info_reads_once_without_ev_kv_or_grep(self):
         import json as _json
