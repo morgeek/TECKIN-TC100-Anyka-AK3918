@@ -4015,3 +4015,9 @@ smart on (rc40 setting). Overflow counter 3895 before the reboot (from the owner
   night (the night set has its own rate)"). rtsp.env restored (backup `rtsp.env.bak-nr3d25n`), service restarted,
   client back. So the .11 overflows of 2026-11-12 night "at 25 fps" were not in the night parameter set: to be traced
   (day set in the dark? manual fps?) before changing the `auto` rule.
+
+### HW-09 night part, .11 — not done the night of 2026-11-13/14
+- 23:06 and 23:53 UTC: the .11 was still in day mode (room lit; gain up to 6840 at 23:53, `vendor` keeps day while the
+  white-balance counts see a lamp): nothing changed, retries scheduled. 00:39 UTC (last retry): the link to the owner's
+  computer (Mac bridge) was gone, so the camera could not be reached. Nothing was changed on the .11 (DENOISE untouched,
+  `NR3D=1`, `nr3d_overflow=0` at 23:53). To redo on a night when the room is dark, or with the room light off on purpose.
