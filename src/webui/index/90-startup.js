@@ -184,6 +184,25 @@
 
     // PTT and two-way audio is handled by ptt-audio.js module loaded separately
 
+    document.addEventListener("keydown", function (ev) {
+      var isSlash = ev.key === "/" && !ev.ctrlKey && !ev.metaKey && !ev.altKey;
+      var isCmdK = (ev.key === "k" || ev.key === "K") && (ev.ctrlKey || ev.metaKey) && !ev.altKey;
+      if (!isSlash && !isCmdK) return;
+      var t = ev.target;
+      var tag = t && t.tagName ? t.tagName.toUpperCase() : "";
+      if (isSlash && (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (t && t.isContentEditable))) return;
+      ev.preventDefault();
+      var focusSearch = function () {
+        var box = byId("settings_search");
+        if (box) { box.focus(); box.select(); }
+      };
+      if (byId("settings_search")) {
+        focusSearch();
+      } else {
+        loadOnPageTarget("settings.html", focusSearch);
+      }
+    });
+
     fixMenuPadding();
     initNavDropdownToggles();
     refreshSysUsage();

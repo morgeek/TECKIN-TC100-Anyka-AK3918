@@ -20,24 +20,9 @@
 
     initPresenceModes(dash);
 
-    // Fetch full config to populate all tabs at once
-    fetch('cgi-bin/state.cgi?cmd=fullconfig&_=' + Date.now())
-        .then(function(r) {
-            if (!r.ok) throw new Error('API Response Error');
-            return r.text(); // Get raw text first to handle potential parsing issues
-        })
-        .then(function(text) {
-            try {
-                return JSON.parse(text);
-            } catch (e) {
-                console.error('Malformed configuration JSON:', e, text);
-                showResult('Configuration parsing error. Check device logs.', 'is-danger');
-                throw e;
-            }
-        })
-        .then(function(res) {
-            if (!window.isHostStillActive(dash)) return;
-            if (!res || !res.video || !res.audio) throw new Error("Incomplete configuration response");
+    function applyFullConfig(res) {
+        if (!window.isHostStillActive(dash)) return;
+        if (!res || !res.video || !res.audio) throw new Error("Incomplete configuration response");
 
             // 1. Dashboard Block
             var sys = res.system || {};
@@ -534,12 +519,48 @@
 
             });
 
-            // (R20 D3/U2: no Reboot / Clear cache buttons here: Tools -> Reboot is the one restart, nothing to clear)
-        })
-        .catch(function(e) {
-            console.error('Dashboard init failed', e);
-            if (window.isHostStillActive(dash)) byId('settings_load_status').textContent = 'Settings could not be loaded. Reopen Settings to retry; saving is disabled.';
-        });
+        // (R20 D3/U2: no Reboot / Clear cache buttons here: Tools -> Reboot is the one restart, nothing to clear)
+    }
+
+    var configAge = lastFullConfig ? (Date.now() - lastFullConfigTs) : Infinity;
+    var hasWarmConfig = configAge < 15000;
+    if (hasWarmConfig) {
+        try { applyFullConfig(lastFullConfig); } catch (e) { hasWarmConfig = false; }
+    }
+    if (!hasWarmConfig || configAge >= 3000) {
+        if (fullConfigController) fullConfigController.abort();
+        var fcCtl = new AbortController();
+        fullConfigController = fcCtl;
+        fetch('cgi-bin/state.cgi?cmd=fullconfig&_=' + Date.now(), { cache: 'no-store', signal: fcCtl.signal })
+            .then(function(r) {
+                if (!r.ok) throw new Error('API Response Error');
+                return r.text();
+            })
+            .then(function(text) {
+                try {
+                    return JSON.parse(text);
+                } catch (e) {
+                    console.error('Malformed configuration JSON:', e, text);
+                    showResult('Configuration parsing error. Check device logs.', 'is-danger');
+                    throw e;
+                }
+            })
+            .then(function(res) {
+                lastFullConfig = res;
+                lastFullConfigTs = Date.now();
+                applyFullConfig(res);
+            })
+            .catch(function(e) {
+                if (e && e.name === 'AbortError') return;
+                console.error('Dashboard init failed', e);
+                if (!hasWarmConfig && window.isHostStillActive(dash)) {
+                    byId('settings_load_status').textContent = 'Settings could not be loaded. Reopen Settings to retry; saving is disabled.';
+                }
+            })
+            .finally(function() {
+                if (fullConfigController === fcCtl) fullConfigController = null;
+            });
+    }
 
     // The main statusline loop feeds these gauges too. Do not create a
     // second poller each time the Settings view is mounted.

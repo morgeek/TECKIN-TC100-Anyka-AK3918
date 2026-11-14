@@ -4,7 +4,7 @@
       var data;
       try { data = JSON.parse(text); } catch (e) { /* Legacy handlers still return HTML. */ }
       if (data && data.ok === false) throw new Error(data.error || data.message || "The camera rejected these settings.");
-      if (data && data.ok === true) return data;
+      if (data && data.ok === true) { lastFullConfig = null; lastFullConfigTs = 0; return data; }
       var plain = text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
       if (/\b(error|failed|unknown|invalid|aborted|denied|rollback)\b/i.test(plain)) {
         throw new Error(plain.slice(0, 240));

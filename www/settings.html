@@ -1157,6 +1157,15 @@
                     var hit = !q || card.textContent.toLowerCase().indexOf(q) >= 0;
                     card.classList.toggle('search-miss', !hit);
                     if (hit && q) hits++;
+                    card.querySelectorAll('details.settings-advanced').forEach(function (det) {
+                        if (!q) {
+                            if (det.dataset.searchOpened === '1') { det.open = false; delete det.dataset.searchOpened; }
+                        } else if (hit && det.textContent.toLowerCase().indexOf(q) >= 0) {
+                            if (!det.open) { det.open = true; det.dataset.searchOpened = '1'; }
+                        } else if (det.dataset.searchOpened === '1') {
+                            det.open = false; delete det.dataset.searchOpened;
+                        }
+                    });
                 });
                 if (q) tab.classList.toggle('is-hidden', hits === 0);
                 else tab.classList.toggle('is-hidden', tab.id !== currentTab);

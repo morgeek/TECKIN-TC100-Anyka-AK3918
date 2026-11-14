@@ -47,4 +47,7 @@
   // stale listener (bound to a stale array) per visit.
   var activeDirtyForms = null;
   var settingsUnloadBound = false;
+  var fullConfigController = null;
+  var lastFullConfig = null;
+  var lastFullConfigTs = 0;
 
