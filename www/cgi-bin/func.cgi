@@ -193,7 +193,9 @@ JSON_ERROR_SERVICE_UNAVAILABLE="service_unavailable"
 # Escape JSON string values (fast pure-shell path for plain strings avoids spawning awk)
 json_escape() {
   case "$1" in
-    *[!A-Za-z0-9._:/@=?\&+*,~-\ ]*)
+    # '-' last so it is a literal, not a range: '~-\ ' was a reversed range from '~' to space, which some shells /
+    # libcs read as every printable character (the CI's busybox): '"' then took the fast path unescaped
+    *[!A-Za-z0-9._:/@=?\&+*,~\ -]*)
       # Use awk for correct multi-char escaping on BusyBox sed (sed \n/\t in patterns is unreliable).
       # awk processes line-by-line; NR>1 inserts \n between lines for embedded newlines.
       printf '%s' "$1" | awk '

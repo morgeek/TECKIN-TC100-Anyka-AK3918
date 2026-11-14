@@ -325,6 +325,18 @@ class WebActionForkCuts(unittest.TestCase):
             ],
         )
 
+    def test_json_escape_fast_path_has_no_range_but_letters_and_digits(self):
+        # a reversed range such as '~-\\ ' (from '~' to space) is read by some shells as every printable character
+        f = shfunc("www/cgi-bin/func.cgi", "json_escape")
+        pat = re.search(r"\*\[!([^]]*)\]\*\)", f).group(1)
+        self.assertEqual(re.findall(r"(.)-(?!$)(.)", pat.replace("A-Z", "").replace("a-z", "").replace("0-9", "")), [])
+        for sh in ([ASH, "ash"] if ASH else [], ["/bin/dash"], ["/bin/bash", "--posix"]):
+            if not sh or not Path(sh[0]).exists() and sh[0] != ASH:
+                continue
+            for raw, want in (('a"b', 'a\\"b'), ("a\\b", "a\\\\b"), ("x y-z~", "x y-z~"), ("t\tu", "t\\tu")):
+                r = subprocess.run(sh + ["-c", f + '\njson_escape "$1"', "x", raw], capture_output=True, text=True)
+                self.assertEqual(r.stdout, want, (sh, raw))
+
     def test_events_info_reads_once_without_ev_kv_or_grep(self):
         import json as _json
         src = (ROOT / "scripts/action.d/events.sh").read_text(encoding="utf-8")
