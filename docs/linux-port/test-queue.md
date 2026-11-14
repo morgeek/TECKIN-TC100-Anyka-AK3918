@@ -3477,6 +3477,11 @@ Mac VM `ping -i 0.5` to the .11, ~8.5 min per run, a stall = a reply later than 
   in small steps; but the base was the ISP's seed (taken at the first sample), so the loop needed 2 min to bring the picture
   to neutral (Cb mean -13.8, -8.2, -4.7). **Change:** the manual mode starts after `AWB_MANUAL_AFTER` = 20 samples (10 s of
   the ISP's automatic mode), at its converged gains.
+- **Second try on the .11 (2026-11-14 ~19:30 UTC, CI build of ed975c5):** manual mode after 10 s at `r 271 g 364 b 385`; picture
+  per 40 s: **Cb sd 0.63 / 0.16 / 0.18, Cr sd 0.05 / 0.07 / 0.10** (stock rc44: 10-13), mean Cb -4.0 -> -2.2, Cr ~0 (neutral
+  from the start), 5-9 small gain steps per 40 s. **Passed on the measurement**; left running in RAM on the .11 and the
+  .24 (`/tmp/tc100_rtsp.test`, manual at `r 331 g 284 b 316`) for the owner's eye; the next restart of the video brings
+  the installed rc44 back. Still to see: a lamp switched on / off, daylight, dusk.
 - **Test:** the binary of the CI build in place of the stock one (in RAM, as for AWB-03), 2 min of `stream.jpg` once a second:
   Cb / Cr sd < 2 on a steady scene; then switch a lamp: the colour follows within ~1 min; daylight / dusk; night (B&W) not
   affected. **Pass:** no visible tint cycle (owner's eye), gains moving by small steps only when the light changes.
