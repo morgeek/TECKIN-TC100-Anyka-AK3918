@@ -1,4 +1,5 @@
 """Tests for automatic flash-safe step-by-step core PLL overclocking."""
+import json
 import os
 from pathlib import Path
 import re
@@ -408,6 +409,87 @@ class OverclockTests(unittest.TestCase):
 
         self._run('reset')
         self.assertEqual(self._state()['status'], 'init')
+
+    def test_kernel_patch_reprograms_adc2_div_on_live_pll_change(self):
+        patch = PATCH_0001.read_text()
+        self.assertIn('if (readl(sys + 0x10) & BIT(8))', patch)
+        self.assertIn('DIV_ROUND_CLOSEST(pll_mhz * 1000u, 2048u) - 1u', patch)
+        self.assertIn('| adc_div | BIT(9), sys + 0x10', patch)
+
+    def test_live_set_json_and_manual_rollback(self):
+        # Switch manually on the fly: 480 -> 510 -> 516 -> 522 -> off (480) -> auto 516.
+        self._run('set', 'manual', '510', '522')
+        self.assertEqual(self.sys_pll.read_text().strip(), '0x010212aa')
+        self.assertIn('OVERCLOCK_AUTO=0', self.bootconf.read_text())
+        self.assertIn('OVERCLOCK_TARGET_MHZ=510', self.bootconf.read_text())
+        d = json.loads(self._run('json').stdout)
+        self.assertTrue(d['ok'])
+        self.assertEqual(d['mode'], 'manual')
+        self.assertEqual(d['target_mhz'], 510)
+        self.assertEqual(d['current_mhz'], 510)
+        self.assertEqual(d['live_mhz'], 510)
+        self.assertEqual(d['pll_reg'], '0x010212aa')
+
+        self._run('set', 'manual', '516', '522')
+        self.assertEqual(self.sys_pll.read_text().strip(), '0x010212ac')
+        d = json.loads(self._run('json').stdout)
+        self.assertEqual(d['live_mhz'], 516)
+
+        self._run('set', 'manual', '522', '522')
+        self.assertEqual(self.sys_pll.read_text().strip(), '0x010212ae')
+        self.assertIn('LIVE_SET mode=manual mhz=522', (self.cfg / 'log/overclock.log').read_text())
+
+        # Unexpected reboot in manual 522 MHz rolls back to 480 MHz and resets OVERCLOCK_TARGET_MHZ.
+        self._simulate_kernel_boot()
+        self.last_reboot.write_text('UNEXPECTED (test crash at 522)\n')
+        self._run('boot')
+        self.assertEqual(self.sys_pll.read_text().strip(), '0x010213f0')
+        st = self._state()
+        self.assertEqual(st['status'], 'locked')
+        self.assertEqual(st['current_mhz'], '480')
+        self.assertEqual(st['failed_mhz'], '522')
+        self.assertIn('OVERCLOCK_TARGET_MHZ=480', self.bootconf.read_text())
+
+        # Switching to off keeps 480 MHz and clears mode=off.
+        self._run('set', 'off')
+        self.assertEqual(self.sys_pll.read_text().strip(), '0x010213f0')
+        d = json.loads(self._run('json').stdout)
+        self.assertEqual(d['mode'], 'off')
+        self.assertEqual(d['status'], 'disabled')
+
+        # Switching back to auto with max=516 starts testing at 510 MHz immediately live.
+        self._run('set', 'auto', '510', '516')
+        self.assertEqual(self.sys_pll.read_text().strip(), '0x010212aa')
+        d = json.loads(self._run('json').stdout)
+        self.assertEqual(d['mode'], 'auto')
+        self.assertEqual(d['max_mhz'], 516)
+        self.assertEqual(d['current_mhz'], 510)
+
+        # Sysfs rejection during live set rolls back cleanly.
+        try:
+            os.chmod(self.sys_pll, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+            res = self._run('set', 'manual', '522', '522', check=False)
+            self.assertEqual(res.returncode, 1)
+            d = json.loads(self._run('json').stdout)
+            self.assertEqual(d['status'], 'locked')
+            self.assertEqual(d['failed_reason'], 'sysfs_write_rejected')
+            self.assertEqual(d['failed_mhz'], 522)
+            self.assertIn('OVERCLOCK_TARGET_MHZ=480', self.bootconf.read_text())
+        finally:
+            os.chmod(self.sys_pll, 0o644)
+
+    def test_web_ui_and_cgi_wiring(self):
+        action = (ROOT / 'www/cgi-bin/action.cgi').read_text()
+        system_sh = (ROOT / 'scripts/action.d/system.sh').read_text()
+        settings = (ROOT / 'www/settings.html').read_text()
+        self.assertIn('overclock_info', action)
+        self.assertIn('set_overclock', action)
+        self.assertIn('overclock_reset', action)
+        self.assertIn('overclock_info)', system_sh)
+        self.assertIn('set_overclock)', system_sh)
+        self.assertIn('overclock_reset)', system_sh)
+        for elem in ('oc_summary', 'oc_mode', 'oc_mhz', 'oc_max_mhz', 'btnOcApply', 'btnOcReset'):
+            self.assertIn(f'id="{elem}"', settings)
 
 
 if __name__ == '__main__':

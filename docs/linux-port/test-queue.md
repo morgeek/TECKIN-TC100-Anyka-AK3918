@@ -52,22 +52,28 @@ white paper / tungsten), AWB-02 (tint oscillation fix), OVERCLOCK-01 (flash camp
 WIFI-TRY-01 / WIFI-TXATTEN / WIFI-RXAGG on a camera, ENC-01 and AEC-01 measurements, HW-09 night part, the patch 0003
 `finish_request_epx` fix (patch 0022), HRTIMER-01, and the older `to test` entries below.
 
-### OVERCLOCK-01 Flash-only 24h step-up campaign 510 -> 516 -> 522 MHz (`overclock-step`) — `to test`
+### OVERCLOCK-01 Flash-only 24h step-up campaign + Web UI on-the-fly PLL (`overclock-step`, patch `0001`) — `to test`
 
-- **Change** (branch `overclock`, commit subject prefix `[overclock]`): kernel always boots safely at 480 MHz (`0x010213f0`),
-  then `v3/linux66-sd/overclock-step` in flash mode measures the 480 MHz BogoMIPS baseline and steps `/sys/module/anyka/parameters/core_pll`
-  after `boot-guard` + `cfg-persist` (before `tc100_rtsp` starts) along `510 (0x010212aa) -> 516 (0x010212ac) -> 522 (0x010212ae) MHz`.
-  Each stage requires `OVERCLOCK_HOLD_S=86400` (24 h) of clean uptime before persisting the next target and issuing a clean reboot;
-  `522 MHz` locks on pass. Rollback triggers: `OVERCLOCK_AUTO=0` in `/mnt/config/boot.conf` (off switch) or removing/renaming
-  `/mnt/config/overclock.state` (`overclock-step reset`), safemode, unexpected/unknown reboot, kernel Oops/BUG/panic, or `ak39-spi`
-  timeout.
-- **Test** (real camera in flash mode, wait 3 x 24 h): boot stock `overclock` flash image -> verify `INIT_BASELINE_480` + `APPLIED mhz=510`
-  in `/mnt/config/log/overclock.log` and `core_pll=0x010212aa` in `supportbundle` `driver-params.txt`; verify 15-min `SAMPLE` lines in
-  `/tmp/logs/overclock-samples.log` (`bogomips`, `cap_5s`, `enc_ms`, `nr3d_ovf`, `adc_hz`, `dac_hz`, `skew_ppm`, `av_drift_ms_min`, `spi_err`, `oops`, `rssi`);
-  verify clean promotions at 24 h (`516`), 48 h (`522`), and `LOCKED_MAX` at 72 h, plus stable audio/video sync (`tc100_rtsp.log`)
-  and forced rollback when simulating `safemode` or removing power mid-stage.
-- **Pass:** 24 h uninterrupted stability per accepted step with 0 oops/panic/`ak39-spi` errors, clean RTSP/audio without drop/desync,
-  and deterministic rollback to `validated_mhz` (never bricking `mtd1`, which always starts at 480 MHz).
+- **Change** (branch `overclock`, commit subject prefix `[overclock]`):
+  - **Safe boot & 24h step-up (`overclock-step`):** kernel always boots safely at 480 MHz (`0x010213f0`), then `v3/linux66-sd/overclock-step`
+    in flash mode measures the 480 MHz BogoMIPS baseline and steps `/sys/module/anyka/parameters/core_pll` after `boot-guard` + `cfg-persist`
+    along `510 (0x010212aa) -> 516 (0x010212ac) -> 522 (0x010212ae) MHz`. Each auto stage requires `OVERCLOCK_HOLD_S=86400` (24 h)
+    of clean uptime before persisting the next target and issuing a clean reboot; `522 MHz` locks on pass. Rollback triggers:
+    `OVERCLOCK_AUTO=0` / `OVERCLOCK_TARGET_MHZ=0` in `/mnt/config/boot.conf` (off switch), `overclock-step reset`, safemode,
+    unexpected/unknown reboot, kernel Oops/BUG/panic, or `ak39-spi` timeout.
+  - **On-the-fly Web UI & audio-safe PLL (`0001`, `settings.html`, `action.cgi`, `system.sh`):** `Settings -> System -> CPU Frequency & Overclock (On-the-Fly)`
+    calls `overclock_info` / `set_overclock` / `overclock_reset` (`overclock-step json` / `set <off|manual|auto> [480|510|516|522] [max_mhz]`)
+    to test or set `480 / 510 / 516 / 522 MHz` live (`OVERCLOCK_TARGET_MHZ` in `/mnt/config/boot.conf`) with crash/watchdog rollback to `validated_mhz`/`480`.
+    In `patches/kernel-6.6/series/0001-...patch`, `anyka_apply_core_pll()` also reprograms `HIGHSPEED_CLOCK_CTRL_REG` (`sys + 0x10`) `ADC2_DIV`
+    and asserts `ADC2_DIV_VLD` inside `local_irq_save()` when `ADC2_CLK_EN` is active, keeping the 8 kHz ALSA mic pitch-accurate across live switches.
+- **Test** (real camera in flash mode, interactive Web UI + 3 x 24 h campaign):
+  1. Open `Settings -> System`, switch live between `480`, `510`, `516`, `522 MHz`, check `overclock-step json` (`active_mhz`, `bogomips`, `adc2_hz`),
+     verify RTSP audio pitch & video stream continuity with zero drops/desync.
+  2. Run the 24 h auto campaign: verify `INIT_BASELINE_480` + `APPLIED mhz=510` in `/mnt/config/log/overclock.log`, 15-min `SAMPLE` lines in
+     `/tmp/logs/overclock-samples.log` (`bogomips`, `cap_5s`, `enc_ms`, `nr3d_ovf`, `adc_hz`, `dac_hz`, `skew_ppm`, `av_drift_ms_min`, `spi_err`, `oops`, `rssi`),
+     promotions at 24 h (`516`), 48 h (`522`), `LOCKED_MAX` at 72 h, and rollback on simulated safemode / manual power cut.
+- **Pass:** Zero audio pitch drift/crackling or video drop during live frequency switching in Web UI; 24 h uninterrupted stability per
+  accepted step with 0 oops/panic/`ak39-spi` errors and deterministic rollback to `validated_mhz` (never bricking `mtd1`, which always boots at 480 MHz).
 
 ### WIFI-AMPDU-TX rtl8xxxu runtime `ampdu_tx` switch and BlockAck counters (`[wifi]`, kernel patch 0023) — `to test`
 - **What:** `0023-wifi-rtl8xxxu-runtime-ampdu_tx-parameter-and-BlockAc.patch` adds `rtl8xxxu.ampdu_tx` (`0644`, default `Y` = unchanged). With `N` the driver no longer opens TX BlockAck sessions (the `ieee80211_start_tx_ba_session()` call is skipped; TX_START itself is not refused), so the AP keeps no reorder buffer for the camera (WIFI-STALL-01, mechanisms 1 and 2 of `frontier/wifi-stall-2026-11-14-reponse.md`). New sessions only: a reassociation is needed after a change. Read-only counters `ba_tx_start`, `ba_tx_oper`, `ba_tx_stop`, `tx_qos_data`, `tx_other`, shown by `scripts/wifi-stall-watch.sh`. `scripts/wifi-try.sh` accepts `ampdu_tx=0|1` and reassociates by itself (`wpa_cli -i wlan0 reassociate`, no interface down/up) after applying and after every revert.

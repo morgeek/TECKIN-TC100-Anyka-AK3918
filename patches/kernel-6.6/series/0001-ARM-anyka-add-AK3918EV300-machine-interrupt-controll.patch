@@ -13,7 +13,7 @@ Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
  arch/arm/Makefile                |   1 +
  arch/arm/mach-anyka/Kconfig      |  12 ++
  arch/arm/mach-anyka/Makefile     |   2 +
- arch/arm/mach-anyka/anyka.c      | 199 ++++++++++++++++++++
+ arch/arm/mach-anyka/anyka.c      | 203 ++++++++++++++++++++
  drivers/clocksource/Kconfig      |   5 +
  drivers/clocksource/Makefile     |   1 +
  drivers/clocksource/timer-ak39.c | 129 +++++++++++++
@@ -87,7 +87,7 @@ new file mode 100644
 index 000000000..de68cce9f
 --- /dev/null
 +++ b/arch/arm/mach-anyka/anyka.c
-@@ -0,0 +1,199 @@
+@@ -0,0 +1,203 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Anyka AK3918EV300 device tree board support.
@@ -234,6 +234,10 @@ index 000000000..de68cce9f
 +		if (asic % 115200)
 +			v |= BIT(22);
 +		writel(v, uart);
++		if (readl(sys + 0x10) & BIT(8)) {
++			u32 adc_div = clamp_t(u32, DIV_ROUND_CLOSEST(pll_mhz * 1000u, 2048u) - 1u, 1u, 255u);
++			writel((readl(sys + 0x10) & ~0xffu) | adc_div | BIT(9), sys + 0x10);
++		}
 +		local_irq_restore(flags);
 +		changed = true;
 +	}

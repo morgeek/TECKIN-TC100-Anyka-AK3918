@@ -787,6 +787,47 @@
                         </div>
                         <div class="buttons is-right mt-3"><button class="button is-primary is-small" type="submit">Save Hardening</button></div>
                     </form>
+                    <hr class="mt-3 mb-3">
+                    <div class="is-divider" data-content="CPU Frequency &amp; Overclock (On-the-Fly)"></div>
+                    <p class="is-size-7 mb-2" id="oc_summary">Loading CPU clock state...</p>
+                    <div class="columns is-mobile mb-2">
+                        <div class="column">
+                            <label class="label is-small" for="oc_mode">Mode</label>
+                            <div class="select is-small is-fullwidth">
+                                <select id="oc_mode" name="oc_mode">
+                                    <option value="off">Stock 480 MHz (Off)</option>
+                                    <option value="manual">Manual Live Frequency</option>
+                                    <option value="auto">Automatic 24h Step-up</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="column">
+                            <label class="label is-small" for="oc_mhz">Target Frequency</label>
+                            <div class="select is-small is-fullwidth">
+                                <select id="oc_mhz" name="oc_mhz">
+                                    <option value="480">480 MHz (Stock, 120 MHz ASIC)</option>
+                                    <option value="510">510 MHz (127.5 MHz ASIC, +6.2%)</option>
+                                    <option value="516">516 MHz (129 MHz ASIC, +7.5%)</option>
+                                    <option value="522">522 MHz (130.5 MHz ASIC, +8.7%)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="column">
+                            <label class="label is-small" for="oc_max_mhz">Auto Ceiling</label>
+                            <div class="select is-small is-fullwidth">
+                                <select id="oc_max_mhz" name="oc_max_mhz">
+                                    <option value="510">510 MHz max</option>
+                                    <option value="516">516 MHz max</option>
+                                    <option value="522">522 MHz max</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="buttons is-right mb-1">
+                        <button class="button is-light is-small" type="button" id="btnOcReset">Reset 24h Campaign</button>
+                        <button class="button is-primary is-small" type="button" id="btnOcApply">Apply CPU Frequency (Live)</button>
+                    </div>
+                    <p class="help" id="oc_msg"></p>
                 </div>
             </div>
 
@@ -2106,6 +2147,92 @@
         }
         document.getElementById('sounds_send').addEventListener('click', function() { sendSound(this, true); });
         document.getElementById('sounds_now').addEventListener('click', function() { sendSound(this, false); });
+        load();
+    })();
+
+    // Settings -> System -> CPU Frequency & Overclock (on the fly without reboot)
+    (function() {
+        var box = document.getElementById('oc_summary');
+        if (!box || box.dataset.bound) return;
+        box.dataset.bound = '1';
+        var T = window.tc100T || String;
+        var cf = window.EliteUI && window.EliteUI.csrfFetch ? window.EliteUI.csrfFetch : fetch;
+        var mode = document.getElementById('oc_mode');
+        var mhz = document.getElementById('oc_mhz');
+        var maxMhz = document.getElementById('oc_max_mhz');
+        var btnApply = document.getElementById('btnOcApply');
+        var btnReset = document.getElementById('btnOcReset');
+        var msg = document.getElementById('oc_msg');
+
+        function say(t, bad) {
+            msg.textContent = t || '';
+            msg.className = 'help' + (bad ? ' is-danger' : '');
+        }
+        function syncSelectState() {
+            mhz.disabled = mode.value !== 'manual';
+            maxMhz.disabled = mode.value !== 'auto';
+        }
+        function render(d) {
+            if (!d || !d.ok) return;
+            mode.value = d.mode || 'off';
+            if (mode.value === 'manual') mhz.value = String(d.target_mhz || d.current_mhz || 480);
+            else if (d.live_mhz) mhz.value = String(d.live_mhz);
+            if (d.max_mhz) maxMhz.value = String(d.max_mhz);
+            syncSelectState();
+            var asicMhz = d.asic_hz && d.asic_hz !== '-' ? (Number(d.asic_hz) / 1000000).toFixed(1) : '?';
+            var parts = [
+                'Live: ' + (d.live_mhz || d.current_mhz || 480) + ' MHz (' + (d.pll_reg || '-') + ', ASIC ' + asicMhz + ' MHz)',
+                'Status: ' + (d.status || '-'),
+                'Validated: ' + (d.validated_mhz || 480) + ' MHz',
+                'BogoMIPS: ' + (d.bogomips_now || '-') + ' (480: ' + (d.bogomips_480 || '-') + ')'
+            ];
+            if (Number(d.failed_mhz) > 0) parts.push('Failed: ' + d.failed_mhz + ' MHz (' + (d.failed_reason || '-') + ')');
+            box.textContent = parts.join(' · ');
+        }
+        function load() {
+            fetch('cgi-bin/action.cgi?cmd=overclock_info&format=json&_=' + Date.now(), { cache: 'no-store' })
+                .then(function(r) { return r.json(); })
+                .then(render)
+                .catch(function() { box.textContent = T('CPU clock state unavailable.'); });
+        }
+        mode.addEventListener('change', syncSelectState);
+        btnApply.addEventListener('click', function() {
+            btnApply.classList.add('is-loading');
+            say(T('Applying CPU frequency on the fly...'));
+            cf('cgi-bin/action.cgi?cmd=set_overclock&format=json', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+                body: 'oc_mode=' + encodeURIComponent(mode.value) +
+                    '&oc_mhz=' + encodeURIComponent(mhz.value) +
+                    '&oc_max_mhz=' + encodeURIComponent(maxMhz.value)
+            })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    btnApply.classList.remove('is-loading');
+                    render(d);
+                    if (d && d.failed_reason === 'sysfs_write_rejected') say(T('Kernel rejected the PLL value; rolled back to 480 MHz.'), true);
+                    else if (d && d.ok) say(T('CPU frequency applied live without rebooting.'));
+                    else say((d && d.error) || T('Failed'), true);
+                })
+                .catch(function() {
+                    btnApply.classList.remove('is-loading');
+                    say(T('Failed'), true);
+                });
+        });
+        btnReset.addEventListener('click', function() {
+            btnReset.classList.add('is-loading');
+            cf('cgi-bin/action.cgi?cmd=overclock_reset&format=json', { method: 'POST' })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    btnReset.classList.remove('is-loading');
+                    render(d);
+                    say(T('24h overclock campaign reset (restarts at 510 MHz).'));
+                })
+                .catch(function() {
+                    btnReset.classList.remove('is-loading');
+                    say(T('Failed'), true);
+                });
+        });
         load();
     })();
 </script>

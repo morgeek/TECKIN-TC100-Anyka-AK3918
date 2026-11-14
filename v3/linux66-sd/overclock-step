@@ -1,5 +1,5 @@
 #!/bin/sh
-# overclock-step boot|hk|tick|status|reset
+# overclock-step boot|hk|tick|set|json|status|reset
 #
 # Automatic, flash-safe step-by-step core PLL validation (510 -> 516 -> 522 MHz).
 # Kernel always boots safely at 480 MHz (0x010213f0); this script raises SYSCTRL 0x08
@@ -103,6 +103,26 @@ oc_load_conf() {
     510|516|522) ;;
     *) CONF_MAX_MHZ=522 ;;
   esac
+
+  CONF_TARGET_MHZ=$(oc_conf OVERCLOCK_TARGET_MHZ 0)
+  case "$CONF_TARGET_MHZ" in
+    480|510|516|522) ;;
+    *) CONF_TARGET_MHZ=0 ;;
+  esac
+}
+
+oc_set_bootconf() { # KEY VALUE
+  _sb_k=$1; _sb_v=$2
+  mkdir -p "${OC_BOOTCONF%/*}" 2>/dev/null || return 1
+  if [ -r "$OC_BOOTCONF" ]; then
+    awk -v k="$_sb_k" -v v="$_sb_v" '
+      $0 ~ "^" k "=" { if (!done) { print k "=" v; done=1 } next }
+      { print }
+      END { if (!done) print k "=" v }
+    ' "$OC_BOOTCONF" > "$OC_BOOTCONF.tmp.$$" 2>/dev/null && mv -f "$OC_BOOTCONF.tmp.$$" "$OC_BOOTCONF"
+  else
+    printf '%s=%s\n' "$_sb_k" "$_sb_v" > "$OC_BOOTCONF"
+  fi
 }
 
 mhz_to_reg() {
@@ -112,6 +132,16 @@ mhz_to_reg() {
     516) echo "0x010212ac" ;;
     522) echo "0x010212ae" ;;
     *) echo "0x010213f0" ;;
+  esac
+}
+
+reg_to_mhz() {
+  case "$1" in
+    0x010213f0|0x10213f0) echo "480" ;;
+    0x010212aa|0x10212aa) echo "510" ;;
+    0x010212ac|0x10212ac) echo "516" ;;
+    0x010212ae|0x10212ae) echo "522" ;;
+    *) echo "${2:-480}" ;;
   esac
 }
 
@@ -336,7 +366,7 @@ cmd_boot() {
   oc_load_conf
   read_state
 
-  if [ "$CONF_AUTO" = 0 ]; then
+  if [ "$CONF_AUTO" = 0 ] && { [ "$CONF_TARGET_MHZ" = 0 ] || [ "$CONF_TARGET_MHZ" = 480 ]; }; then
     if [ "$ST_STATUS" != "disabled" ]; then
       ST_STATUS=disabled
       ST_ARMED=0
@@ -348,10 +378,14 @@ cmd_boot() {
     return 0
   fi
 
-  # Wait: if previously disabled and now OVERCLOCK_AUTO=1 again, re-init from 510 MHz.
+  # Wait: if previously disabled and now OVERCLOCK_AUTO=1 or manual target >480 MHz is set, arm cleanly.
   if [ "$ST_STATUS" = "disabled" ]; then
     ST_STATUS=init
-    ST_CUR=510
+    if [ "$CONF_AUTO" = 0 ] && [ "$CONF_TARGET_MHZ" -gt 480 ]; then
+      ST_CUR=$CONF_TARGET_MHZ
+    else
+      ST_CUR=510
+    fi
     ST_VAL=480
     ST_FAIL=0
     ST_REASON=none
@@ -368,6 +402,7 @@ cmd_boot() {
       ST_STATUS=locked
       ST_ARMED=0
       ST_BOOTS=0
+      [ "$CONF_AUTO" = 0 ] && oc_set_bootconf OVERCLOCK_TARGET_MHZ "$ST_CUR"
       oc_log_event "ROLLBACK_SAFEMODE failed_mhz=$ST_FAIL fallback_mhz=$ST_CUR reason=$ST_REASON"
       write_state
       run_persist
@@ -394,10 +429,15 @@ cmd_boot() {
     _a480=$(read_one_line "$OC_SYS_ASIC" "-")
     oc_log_event "INIT_BASELINE_480 mhz=480 pll_reg=$_p480 asic_hz=$_a480 bogomips_480=${ST_BOGO480:--}"
     ST_STATUS=testing
-    ST_CUR=510
+    if [ "$CONF_AUTO" = 0 ] && [ "$CONF_TARGET_MHZ" -gt 480 ]; then
+      ST_CUR=$CONF_TARGET_MHZ
+      ST_REASON=manual_boot
+    else
+      ST_CUR=510
+      ST_REASON=none
+    fi
     ST_VAL=480
     ST_FAIL=0
-    ST_REASON=none
     ST_ARMED=1
     ST_BOOTS=1
     _need_persist=1
@@ -425,6 +465,7 @@ cmd_boot() {
           ST_STATUS=locked
           ST_ARMED=0
           ST_BOOTS=0
+          [ "$CONF_AUTO" = 0 ] && oc_set_bootconf OVERCLOCK_TARGET_MHZ "$ST_CUR"
           oc_log_event "ROLLBACK_CRASH failed_mhz=$ST_FAIL fallback_mhz=$ST_CUR reason=$ST_REASON"
           oc_log_console "ROLLBACK_CRASH: ${ST_FAIL} MHz failed ($ST_REASON), locking on ${ST_CUR} MHz"
           _need_persist=1
@@ -440,7 +481,12 @@ cmd_boot() {
     ST_ARMED=0
   fi
 
-  if [ "$ST_STATUS" = "testing" ] && [ "$ST_CUR" -gt "$CONF_MAX_MHZ" ]; then
+  if [ "$CONF_AUTO" = 0 ] && [ "$CONF_TARGET_MHZ" -gt 480 ] && [ "$ST_STATUS" = "testing" ] && [ "$ST_CUR" != "$CONF_TARGET_MHZ" ]; then
+    ST_CUR=$CONF_TARGET_MHZ
+    _need_persist=1
+  fi
+
+  if [ "$CONF_AUTO" = 1 ] && [ "$ST_STATUS" = "testing" ] && [ "$ST_CUR" -gt "$CONF_MAX_MHZ" ]; then
     ST_CUR=$CONF_MAX_MHZ
     _need_persist=1
   fi
@@ -460,6 +506,7 @@ cmd_boot() {
       ST_STATUS=locked
       ST_ARMED=0
       ST_BOOTS=0
+      [ "$CONF_AUTO" = 0 ] && oc_set_bootconf OVERCLOCK_TARGET_MHZ "$ST_CUR"
       oc_log_event "ROLLBACK_SYSFS_ERROR failed_mhz=$ST_FAIL fallback_mhz=$ST_CUR reg=$_target_reg"
       oc_log_console "sysfs rejected $_target_reg (${ST_FAIL} MHz), staying at ${ST_CUR} MHz"
       write_state
@@ -501,7 +548,6 @@ cmd_hk() {
     oc_log_event "SUMMARY_6H h=$((_h6 * 6)) $_kv"
   fi
 
-  [ "$CONF_AUTO" = 1 ] || return 0
   [ "$ST_STATUS" = "testing" ] || return 0
 
   # Guardrail 1: kernel oops or SPI flash timeout while testing > 480 MHz triggers immediate rollback.
@@ -512,6 +558,7 @@ cmd_hk() {
     ST_STATUS=locked
     ST_ARMED=0
     ST_BOOTS=0
+    [ "$CONF_AUTO" = 0 ] && oc_set_bootconf OVERCLOCK_TARGET_MHZ "$ST_CUR"
     oc_log_event "ROLLBACK_HEALTH failed_mhz=$ST_FAIL fallback_mhz=$ST_CUR oops=$OOPS_CNT spi_err=$SPI_ERR"
     oc_log_sample "ROLLBACK_HEALTH failed_mhz=$ST_FAIL fallback_mhz=$ST_CUR oops=$OOPS_CNT spi_err=$SPI_ERR"
     oc_log_console "health check failed at ${ST_FAIL} MHz (oops=$OOPS_CNT spi_err=$SPI_ERR), rolling back to ${ST_CUR} MHz"
@@ -519,6 +566,8 @@ cmd_hk() {
     trigger_reboot "overclock-step: health rollback from ${ST_FAIL}MHz to ${ST_CUR}MHz"
     return 0
   fi
+
+  [ "$CONF_AUTO" = 1 ] || return 0
 
   # Guardrail 2: step validated after OVERCLOCK_HOLD_S (24h = 86400s) uninterrupted uptime.
   if [ "$UP_S" -ge "$CONF_HOLD_S" ]; then
@@ -576,6 +625,131 @@ cmd_status() {
   fi
 }
 
+cmd_set() { # MODE(off|manual|auto) [MHZ] [MAX_MHZ]
+  _cs_mode=${1:-off}
+  case "$_cs_mode" in
+    off|manual|auto) ;;
+    *) echo "usage: $0 set <off|manual|auto> [480|510|516|522] [510|516|522]" >&2; return 2 ;;
+  esac
+  if [ "$_cs_mode" = "off" ]; then
+    _cs_mhz=480
+  else
+    _cs_mhz=${2:-510}
+  fi
+  valid_mhz "$_cs_mhz" || { echo "invalid mhz: $_cs_mhz" >&2; return 2; }
+  _cs_max=${3:-522}
+  case "$_cs_max" in
+    510|516|522) ;;
+    *) _cs_max=522 ;;
+  esac
+
+  oc_load_conf
+  read_state
+
+  _cur_reg=$(read_one_line "$OC_SYS_PLL" "")
+  if { [ -z "$ST_BOGO480" ] || [ "$ST_BOGO480" = "-" ]; } && { [ "$_cur_reg" = "0x010213f0" ] || [ "$_cur_reg" = "0x10213f0" ]; }; then
+    _bm=$(read_bogomips)
+    [ "$_bm" != "-" ] && ST_BOGO480=$_bm
+  fi
+
+  if [ "$_cs_mode" = "off" ] || { [ "$_cs_mode" = "manual" ] && [ "$_cs_mhz" = 480 ]; }; then
+    oc_set_bootconf OVERCLOCK_AUTO 0
+    oc_set_bootconf OVERCLOCK_TARGET_MHZ 480
+    ST_STATUS=disabled
+    ST_CUR=480
+    ST_ARMED=0
+    ST_BOOTS=0
+    ST_REASON=manual_off
+  elif [ "$_cs_mode" = "manual" ]; then
+    oc_set_bootconf OVERCLOCK_AUTO 0
+    oc_set_bootconf OVERCLOCK_TARGET_MHZ "$_cs_mhz"
+    ST_STATUS=testing
+    ST_CUR=$_cs_mhz
+    ST_FAIL=0
+    ST_ARMED=1
+    ST_BOOTS=1
+    ST_REASON=manual_live
+  else
+    oc_set_bootconf OVERCLOCK_AUTO 1
+    oc_set_bootconf OVERCLOCK_TARGET_MHZ 0
+    oc_set_bootconf OVERCLOCK_MAX_MHZ "$_cs_max"
+    if [ "$ST_STATUS" = "disabled" ] || [ "$ST_STATUS" = "init" ] || [ "$ST_CUR" -le 480 ]; then
+      ST_STATUS=testing
+      ST_CUR=510
+      [ "$ST_CUR" -gt "$_cs_max" ] && ST_CUR=$_cs_max
+      ST_FAIL=0
+      ST_ARMED=1
+      ST_BOOTS=1
+      ST_REASON=auto_live
+    elif [ "$ST_STATUS" = "testing" ] && [ "$ST_CUR" -gt "$_cs_max" ]; then
+      ST_CUR=$_cs_max
+    fi
+  fi
+
+  # Persist armed state onto flash BEFORE writing core_pll live.
+  write_state
+  run_persist
+
+  if [ ! -e "$OC_SYS_PLL" ]; then
+    oc_log_event "LIVE_SET_NO_SYSFS mode=$_cs_mode mhz=$ST_CUR"
+    return 1
+  fi
+
+  _target_reg=$(mhz_to_reg "$ST_CUR")
+  if ! printf '%s\n' "$_target_reg" > "$OC_SYS_PLL" 2>/dev/null; then
+    ST_FAIL=$ST_CUR
+    ST_REASON=sysfs_write_rejected
+    ST_CUR=480
+    ST_STATUS=locked
+    ST_ARMED=0
+    ST_BOOTS=0
+    oc_set_bootconf OVERCLOCK_AUTO 0
+    oc_set_bootconf OVERCLOCK_TARGET_MHZ 480
+    printf '%s\n' "0x010213f0" > "$OC_SYS_PLL" 2>/dev/null || true
+    oc_log_event "ROLLBACK_SYSFS_ERROR failed_mhz=$ST_FAIL fallback_mhz=480 reg=$_target_reg"
+    write_state
+    run_persist
+    return 1
+  fi
+
+  _act_pll=$(read_one_line "$OC_SYS_PLL" "$_target_reg")
+  _act_asic=$(read_one_line "$OC_SYS_ASIC" "-")
+  _bogo_after=$(read_bogomips)
+  audio_rates_for_mhz "$ST_CUR"
+  oc_log_console "LIVE_SET mode=$_cs_mode mhz=$ST_CUR status=$ST_STATUS pll=$_act_pll asic=$_act_asic adc=${ADC_HZ}Hz dac=${DAC_HZ}Hz"
+  oc_log_event "LIVE_SET mode=$_cs_mode mhz=$ST_CUR status=$ST_STATUS pll_reg=$_act_pll asic_hz=$_act_asic bogomips_now=$_bogo_after adc_hz=$ADC_HZ dac_hz=$DAC_HZ skew_ppm=$SKEW_PPM"
+  oc_log_sample "LIVE_SET mode=$_cs_mode mhz=$ST_CUR status=$ST_STATUS pll_reg=$_act_pll asic_hz=$_act_asic bogomips_now=$_bogo_after adc_hz=$ADC_HZ dac_hz=$DAC_HZ skew_ppm=$SKEW_PPM"
+  return 0
+}
+
+json_esc() {
+  printf '%s' "$1" | tr -d '\r\n"' | sed 's/\\/\\\\/g'
+}
+
+cmd_json() {
+  oc_load_conf
+  read_state
+  _up=$(read_uptime_s)
+  _pll=$(read_one_line "$OC_SYS_PLL" "unavailable")
+  _asic=$(read_one_line "$OC_SYS_ASIC" "-")
+  _bogo=$(read_bogomips)
+  _live_mhz=$(reg_to_mhz "$_pll" "$ST_CUR")
+  audio_rates_for_mhz "$ST_CUR"
+  if [ "$CONF_AUTO" = 1 ]; then
+    _mode=auto
+  elif [ "$CONF_TARGET_MHZ" -gt 480 ] 2>/dev/null || { [ "$ST_STATUS" = "testing" ] && [ "$ST_CUR" -gt 480 ] 2>/dev/null; }; then
+    _mode=manual
+  else
+    _mode=off
+  fi
+  printf '{"ok":true,"mode":"%s","auto":%d,"target_mhz":%d,"max_mhz":%d,"hold_s":%d,"status":"%s","current_mhz":%d,"live_mhz":%d,"validated_mhz":%d,"failed_mhz":%d,"failed_reason":"%s","armed":%d,"step_boots":%d,"uptime_s":%d,"pll_reg":"%s","asic_hz":"%s","bogomips_480":"%s","bogomips_now":"%s","adc_hz":"%s","dac_hz":"%s","skew_ppm":%d,"av_drift_ms_min":"%s"}\n' \
+    "$_mode" "$CONF_AUTO" "$CONF_TARGET_MHZ" "$CONF_MAX_MHZ" "$CONF_HOLD_S" \
+    "$(json_esc "$ST_STATUS")" "$ST_CUR" "$_live_mhz" "$ST_VAL" "$ST_FAIL" "$(json_esc "$ST_REASON")" \
+    "$ST_ARMED" "$ST_BOOTS" "$_up" "$(json_esc "$_pll")" "$(json_esc "$_asic")" \
+    "$(json_esc "${ST_BOGO480:--}")" "$(json_esc "$_bogo")" \
+    "$(json_esc "$ADC_HZ")" "$(json_esc "$DAC_HZ")" "$SKEW_PPM" "$(json_esc "$AV_DRIFT")"
+}
+
 cmd_reset() {
   rm -f "$OC_LAST_H6" "$OC_CPUSTAT"
   ST_STATUS=init
@@ -595,7 +769,9 @@ cmd_reset() {
 case "$1" in
   boot) cmd_boot ;;
   hk|tick) cmd_hk ;;
+  set) shift; cmd_set "$@" ;;
+  json) cmd_json ;;
   status) cmd_status ;;
   reset) cmd_reset ;;
-  *) echo "usage: $0 boot | hk | tick | status | reset" >&2; exit 2 ;;
+  *) echo "usage: $0 boot | hk | tick | set | json | status | reset" >&2; exit 2 ;;
 esac

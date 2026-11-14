@@ -580,4 +580,24 @@
             fi
         fi
     ;;
+
+    overclock_info)
+      sh /mnt/v3/linux66-sd/overclock-step json
+    ;;
+
+    set_overclock)
+      oc_mode="${F_oc_mode:-off}"
+      case "$oc_mode" in off|manual|auto) ;; *) oc_mode=off ;; esac
+      oc_mhz="${F_oc_mhz:-480}"
+      case "$oc_mhz" in 480|510|516|522) ;; *) oc_mhz=480 ;; esac
+      oc_max_mhz="${F_oc_max_mhz:-522}"
+      case "$oc_max_mhz" in 510|516|522) ;; *) oc_max_mhz=522 ;; esac
+      sh /mnt/v3/linux66-sd/overclock-step set "$oc_mode" "$oc_mhz" "$oc_max_mhz" >/dev/null 2>&1 || true
+      sh /mnt/v3/linux66-sd/overclock-step json
+    ;;
+
+    overclock_reset)
+      sh /mnt/v3/linux66-sd/overclock-step reset >/dev/null 2>&1 || true
+      sh /mnt/v3/linux66-sd/overclock-step json
+    ;;
   esac

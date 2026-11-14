@@ -350,7 +350,9 @@ NR3D=1
 
 # Core PLL step-up campaign (branch overclock): steps 480 -> 510 -> 516 -> 522 MHz every OVERCLOCK_HOLD_S uptime in flashmode.
 # Kernel always boots at 480 MHz; v3/linux66-sd/overclock-step applies the step after /mnt/config and rolls back on crash/oops.
+# Live Web UI mode ("Performance and security") can also set OVERCLOCK_AUTO=0 and OVERCLOCK_TARGET_MHZ=480|510|516|522 on the fly.
 OVERCLOCK_AUTO=1
+OVERCLOCK_TARGET_MHZ=0
 OVERCLOCK_HOLD_S=86400
 OVERCLOCK_MAX_MHZ=522
 
