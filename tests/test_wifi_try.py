@@ -151,7 +151,7 @@ exit 1
         self.assertEqual((self.sys / 'ampdu_tx').read_text().strip(), '0')
         self.assertIn('pending ampdu_tx=0 prev=Y', self._run(['status'], env).stdout)
         self.assertEqual(self._run(['confirm'], env).returncode, 0)
-        self._wait_watcher_exit(timeout=3.0)
+        self._wait_watcher_exit()
         self.assertEqual((self.sys / 'ampdu_tx').read_text().strip(), '0')
         self.assertEqual(len(self._reassocs()), 1)      # kept: no second reassociation
 
@@ -278,14 +278,15 @@ if __name__ == '__main__':
 
 
 class WifiAmpduTxBootSwitch(unittest.TestCase):
-    """boot.conf WIFI_AMPDU_TX (2026-11-14): default on, 0 turns TX aggregation off at boot, reassociates only if a
-    BlockAck session is already operational."""
+    """boot.conf WIFI_AMPDU_TX (2026-11-14): off by default (absent or 0), 1 keeps TX aggregation on; reassociates only
+    if a BlockAck session is already operational."""
 
     def test_default_on_and_autorun_applies_zero(self):
         root = Path(__file__).resolve().parents[1]
         dist = (root / 'config/boot.conf.dist').read_text()
-        self.assertIn('\nWIFI_AMPDU_TX=1\n', dist)
         auto = (root / 'v3/autorun-linux66.sh').read_text()
+        self.assertIn('\nWIFI_AMPDU_TX=0\n', dist)
+        self.assertIn('1|yes|on|true) ;;', auto[auto.index('WIFI_AMPDU_TX='):])
         blk = auto[auto.index('WIFI_AMPDU_TX='):auto.index('esac', auto.index('WIFI_AMPDU_TX='))]
         self.assertIn('echo 0 > $_ap/ampdu_tx', blk)
         self.assertIn('ba_tx_oper', blk)

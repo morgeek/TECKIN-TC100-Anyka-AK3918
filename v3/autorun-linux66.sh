@@ -23,12 +23,14 @@ done
 # Wi-Fi rules of the country of boot.conf (WIFI_COUNTRY): the boot script gave it to wpa_supplicant; the regulatory
 # database is read again if the kernel missed it at boot, and the kernel is told the country if it does not apply it yet
 [ -f /mnt/scripts/wifi-country.sh ] && timeout 10 sh /mnt/scripts/wifi-country.sh boot </dev/null >/dev/null 2>&1
-# Wi-Fi TX aggregation (rtl8xxxu.ampdu_tx, kernel patch 0023): boot.conf WIFI_AMPDU_TX=0 turns it off. Measured on the .11
-# (2026-11-14): with TX BlockAck sessions the link stalled 1-2 times a minute for up to 5 s; with ampdu_tx=0 none in 8 min.
-# Absent or 1 = the kernel default (on). Only new sessions follow the switch: when one is already open (association
-# before this point), the station reassociates once, in the background (a few seconds without network, before the video).
+# Wi-Fi TX aggregation (rtl8xxxu.ampdu_tx, kernel patch 0023): OFF by default (owner's decision 2026-11-14), boot.conf
+# WIFI_AMPDU_TX=1 keeps it on. Measured on the .11 (2026-11-14): with TX BlockAck sessions the link stalled 1-2 times a
+# minute for up to 5 s; with ampdu_tx=0 none in 8 min; the stream does not need the extra throughput. Only new sessions
+# follow the switch: when one is already open (association before this point), the station reassociates once, in the
+# background (a few seconds without network, before the video).
 case "$(sed -n 's/^WIFI_AMPDU_TX="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /mnt/config/boot.conf 2>/dev/null | tail -n 1)" in
-  0|no|off|false)
+  1|yes|on|true) ;;
+  *)
     _ap=/sys/module/rtl8xxxu/parameters
     if [ -w $_ap/ampdu_tx ]; then
       echo 0 > $_ap/ampdu_tx 2>/dev/null
@@ -448,6 +450,11 @@ sh /mnt/scripts/housekeeper.sh job add reboot-tracker bg 900 300 - sh /mnt/scrip
 on "$BC_WIFI_AIM" && ( exec sh /mnt/scripts/wifi-aim.sh run ) </dev/null >/dev/null 2>&1 &
 # item 40: WIFI_ROAM=1: leave a weak access point for a much better one of the same SSID (repeaters, mesh)
 on "$BC_WIFI_ROAM" && sh /mnt/scripts/housekeeper.sh job add wifi-roam bg 60 120 - sh /mnt/scripts/wifi-roam.sh once </dev/null >/dev/null 2>&1
+# IR-cut re-assert (2026-11-14): the latching filter coil gets its current position pulsed again every IRCUT_REASSERT_MIN
+# minutes (boot.conf, default 30, 0 = off): the .11's filter was found out of the day position with the state file at day
+_ira=$(sed -n 's/^IRCUT_REASSERT_MIN="\{0,1\}\([0-9]*\)"\{0,1\}$/\1/p' /mnt/config/boot.conf 2>/dev/null | tail -n 1)
+case "${_ira:=30}" in ''|*[!0-9]*) _ira=30 ;; esac
+[ "$_ira" -gt 0 ] && sh /mnt/scripts/housekeeper.sh job add ircut-reassert bg $((_ira * 60)) $((_ira * 60)) - sh /mnt/scripts/ircut-reassert.sh </dev/null >/dev/null 2>&1
 # item 28: the logs in RAM that do not cap themselves, every 10 minutes (scripts/log-cap.sh, LOG_CAP_KB)
 sh /mnt/scripts/housekeeper.sh job add log-cap bg 600 600 - sh /mnt/scripts/log-cap.sh </dev/null >/dev/null 2>&1
 

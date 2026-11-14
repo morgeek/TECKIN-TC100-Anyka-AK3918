@@ -170,11 +170,15 @@ WIFI_QUALITY=1
 # restrictive (channels 12-13 passive, lower power). Used from the first association at boot; Settings -> Network
 # applies a change at once, without reconnecting.
 WIFI_COUNTRY=
-# Wi-Fi TX aggregation (A-MPDU / BlockAck sessions of the camera, rtl8xxxu.ampdu_tx). 1 = on (default, the kernel's),
-# 0 = off: the cure for the 2-5 s stalls of a camera very close to its access point (the .11 on 2026-11-14: 0 stalls in
-# 8 min instead of 1-2 a minute); the stream does not need the extra throughput. Read at boot (one reassociation if a
-# session was already open); to try it live: scripts/wifi-try.sh ampdu_tx=0 600.
-WIFI_AMPDU_TX=1
+# Wi-Fi TX aggregation (A-MPDU / BlockAck sessions of the camera, rtl8xxxu.ampdu_tx). 0 = off (default since 2026-11-14,
+# owner's decision): the cure for the 2-5 s stalls seen on the .11 (0 stalls in 8 min instead of 1-2 a minute); the stream
+# does not need the extra throughput. 1 = on (the kernel's own default). Read at boot (one reassociation if a session was
+# already open); to try it live: scripts/wifi-try.sh ampdu_tx=1 600.
+WIFI_AMPDU_TX=0
+# IR-cut filter: its current position (day / night) is pulsed again every IRCUT_REASSERT_MIN minutes (default 30, 0 = off).
+# The coil latches; a filter found out of place (2026-11-14, the .11: magenta picture by day, unstable white balance)
+# is put right within that time.
+IRCUT_REASSERT_MIN=30
 # One resident loop for the slow periodic jobs (scripts/housekeeper.sh: web guard, network guard, SD panel, the RTSP and
 # MQTT service watchdogs, health snapshot, log persistence) instead of one shell process each: about 1 MB less RAM.
 # 0 = the separate daemons of before (read at boot).

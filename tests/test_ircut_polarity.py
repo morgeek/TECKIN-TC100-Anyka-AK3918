@@ -50,3 +50,29 @@ class IrcutPolarity(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IrcutReassert(unittest.TestCase):
+    """scripts/ircut-reassert.sh (2026-11-14): pulses the position of the state file again; registered by autorun."""
+
+    def _run(self, state):
+        with tempfile.TemporaryDirectory() as t:
+            st = Path(t, 'ircut'); log = Path(t, 'calls')
+            if state is not None:
+                st.write_text(state + '\n')
+            fake = Path(t, 'setconf'); fake.write_text('#!/bin/sh\necho "$@" > "%s"\n' % log)
+            env = dict(os.environ, IRCUT_STATE=str(st), SETCONF=str(fake))
+            subprocess.run(['sh', str(ROOT / 'scripts/ircut-reassert.sh')], env=env, check=True)
+            return log.read_text().strip()
+
+    def test_pulses_the_state_file_position(self):
+        self.assertEqual(self._run('1'), '-k e -v 1')
+        self.assertEqual(self._run('0'), '-k e -v 0')
+        self.assertEqual(self._run(None), '-k e -v 1')
+        self.assertEqual(self._run('garbage'), '-k e -v 1')
+
+    def test_registered_by_autorun_with_a_switch(self):
+        auto = (ROOT / 'v3/autorun-linux66.sh').read_text()
+        self.assertIn('job add ircut-reassert bg', auto)
+        self.assertIn('IRCUT_REASSERT_MIN', auto)
+        self.assertIn('\nIRCUT_REASSERT_MIN=30\n', (ROOT / 'config/boot.conf.dist').read_text())
