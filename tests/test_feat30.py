@@ -908,7 +908,7 @@ class Lot1B(unittest.TestCase):
         self.assertIn('on "$BC_WIFI_QUALITY"', ar)
         self.assertIn('job add wifi-quality bg 60 30', ar)
         mq = (ROOT / 'scripts/mqtt-bridge.sh').read_text()
-        for k in ('"wifi_loss_pct":%s', '"wifi_tx_retries":%s', '"wifi_rssi_min":%s', 'value_json.diag.wifi_loss_pct'):
+        for k in ('\\"wifi_loss_pct\\":${_dg_wloss}', '\\"wifi_tx_retries\\":${_dg_wretry}', '\\"wifi_rssi_min\\":${_dg_wmin}', 'value_json.diag.wifi_loss_pct'):
             self.assertIn(k, mq)
 
     def test_sd_health_counts_kernel_errors_and_keeps_the_state(self):

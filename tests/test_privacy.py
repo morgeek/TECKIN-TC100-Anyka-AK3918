@@ -52,8 +52,7 @@ class Wiring(unittest.TestCase):
         self.assertIn('for cmd in ir_led front_led red_led motion_detection night_mode auto_night_mode privacy; do', m)
         self.assertIn('|auto_night_mode|privacy|ftp|', m)
         self.assertIn('script="/mnt/controlscripts/privacy"', m)
-        self.assertIn('"red_led_on":%s,"privacy_on":%s,"ir_led_on":%s,', m)
-        self.assertIn('"$red_led_on" "$privacy_on" "$ir_led_on"', m)
+        self.assertIn('\\"red_led_on\\":${red_led_on},\\"privacy_on\\":${privacy_on},\\"ir_led_on\\":${ir_led_on},', m)
         a = text('v3/autorun-linux66.sh')
         self.assertLess(a.index(": > /tmp/tc100_privacy"), a.index('sh $TB/rtsp-launch.sh'))
 
