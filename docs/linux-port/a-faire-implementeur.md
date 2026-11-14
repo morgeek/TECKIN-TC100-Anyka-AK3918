@@ -5,6 +5,81 @@ Les sections datées qui suivent sont des notes historiques des RC précédentes
 foi. La liste d'origine date de rc25 ; les audits des 3, 4 et 6 novembre sont des instantanés, pas des listes de tâches
 à jour.
 
+## Optimisation « top level » : ce qui reste à gagner (bilan du 2026-11-14 16:30, demande du propriétaire)
+Bilan : le matériel est exploité (encodeur matériel H.264 / H.265 par l'encodeur libre, sous-flux ISP, 3D-NR, OSD ISP,
+netteté, anti-scintillement) ; CPU 20-30 % occupé à 25 i/s avec un client (P-04), ~17 Mo `MemAvailable`. La fréquence du
+CPU n'est pas un levier (voir la fin de cette section). Les gains restants sont la réactivité, la qualité d'image et la
+fiabilité. **Avant chaque chantier : vérifier que ce n'est pas déjà fait** (commits `[opt]` du 14/11 de l'autre agent :
+micro inactif sans DSP, MQTT / présence sans fork). Mesurer avant / après sur une caméra (règles de test-queue.md).
+
+### 1. Réactivité de l'interface web : les lectures interrogées en continu, en C dans `httpfront` (plus gros gain)
+- **Mesures du 14/11 (rc43, CGI lancés en local sur la caméra, busybox 1.36.1) :** `state.cgi` fullconfig 2,24 s,
+  daynight 0,82 s, isp_tune 1,37 s, dashinfo 1,09 s ; `action.cgi` events_info 1,35 s, ha_discovery_info 1,80 s,
+  mem_budget 1,57 s, presence_info 1,86 s, rtsp_server_info 1,79 s, sd_card_info 1,54 s, wifi_country_info 1,08 s,
+  hw_state 0,49 s ; `health.cgi` 2,51 s, `network.cgi` 3,15 s, `devinfo.cgi` 1,26 s, `disk.cgi` 1,23 s. Le coût vient de
+  `func.cgi` + dizaines de forks par requête, pas du travail utile.
+- **Déjà natif (ne pas refaire) :** `statusline.cgi` et `dash.cgi` (`src/httpfront/status.h`, `dash.h`,
+  `TC100_NATIVE_STATUS=1`), quelques ms.
+- **Ordre proposé (fréquence d'appel × durée) :**
+  1. `state.cgi?cmd=daynight&format=json` : interrogé **toutes les 5 s** par la page Jour / nuit
+     (`src/webui/index/80-camera-controls.js` ~l. 135) ; 0,82 s. Lit `daynight.conf`, `/tmp/cam_luma`, `/tmp/cam_ae`,
+     `/tmp/cam_awb`, l'état du filtre : fichiers simples, idéal pour un `daynight.h` sur le modèle de `dash.h`.
+  2. `action.cgi?cmd=hw_state&format=json` : **toutes les 2 s** sur `hardware.html` (~l. 232) ; 0,49 s.
+  3. `state.cgi?cmd=fullconfig` (2,24 s à chaque ouverture de Réglages) et `health.cgi` (2,51 s) : soit en C, soit un
+     seul `awk` qui lit tous les fichiers de config en un passage (pas de `load_conf_file` par fichier).
+  4. Les lectures de `action.cgi` à 1,3-1,9 s (presence_info, rtsp_server_info, ha_discovery_info, mem_budget) : déjà
+     en cache RAM 2 s (WEBUI-CACHE-01) ; ne valent le C que si une page les interroge en boucle.
+- **Contrat :** même JSON octet pour octet que le CGI (test de comparaison sur l'hôte, comme pour `dash.h`), même login
+  Basic, tout cas non géré renvoyé à `httpd` ; interrupteur `TC100_NATIVE_STATUS` existant. **Critère :** < 50 ms par
+  appel, 0 fork, JSON identique.
+
+### 2. Qualité d'image : balance des blancs de l'ISP (.11) et image de nuit
+- **AWB de l'ISP (.11) :** même avec notre boucle coupée (`awb.off`), l'AWB interne de l'ISP change de région
+  d'illuminant toutes les ~2 s (`/tmp/cam_awb` champ 11 : 9, 7, 6, 4, 3, 2, 1) ; la .24 reste sur la région 0. AWB-03
+  (sur `main`) a divisé par deux nos changements de gains mais la teinte visible suit encore l'ISP. **À faire :** donner
+  de l'hystérésis à l'AWB de l'ISP (vitesse / plage stable / poids des régions dans `/lib/firmware/anyka/isp.conf` ou par
+  `AK_ISP_SET_AWB` ; voir vendor-re-findings.md et le patch 0006), ou figer l'AWB de l'ISP une fois stable (gains
+  manuels égaux aux gains courants) et laisser notre boucle corriger finement. **Critère :** sur la .11, scène fixe,
+  `idx` stable et < 5 changements de gains par minute ; un changement de lampe réglé en < 1 min.
+- **Nuit (HW-09) :** réglage `DENOISE` -50 / 0 / +50 au jeu de nuit à mesurer (contrôle programmé le 14/11 au soir) ; puis
+  choisir la valeur par défaut de nuit.
+
+### 3. Débit vidéo : VBR / smart réellement efficaces
+- **Constat du 14/11 :** les deux caméras `vbr=1` (la .11 `smart=1`), journal `1600 kbit/s ceiling (VBR)`, moyenne 1576-1584
+  kbit/s sur une scène intérieure de jour, donc au plafond ; QP 25-48, GOP 50. **À faire :** mesurer sur une scène immobile
+  (objectif masqué, avec le propriétaire) ; si le débit ne descend pas nettement (-20 à -40 % attendus, ENC-01), revoir la
+  régulation VBR de l'encodeur libre (`src/h265enc/`, `rc.h` : cible = plafond ? QP plancher 25 trop bas pour une scène
+  bruitée ?). **Gain :** bande passante et place des enregistrements Frigate.
+
+### 4. Fiabilité Wi-Fi : `ampdu_tx=0` pour toutes les caméras ?
+- `ampdu_tx=0` a supprimé les blocages de la .11 (0 en 8 min contre 1-2 / min). Le réglage `WIFI_AMPDU_TX` existe
+  (défaut 1). **À décider par le propriétaire** après quelques jours sur la .11 : défaut 0 pour toutes (le flux n'a pas
+  besoin de l'agrégation), avec migration. La .11 doit recevoir une build qui lit `WIFI_AMPDU_TX` au démarrage
+  (aujourd'hui appliqué à chaud seulement).
+
+### 5. Temps de démarrage
+- **Mesures (rc43) :** `autorun_start` 17,6 s, `network_ready` 20,7 s, `rtsp_launched` 32,8-34,9 s, `web_ready` 33,8-35,8 s,
+  `boot_complete` 63-78 s. **À faire :** profiler 20,7 → 32,8 s (12 s entre le réseau et le flux : migrations, scripts de
+  config, copie de `tc100_rtsp`, attente ISP ?) avec `boot-milestones.sh` à grain plus fin ; lancer la vidéo avant ce qui
+  n'est pas nécessaire au flux. **Critère :** `rtsp_launched` < 25 s sans régression.
+
+### 6. Validation de l'existant (pas de l'optimisation, mais nécessaire avant une publication)
+- AEC-01 (conversation réelle), RTSP-AUTH-01 / ONVIF-02 verrouillage (mot de passe du propriétaire), UPD-01 (b) (install
+  réelle), enregistrement SD + lecture (UI-13), WEB-01 / INST-01 / HRTIMER-01 sur carte SD, onglets du navigateur
+  (WEBUI-CACHE-01, WHEP, PRES-01). Voir test-queue.md « State on 2026-11-14 ».
+
+### Ce qui n'est PAS un levier (ne pas y retourner)
+- **Fréquence CPU** (analyse Fable en lecture seule, 14/11) : l'horloge CPU est SYSCTRL 0x04, écrite une fois par la ROM
+  depuis l'en-tête de la flash (octet 0x2C du dump : `0x410053C8`) avant l'initialisation de la DDR ; ni U-Boot ni le noyau
+  3.4.35 d'origine ne la changent (seulement le bit 28, application de la PLL ASIC). Valeur mesurée `0x410013C8` : m 200,
+  n 3, od 1, bit 24 (CPU = PLL) et bit 30 (DDR = PLL) : **CPU 400, AHB 200, DDR 400 MHz**. Aucun cpufreq (le
+  `mach-ak39/cpufreq.c` des sources OpenIPC `anyka-ak3918ev300-3.4.35` est entièrement en `#if 0`), aucune table de
+  tension, aucun maximum documenté : 400 MHz est la seule valeur du fabricant. La DDR suit la même PLL : monter le CPU
+  surcadence la DDR d'autant ; le code (désactivé) du fabricant réinitialise la DLL et recalibre la DDR après un
+  changement : pas de méthode sûre à chaud. Gain possible +8 % (432) à +20 % (480) sur le calcul seulement (rien pour la
+  vidéo matérielle ni les E/S). SYSCTRL 0x08 (branche `overclock`) ne règle que vclk / ASIC. **Décision : abandonné.**
+- **Overclock ASIC** (branche `overclock`) : aucun gain mesuré, arrêté le 14/11.
+
 ## Validé au 2026-11-14 — sujets clos, ne pas retravailler (rc43 `495609d` sur les deux caméras)
 Détail et chiffres : test-queue.md « State on 2026-11-14 » et les résultats datés du 14/11 en fin de fichier ; entrées
 closes déplacées dans test-queue-archive.md. Ces sujets sont terminés : ne pas les rouvrir sans nouvelle mesure qui les
