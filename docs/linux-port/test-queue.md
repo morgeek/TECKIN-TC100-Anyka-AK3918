@@ -4119,3 +4119,9 @@ Installed by the owner through the web update (reboot reason "web update to 3.0.
 - Web: 17/17 JSON answers parse (0.1-2.2 s); `json_escape` 6/6 special cases valid.
 - Reboot test 09:47 UTC: reason logged, `daynight-last.log` saved before the reboot, ping back after 45 s, `rtsp_launched
   34.8 s`, `boot_complete 64 s`, all daemons up, 0 overflow.
+
+### WIFI-STALL-01 step "counters", .11, rc43 (2026-11-14 10:00-10:09 UTC; data: frontier/data/wifi-stall-counters-2026-11-14.md)
+- 7 stalls of 4-5 s in 9 min. **During every stall: `tx_urb_free=64` (all free), `txq_stops` unchanged, NAK 0/0,
+  `bulk_out_oldest_ms=0`, `tx_urb_err=0`, `rx_urb_lost=0`**, while wlan0 tx/s falls from ~244 to ~4 and comes back as a burst.
+- **The USB / HCD part of H5 is refuted:** the frames never reach rtl8xxxu; they wait above it (qdisc, mac80211 iTXQ,
+  aggregation state). Next: Fable read-only analysis of that path with this data (brief of 2026-11-14).
