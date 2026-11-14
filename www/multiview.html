@@ -229,7 +229,28 @@
     ];
   }
 
+  function stopAllStreams() {
+    for (var k = 1; k <= 4; k++) {
+      if (activeStreams[k]) window.toggleCamVideo(k);
+    }
+  }
+
+  function cleanupMultiView() {
+    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+    if (window.__mvVisibilityHandler) {
+      document.removeEventListener("visibilitychange", window.__mvVisibilityHandler);
+      window.__mvVisibilityHandler = null;
+    }
+    stopAllStreams();
+  }
+
   function renderGrid() {
+    var anchor = document.getElementById("mv_img_1");
+    if (!anchor || !anchor.isConnected) {
+      cleanupMultiView();
+      return;
+    }
+    if (document.hidden) return;
     var cams = loadCams();
     for (var i = 1; i <= 4; i++) {
       var cam = cams[i - 1] || { name: "Caméra " + i, url: "" };
@@ -437,5 +458,17 @@
   }
   if (refreshTimer) clearInterval(refreshTimer);
   refreshTimer = setInterval(renderGrid, 4000);
+  if (window.__mvVisibilityHandler) {
+    document.removeEventListener("visibilitychange", window.__mvVisibilityHandler);
+  }
+  window.__mvVisibilityHandler = function() {
+    var anchor = document.getElementById("mv_img_1");
+    if (!anchor || !anchor.isConnected) {
+      cleanupMultiView();
+      return;
+    }
+    if (!document.hidden) renderGrid();
+  };
+  document.addEventListener("visibilitychange", window.__mvVisibilityHandler);
 })();
 </script>

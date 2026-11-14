@@ -396,6 +396,7 @@ window.tc100I18nFr = {
     "Choose…": "Choisir…",
     "Clear Page Cache": "Vider le cache mémoire",
     "Clear current": "Vider l'onglet",
+    "Click to dismiss": "Cliquez pour fermer",
     "Click to save changes": "Cliquez pour enregistrer",
     "Clocks:": "Horloges :",
     "Close": "Fermer",

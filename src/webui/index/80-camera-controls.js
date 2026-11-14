@@ -6,6 +6,7 @@
   // is visible (auto mode switches the IR by itself).
   var camPanelTimer = null;
   var camPanelBusy = false;
+  var camPanelController = null;
   function camPanels() {
     return Array.prototype.slice.call(document.querySelectorAll("#cam_panel, [data-cam-panel]"));
   }
@@ -38,10 +39,19 @@
     // A panel inside the hidden Live view is not worth a request every 30 s.
     var shown = camPanels().filter(function (p) { return p.offsetParent !== null; });
     if (!shown.length || camPanelBusy) return Promise.resolve();
-    return fetch("cgi-bin/camcontrols.cgi?cmd=panel", { cache: "no-store" })
+    if (camPanelController) camPanelController.abort();
+    var controller = new AbortController();
+    camPanelController = controller;
+    return fetch("cgi-bin/camcontrols.cgi?cmd=panel", { cache: "no-store", signal: controller.signal })
       .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
       .then(renderCamPanel)
-      .catch(camPanelFailed);
+      .catch(function (err) {
+        if (err && err.name === "AbortError") return;
+        camPanelFailed();
+      })
+      .finally(function () {
+        if (camPanelController === controller) camPanelController = null;
+      });
   }
   function camPanelCommand(body) {
     if (camPanelBusy) return;
@@ -91,6 +101,7 @@
   // --- Settings -> Day/night: the automatic switching settings and a live reading (state.cgi?cmd=daynight) so that
   // the exposure index thresholds can be set from what the camera sees. Refreshed every 5 s while the tab is shown.
   var dayNightTimer = null;
+  var dayNightController = null;
   function dayNightShow(d, fill) {
     var set = function (id, v) { var el = byId(id); if (el) el.textContent = v; };
     var num = function (v) { return v === null || v === undefined ? "–" : String(v); };
@@ -132,16 +143,25 @@
     if (srcSel && !srcSel.dataset.dnBound) { srcSel.dataset.dnBound = "1"; srcSel.addEventListener("change", dayNightMethodFields); }
     dayNightMethodFields();
     var load = function (fill) {
-      fetch("cgi-bin/state.cgi?cmd=daynight&format=json&_=" + Date.now(), { cache: "no-store" })
+      if (dayNightController) dayNightController.abort();
+      var controller = new AbortController();
+      dayNightController = controller;
+      fetch("cgi-bin/state.cgi?cmd=daynight&format=json&_=" + Date.now(), { cache: "no-store", signal: controller.signal })
         .then(function (r) { if (!r.ok) throw new Error("daynight"); return r.json(); })
         .then(function (d) { dayNightShow(d, fill); })
-        .catch(function () { /* the reading stays as it was */ });
+        .catch(function (err) { if (err && err.name === "AbortError") return; /* the reading stays as it was */ })
+        .finally(function () { if (dayNightController === controller) dayNightController = null; });
     };
     load(true);
     if (dayNightTimer) return;
     dayNightTimer = setInterval(function () {
       var f = byId("formDayNight");
-      if (!f) { clearInterval(dayNightTimer); dayNightTimer = null; return; }
+      if (!f || !f.isConnected) {
+        if (dayNightController) { dayNightController.abort(); dayNightController = null; }
+        clearInterval(dayNightTimer);
+        dayNightTimer = null;
+        return;
+      }
       if (document.visibilityState === "visible" && f.offsetParent !== null) load(false);
     }, 5000);
   }

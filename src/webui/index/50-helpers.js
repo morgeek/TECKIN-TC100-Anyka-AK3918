@@ -1,5 +1,14 @@
   // --- Helpers: result messages, menu padding, cookies, CSRF token and fetch ---
   var resultToastTimer = 0;
+  function hideResultToast() {
+    var toast = byId("result_toast");
+    if (resultToastTimer) { clearTimeout(resultToastTimer); resultToastTimer = 0; }
+    if (toast) {
+      toast.style.opacity = "0";
+      toast.style.transform = "translateY(8px)";
+      toast.style.display = "none";
+    }
+  }
   function showResult(txt, cls) {
     var toast = byId("result_toast");
     if (!toast) {
@@ -12,11 +21,15 @@
       toast.style.zIndex = "1200";
       toast.setAttribute("role", "status");
       toast.setAttribute("aria-live", "polite");
-      toast.style.padding = "0.55rem 0.8rem";
+      toast.style.padding = "0.55rem 0.85rem";
       toast.style.borderRadius = "10px";
       toast.style.color = "#fff";
       toast.style.fontSize = "0.9rem";
+      toast.style.cursor = "pointer";
+      toast.style.transition = "opacity 160ms ease, transform 160ms ease";
       toast.style.boxShadow = "0 10px 24px rgba(0,0,0,0.28)";
+      toast.title = typeof window.t === "function" ? window.t("Click to dismiss") : "Click to dismiss";
+      toast.addEventListener("click", hideResultToast);
       document.body.appendChild(toast);
     }
     var bg = "rgba(21, 31, 43, 0.92)";
@@ -25,10 +38,21 @@
     else if (cls === "is-warning") bg = "rgba(150, 100, 10, 0.95)";
     toast.style.background = bg;
     toast.textContent = String(txt || "");
+    toast.style.opacity = "0";
+    toast.style.transform = "translateY(8px)";
     toast.style.display = "block";
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(function () {
+        toast.style.opacity = "1";
+        toast.style.transform = "translateY(0)";
+      });
+    } else {
+      toast.style.opacity = "1";
+      toast.style.transform = "translateY(0)";
+    }
     // A newer message restarts the delay: the old timer used to hide it early.
     if (resultToastTimer) clearTimeout(resultToastTimer);
-    resultToastTimer = setTimeout(function () { resultToastTimer = 0; if (toast) toast.style.display = "none"; }, 2500);
+    resultToastTimer = setTimeout(hideResultToast, 2500);
   }
 
   function fixMenuPadding() {
