@@ -3551,3 +3551,31 @@ Status: `failed on the .11 2026-11-14`: still oscillates on a static scene (resu
   4. Toggle `flip` and `mirror` independently -> `/mnt/config/rtspserver.conf` `imageflip` bitmask updates (`0..3`), video orientation updates live via `setconf -k f -v`, and `/health` `flip_on` / `mirror_on` update.
   5. Select `isp_power_hz` (`50`, `60`, `auto`, `unchanged`) -> `isp_tune_set POWER_HZ` updates config and `<root>/isp/state` reports the applied value.
 - **Pass criteria:** All 5 HA entities execute cleanly with positive `<root>/command/result`, `/health` and `/isp/state` match HA entity states, and `DiscoveryParity` passes on CI.
+
+### Owner's go of 2026-11-14 16:28 local on the optimisation plan (points 1-5) — what was done the same evening
+- **Point 2, white balance of the .11: root cause found, the IR-cut filter.** `/var/run/ircut` said day but the filter was
+  out: snapshot RGB **125/81/109** (G/R 0.65, magenta = infrared on the sensor) against the .24's 91/91/94. One day pulse
+  (`/mnt/bin/setconf -k e -v 1`) put it right: **93/99/103** (G/R 1.07). That IR cast is what made the ISP's own AWB jump
+  between illuminant regions. A reboot test afterwards gave a correct filter (90/97/104): the boot pulse works; the filter
+  left the day position some time after the 13:03 boot (no day/night switch logged; the overclock's live PLL change at
+  +40 s is the only unusual event, not proven). **Fix (b653072):** `scripts/ircut-reassert.sh`, a housekeeper job that
+  pulses the position of the state file again every `IRCUT_REASSERT_MIN` minutes (boot.conf, default 30, 0 = off).
+  Also aligned on the .24 (owner's idea): `ISP_TUNE=0` (was 1) and `EXPOSURE_MAX_PCT=` (was 90) on the .11 (backups
+  `*.bak-awbalign`); alone they changed little (ISP region 3 in 44 / 60 samples instead of 16 / 30).
+  With the filter right: installed AWB-02 loop 31 gain changes / 60 s; AWB-03 binary (4a41b70, in RAM) 22 / 90 s; the ISP
+  still moves between regions now and then (region 3 in 50 / 90 samples). To watch once a build with AWB-03 and the
+  re-assert job is installed.
+- **Point 3, VBR on the .24 (still scene):** at dusk (low-light set, 10 fps) 647 kbit/s = **64.7 kbit per picture, the
+  budget of 1600 kbit/s / 25 fps**; by day ~1580 kbit/s at 25 fps, the same ~64 kbit per picture. **VBR acts like CBR.**
+  Cause (`src/h265enc/rc.h`): VBR never codes below the quality QP `qmin + RC_VBR_QOFF` = 25 + 2 = **27**, a very high
+  quality for 1080p at 1.6 Mbit/s: almost any picture (sensor noise even with 3D-NR) costs more than the budget at QP 27,
+  so the controller climbs back to the ceiling's QP. **Proposal (owner's choice, quality vs bit rate):** a VBR quality QP
+  of about 32-36 (`RTSP_VBR_QP` or `RC_VBR_QOFF` from rtspserver.conf), then measure the still-scene bit rate on the .24
+  at 30 / 33 / 36 and look at the picture.
+- **Point 4, `ampdu_tx=0` for all cameras:** `WIFI_AMPDU_TX` now defaults to 0 (absent = off, 1 = on), b653072. The .24's
+  rc43 kernel predates patch 0023 (no `ampdu_tx` parameter): it applies with the next build. The .11 has it live.
+- **Point 5, boot time:** `v3/autorun-linux66.sh` now writes `/tmp/boot-trace.txt`, one fork-free "step uptime" line per
+  numbered step (37 markers, test `tests/test_boot_trace.py`). With the next build: read it on both cameras, then move what
+  is not needed for the first picture after `rtsp_launched` (keeping boot-guard / reboot-tracker before the services:
+  the safe-mode decision needs them).
+- **Point 1, native CGIs:** being written (Fable, separate branch), to be merged after review and tests.

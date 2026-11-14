@@ -34,6 +34,10 @@ micro inactif sans DSP, MQTT / présence sans fork). Mesurer avant / après sur 
   appel, 0 fork, JSON identique.
 
 ### 2. Qualité d'image : balance des blancs de l'ISP (.11) et image de nuit
+- **MIS À JOUR 14/11 soir : cause principale trouvée, le filtre IR-cut de la .11 n'était pas en position jour** (image
+  magenta, RGB 125/81/109 ; une impulsion jour → 93/99/103, neutre). Correctif : réaffirmation du filtre toutes les 30 min
+  (`scripts/ircut-reassert.sh`, `IRCUT_REASSERT_MIN`, b653072). Reste : vérifier sur la .11 avec une build qui contient
+  AWB-03 + la réaffirmation ; l'hystérésis de l'AWB de l'ISP n'est à faire que si la teinte bouge encore.
 - **AWB de l'ISP (.11) :** même avec notre boucle coupée (`awb.off`), l'AWB interne de l'ISP change de région
   d'illuminant toutes les ~2 s (`/tmp/cam_awb` champ 11 : 9, 7, 6, 4, 3, 2, 1) ; la .24 reste sur la région 0. AWB-03
   (sur `main`) a divisé par deux nos changements de gains mais la teinte visible suit encore l'ISP. **À faire :** donner
@@ -45,19 +49,25 @@ micro inactif sans DSP, MQTT / présence sans fork). Mesurer avant / après sur 
   choisir la valeur par défaut de nuit.
 
 ### 3. Débit vidéo : VBR / smart réellement efficaces
+- **MIS À JOUR 14/11 soir : cause trouvée.** Mesuré sur la .24 : ~64 kbit par image quelle que soit la scène (le budget
+  1600 / 25) : VBR = CBR. `rc.h` : la QP « qualité » de VBR est `qmin + 2` = 27, trop basse pour qu'une image coûte moins
+  que le budget. **À faire (après choix du propriétaire) :** QP qualité réglable (`RTSP_VBR_QP`, défaut proposé 33),
+  mesurer 30 / 33 / 36 sur la .24 (débit + image).
 - **Constat du 14/11 :** les deux caméras `vbr=1` (la .11 `smart=1`), journal `1600 kbit/s ceiling (VBR)`, moyenne 1576-1584
   kbit/s sur une scène intérieure de jour, donc au plafond ; QP 25-48, GOP 50. **À faire :** mesurer sur une scène immobile
   (objectif masqué, avec le propriétaire) ; si le débit ne descend pas nettement (-20 à -40 % attendus, ENC-01), revoir la
   régulation VBR de l'encodeur libre (`src/h265enc/`, `rc.h` : cible = plafond ? QP plancher 25 trop bas pour une scène
   bruitée ?). **Gain :** bande passante et place des enregistrements Frigate.
 
-### 4. Fiabilité Wi-Fi : `ampdu_tx=0` pour toutes les caméras ?
+### 4. Fiabilité Wi-Fi : `ampdu_tx=0` pour toutes les caméras — FAIT (décision du 14/11 16:28, défaut `WIFI_AMPDU_TX=0`, b653072)
 - `ampdu_tx=0` a supprimé les blocages de la .11 (0 en 8 min contre 1-2 / min). Le réglage `WIFI_AMPDU_TX` existe
   (défaut 1). **À décider par le propriétaire** après quelques jours sur la .11 : défaut 0 pour toutes (le flux n'a pas
   besoin de l'agrégation), avec migration. La .11 doit recevoir une build qui lit `WIFI_AMPDU_TX` au démarrage
   (aujourd'hui appliqué à chaud seulement).
 
 ### 5. Temps de démarrage
+- **14/11 soir :** traces par étape ajoutées (`/tmp/boot-trace.txt`, 37 marqueurs sans fork). Étape suivante : lire le
+  profil sur les deux caméras avec la prochaine build, puis déplacer ce qui ne sert pas à la première image.
 - **Mesures (rc43) :** `autorun_start` 17,6 s, `network_ready` 20,7 s, `rtsp_launched` 32,8-34,9 s, `web_ready` 33,8-35,8 s,
   `boot_complete` 63-78 s. **À faire :** profiler 20,7 → 32,8 s (12 s entre le réseau et le flux : migrations, scripts de
   config, copie de `tc100_rtsp`, attente ISP ?) avec `boot-milestones.sh` à grain plus fin ; lancer la vidéo avant ce qui

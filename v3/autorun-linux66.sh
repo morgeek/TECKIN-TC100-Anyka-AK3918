@@ -44,12 +44,19 @@ esac
 [ -f /var/run/vday ] || echo 1 > /var/run/vday
 [ -f /var/run/ircut ] || echo 1 > /var/run/ircut
 
+# boot trace (2026-11-14, boot-time work): one line "step uptime" per step below, no fork (a shell builtin and a
+# redirection), in /tmp/boot-trace.txt; the Information page / support bundle may read it. BOOT_TRACE=0 is not needed:
+# it costs ~30 appends of a few bytes.
+bt() { read -r _bt_u _bt_r < /proc/uptime 2>/dev/null; echo "$1 $_bt_u" >> /tmp/boot-trace.txt; }
+: > /tmp/boot-trace.txt; bt autorun
+bt step_0a
 # 0a. Memory watermarks. With 45 MB of usable RAM the kernel's default "watermark boost" (4 MB) and the 4 MB
 #     high-order atomic reserve made the OOM killer fire with ~6 MB still free, killing small daemons (mqtt bridge,
 #     auto day/night) when the web UI started several CGI processes at once.
 echo 0 > /proc/sys/vm/watermark_boost_factor 2>/dev/null
 echo 1024 > /proc/sys/vm/min_free_kbytes 2>/dev/null
 
+bt step_0b
 # 0b. item 56.4: VM tuning, on unless boot.conf VM_TUNE=0 (a recipe for a 64 MB camera: dentries and inodes are given back
 #     sooner and the card's writes start earlier in the background, so that they do not block the video allocations)
 case "$(sed -n 's/^VM_TUNE="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /mnt/config/boot.conf 2>/dev/null | tail -n 1)" in
@@ -60,6 +67,7 @@ case "$(sed -n 's/^VM_TUNE="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /mnt/config/boot.con
     echo 10 > /proc/sys/vm/dirty_ratio 2>/dev/null ;;
 esac
 
+bt step_0
 # 0. Start Hardware Watchdog keeper (feed every 15s, 60s timeout)
 killall watchdog 2>/dev/null
 watchdog -t 15 -T 60 /dev/watchdog >/dev/null 2>&1 &
@@ -67,6 +75,7 @@ watchdog -t 15 -T 60 /dev/watchdog >/dev/null 2>&1 &
 # the middle of a flash write
 echo -1000 > /proc/$!/oom_score_adj 2>/dev/null
 
+bt step_0b
 # 0b. The user space (web pages, scripts, status checks) expects its files under /mnt. SD mode: the card is mounted
 #     there and /mnt/sd is an alias (the card has an empty "sd" folder for that second mount). Flash mode
 #     (/tmp/flashmode, set by flashmode-prep.sh): /mnt already holds the user space from the SPI flash and the card,
@@ -76,6 +85,7 @@ if [ ! -f /tmp/flashmode ] && ! grep -q ' /mnt vfat ' /proc/mounts && [ -b /dev/
   mount -t vfat -o rw,noatime /dev/mmcblk0p1 /mnt && mount -t vfat -o rw,noatime /dev/mmcblk0p1 /mnt/sd
 fi
 
+bt step_1
 # 1. Setup /mnt symlinks (only when the card is not mounted at /mnt itself)
 for d in bin config controlscripts lib scripts www; do
   [ -d /mnt/sd/$d ] && [ ! -d /mnt/$d ] && ln -sfn /mnt/sd/$d /mnt/$d
@@ -90,6 +100,7 @@ echo "${BOARD:-unknown}" > /tmp/board
 for f in /mnt/v3/board/${BOARD:-*}.conf; do [ -f "$f" ] && { ln -sf "$f" /tmp/board.conf; break; }; done
 echo "[tc100-v3] board profile: ${BOARD:-not known yet (the sensor id comes once the video runs, checked again then), defaults of $(readlink /tmp/board.conf 2>/dev/null)}" > /dev/console
 
+bt step_1a
 # 1a. SD mode on a new card: every shipped *.dist becomes the live setting until the user changes it (flash mode:
 #     flashmode-prep.sh does the same).
 if [ ! -f /tmp/flashmode ]; then
@@ -98,6 +109,7 @@ if [ ! -f /tmp/flashmode ]; then
     [ -e "$b" ] || cp "$f" "$b"
   done
 fi
+bt step_1a2
 # 1a2. Once per camera (config/.migrated-3.0.1): the picture tint and saturation of an older version are not kept
 #      (owner, 2026-10-31: a 2.x camera came with HUE=-10 SATURATION=-13 and a green picture); they go back to 0 and
 #      the live image tuning switch off, as on a new camera (Settings -> Picture switches it on again; the other
@@ -127,6 +139,7 @@ sh /mnt/scripts/migrate-switches.sh </dev/null >/dev/null 2>&1
 # (W4: not when a password was set elsewhere: config/.password_set, written by http_password in common_functions.sh)
 [ -f /mnt/config/.wizard3_done ] || [ -f /mnt/config/.password_set ] || : > /tmp/.first_boot
 
+bt step_1b
 # 1b. wifi.txt at the root of the card (SSID=, PASSWORD=), like 2.x: the new network goes first in
 #     config/wpa_supplicant.conf, the previous ones stay as fallbacks, and it is used at once.
 if [ -f /mnt/sd/wifi.txt ] && [ -f /mnt/scripts/wifi-txt.sh ]; then
@@ -135,13 +148,16 @@ if [ -f /mnt/sd/wifi.txt ] && [ -f /mnt/scripts/wifi-txt.sh ]; then
   sh /mnt/scripts/wifi-txt.sh apply /mnt/sd/wifi.txt $W && ( sh /mnt/v3/linux66-sd/wifi-apply 0 </dev/null >/dev/null 2>&1 & )
 fi
 
+bt step_1b2
 # 1b2. Time zone for every process started from here on (date, logs, ntpd, scripts): config/timezone.conf, POSIX TZ string
 [ -f /mnt/scripts/update_timezone.sh ] && . /mnt/scripts/update_timezone.sh
 
+bt step_1c
 # 1c. Network settings (static address, custom DNS servers) over what the boot script's DHCP gave, as 2.x did
 sh /mnt/v3/linux66-sd/net-apply </dev/null >/dev/null 2>&1
 [ -f /mnt/scripts/boot-milestones.sh ] && sh /mnt/scripts/boot-milestones.sh network_ready
 
+bt step_1d
 # 1d. Choices of boot.conf that 2.x autorun.sh applied at each start (read here, no sourcing of the whole file)
 # boot.conf is parsed once into BC_<KEY> variables (last line of a key wins, one pair of double quotes removed, a value
 # holding another quote is ignored: what the former sed|tail per key gave, without ten forks at boot).
@@ -165,6 +181,7 @@ PROFILE=$BC_INTEGRATION_PROFILE
 # (Frigate + Home Assistant profile: motion detection and the clock overlay are switched off once, by the setup wizard,
 #  so that later Settings changes stay; the profile still keeps some services off at boot, step 12b)
 
+bt step_1e
 # 1e. Remote shells (Services page): ssh (dropbear) on, telnet off by default. Boot toggles are the files of
 #     config/autostart. A camera that has not chosen yet (no config/.services_ssh_done: first start of this version, or an
 #     SD card upgraded in place) gets the ssh entry now, so that an upgrade never locks the owner out; from then on a
@@ -177,6 +194,7 @@ if [ ! -e /mnt/config/.services_ssh_done ] && [ -d /mnt/config ]; then
   : > /mnt/config/.services_ssh_done
 fi
 
+bt step_1f
 # 1f. Why the previous run ended (scripts/reboot-tracker.sh: /tmp/last-reboot-reason, the Information page and MQTT;
 #     the history is in /mnt/config/log from the flash, kept in the settings slots), then the safe mode check
 #     (v3/linux66-sd/boot-guard, flash mode only, BOOT_GUARD=0 turns it off): after 3 runs in a row that ended within
@@ -189,6 +207,7 @@ SAFE=0; if [ -f /tmp/safemode ]; then SAFE=1; fi
 # session, kept in safe mode, with boot.conf SERIAL_CONSOLE=on or /tmp/console-keep
 if [ -f /mnt/v3/linux66-sd/console-timer ]; then ( sh /mnt/v3/linux66-sd/console-timer </dev/null >/dev/null 2>&1 & ); fi
 
+bt step_2
 # 2. Populate shared uClibc libraries into /lib: symlinks, except on the card (SD mode) for the small uClibc runtime,
 #    copied to RAM so that the programs keep their loader if the card has trouble. Everything else of lib/ stays a
 #    link: a card used by older firmwares holds ~15 MB of libraries (libcrypto, libliveMedia, 3 x libstdc++...)
@@ -207,6 +226,7 @@ for f in /mnt/lib/*.so*; do
 done
 [ -n "$LIBLINKS" ] && ln -sf $LIBLINKS /lib/
 
+bt step_3
 # 3. Setup WebUI document root in RAM
 mkdir -p /tmp/www
 # (one ln for every entry: the links have the names of their targets)
@@ -215,12 +235,14 @@ set -- /mnt/www/*
 ln -sfn /tmp/currentpic.cache.jpg /tmp/www/ch0.jpg
 ln -sfn /tmp/stream.jpg /tmp/frame_ch0.jpg
 
+bt step_4
 # 4. Wait for /dev/video0 and start Hardware V4L2 Optical Streamer
 for i in $(seq 1 25); do
   [ -c /dev/video0 ] && break
   sleep 0.2
 done
 
+bt step_4a
 # 4a. Free hardware encoder stack (tc100_rtsp): H.265/H.264 over RTSP and the web UI pictures (stream.jpg, currentpic,
 #     cam_luma) from the hardware JPEG engine, one process. Since 3.0.1-rc34 a musl program with the free encoder
 #     (src/h265enc/freeenc.h) and libakuio linked in: no vendor library and no uClibc runtime is loaded (the camera's
@@ -286,8 +308,10 @@ else
   echo "[tc100-v3] no video: tc100_rtsp or /dev/uio0 missing" > /dev/console
 fi
 
+bt step_5
 # 5. (the picture cache is written by tc100_rtsp)
 
+bt step_6
 # 6. Start Web Server on port 80, with the camera password (root + config/user.pwd, like 2.x)
 killall httpd httpfront 2>/dev/null
 # the shipped password when none is set yet, also when step 4a did not run (safe mode, no video): web-auth leaves the
@@ -305,8 +329,10 @@ fi
 echo "[tc100-v3] WebUI active on port 80" > /dev/console
 [ -f /mnt/scripts/boot-milestones.sh ] && sh /mnt/scripts/boot-milestones.sh web_ready
 
+bt step_7
 # 7. (RTSP: tc100_rtsp, step 4a)
 
+bt step_8
 # 8. Steps 8 onwards run the control scripts (/tmp/linux66, created at the top of this script, tells shared scripts
 #    they run on 3.0). Files from the repository may lack the execute bit: always run
 #    them with sh.
@@ -329,6 +355,7 @@ if [ "$SAFE" = 0 ] && [ -f $CS/onvif ] && [ -e /mnt/config/autostart/onvif ]; th
   echo "[tc100-v3] ONVIF service active on port 8081 & WS-Discovery UDP 3702" > /dev/console
 fi
 
+bt step_9
 # 9. Day/night. The IR-cut coil is pulsed once to the position the state file says (day after boot), then the
 #    automatic switching starts unless it was switched off (Services, or "Day" / "Night" under the picture:
 #    no config/autostart/auto-night-detection, or daynight=3 in rtspserver.conf).
@@ -350,16 +377,19 @@ elif [ "$DN" = 3 ]; then
   logger -t tc100-v3 "auto day/night not started: manual mode (daynight=3)" 2>/dev/null
 fi
 
+bt step_9b
 # 9b. W-NET: the Wi-Fi chip may fail to power on after a warm reboot (no wlan0): probe it again, then power-cycle it
 #     (scripts/wifi-recover.sh), in the background; the Wi-Fi settings are applied again when wlan0 comes back
 [ -e /sys/class/net/wlan0 ] || { sh /mnt/scripts/wifi-recover.sh run </dev/null >/dev/null 2>&1 & }
 
+bt step_10
 # 10. MQTT Bridge (it does nothing unless MQTT_ENABLE=1 in config/mqtt.conf)
 if [ "$SAFE" = 0 ] && [ -f $CS/mqtt-bridge ]; then
   sh $CS/mqtt-bridge start </dev/null >/dev/null 2>&1
   echo "[tc100-v3] MQTT bridge service launched" > /dev/console
 fi
 
+bt step_11
 # 11. Motion detection (in tc100_rtsp): only when the web UI left it on (rtspserver.conf mdenabled=1, its one switch);
 #     otherwise it stays off, as on 2.x.
 if [ "$SAFE" = 0 ] && [ -f $CS/motion-detection ] && svc_on motion-detection; then
@@ -369,10 +399,12 @@ else
   rm -f /tmp/tc100_md
 fi
 
+bt step_12
 # 12. Recording: the recorder is inside tc100_rtsp and follows REC_LOCAL of boot.conf by itself (it waits for a card).
 #     REC_LOCAL is its one switch (Settings -> Recording, and the Services page "Boot" toggle write it): nothing to
 #     start here.
 
+bt step_12a
 # 12a. Clock: the SoC has no battery-backed time (it starts in 1970), so recordings, logs and MQTT stamps would be
 #      wrong. Set it with ntpd once the Wi-Fi is up (server: first line of config/ntp_srv.conf, else pool.ntp.org),
 #      then every hour. The time zone comes from config/timezone.conf (Services/Système page).
@@ -406,6 +438,7 @@ sh -c '. /mnt/scripts/common_functions.sh
   case "$1" in 1|true|yes|on) front_led on ;; *) front_led off ;; esac
   case "$2" in 1|true|yes|on) red_led on ;; *) red_led off ;; esac' _ "$BC_FRONT_LED" "$BC_RED_LED" </dev/null >/dev/null 2>&1
 
+bt step_12b
 # 12b. Services switched on in the web UI, one switch each, what the page shows is what starts:
 #      - the services with a settings key (scripts/service-switch.sh: sound detection ENABLE, SYSLOG_ENABLE,
 #        MEM_GUARD_ENABLE, WIFI_RESCUE, TELEGRAM_ENABLE), whatever config/autostart holds for them;
@@ -433,6 +466,7 @@ for f in /mnt/config/autostart/*; do
   sleep 1
 done
 
+bt step_12b2
 # 12b2. Logs kept across reboots: the RAM logs (dmesg, syslog, tc100_rtsp and the other services) are copied to the card
 #       (/mnt/sd/logs/boot-NNNN, last 5 boots) every 10 minutes and before a deliberate reboot (reboot-tracker.sh intent
 #       calls it). The Logs page lists them. LOG_PERSIST=0 in boot.conf turns it off.
@@ -443,6 +477,7 @@ if [ -f /mnt/scripts/log-persist.sh ] && [ "$BC_LOG_PERSIST" != 0 ]; then
     ( exec sh /mnt/scripts/log-persist.sh run ) </dev/null >/dev/null 2>&1 &
 fi
 
+bt step_12b2b
 # 12b2b. Reboot tracker every 15 minutes: the critical log lines to important.log and the "last seen alive" heartbeat
 #        that dates an unexpected restart (SD card when there is one, else RAM: never the flash)
 sh /mnt/scripts/housekeeper.sh job add reboot-tracker bg 900 300 - sh /mnt/scripts/reboot-tracker.sh hk </dev/null >/dev/null 2>&1
@@ -458,6 +493,7 @@ case "${_ira:=30}" in ''|*[!0-9]*) _ira=30 ;; esac
 # item 28: the logs in RAM that do not cap themselves, every 10 minutes (scripts/log-cap.sh, LOG_CAP_KB)
 sh /mnt/scripts/housekeeper.sh job add log-cap bg 600 600 - sh /mnt/scripts/log-cap.sh </dev/null >/dev/null 2>&1
 
+bt step_12b3
 # 12b3. Wi-Fi quality over time (boot.conf WIFI_QUALITY=1, off by default): one sample a minute in RAM
 #       (scripts/wifi-quality.sh), a housekeeper job, else a loop of its own.
 if [ -f /mnt/scripts/wifi-quality.sh ] && on "$BC_WIFI_QUALITY"; then
@@ -466,6 +502,7 @@ if [ -f /mnt/scripts/wifi-quality.sh ] && on "$BC_WIFI_QUALITY"; then
     ( exec sh /mnt/scripts/wifi-quality.sh run ) </dev/null >/dev/null 2>&1 &
 fi
 
+bt step_12b4
 # 12b4. Tamper / occlusion detection (config/tamper.conf ENABLE=1, its one switch, off by default):
 if [ "$SAFE" = 0 ] && [ -f /mnt/scripts/tamper-detect.sh ] && on "$(svc_kv /mnt/config/tamper.conf ENABLE 0)"; then
   sh /mnt/scripts/housekeeper.sh job add tamper-detect bg 2 5 /var/run/tamper-detect.pid \
@@ -473,6 +510,7 @@ if [ "$SAFE" = 0 ] && [ -f /mnt/scripts/tamper-detect.sh ] && on "$(svc_kv /mnt/
     ( exec sh /mnt/scripts/tamper-detect.sh run ) </dev/null >/dev/null 2>&1 &
 fi
 
+bt step_12c
 # 12c. Every minute (scripts/web-guard.sh): the web server answers (else restart httpfront, then a rescue telnet),
 #      the network (net-guard.sh: reboot after NET_GUARD_MIN minutes without the gateway) and the SD card panel
 #      (sdinfo-sd.sh, also run once now).
@@ -487,11 +525,13 @@ fi
 # (the housekeeper does these three checks itself; web-guard.sh run is the loop of HOUSEKEEPER=0)
 sh /mnt/scripts/housekeeper.sh active </dev/null >/dev/null 2>&1 || ( exec sh /mnt/scripts/web-guard.sh run ) </dev/null >/dev/null 2>&1 &
 
+bt step_12d
 # 12d. Update notice (boot.conf UPDATE_CHECK=1): asks GitHub once the clock is set (curl + jq of the flash image)
 case "$BC_UPDATE_CHECK" in
   1|true|yes|on) ( sleep 120; exec sh /mnt/scripts/update-check.sh ) </dev/null >/dev/null 2>&1 & ;;
 esac
 
+bt step_12e
 # 12e. Tell the user the camera is ready: the startup chime of 2.x on the speaker (BOOT_SOUND=0 in boot.conf: silent),
 #      and how to reach it, on the card (tc100-3/ADRESSE.txt, Windows line ends): its address once the network gave
 #      one; without a network after 12 minutes, the name and password of its rescue access point (scripts/wifi-rescue.sh
@@ -548,11 +588,13 @@ esac
   fi > /mnt/sd/tc100-3/ADRESSE.txt
   sync ) </dev/null >/dev/null 2>&1 &
 
+bt step_12f
 # 12f. First start from a card fresh from the stock-firmware hook: checks the camera and the copy of its original flash,
 #      then installs to the flash by itself (v3/install/auto-install.sh; ESSAI.txt on the card keeps the trial mode,
 #      RESTAURER.txt puts the original system back). Trial mode only; the video server needs 20 s to deliver frames.
 [ $AUTO_INSTALL = 1 ] && ( sleep 20; exec sh /mnt/v3/install/auto-install.sh ) </dev/null >/dev/null 2>&1 &
 
+bt step_13
 # 13. Low memory (45 MB, no swap): when the web pages start many CGI processes at once the kernel OOM killer may
 #     run. The streaming server, the web server and ONVIF must never be its victims (shells and CGIs may be).
 for p in tc100_rtsp httpfront tc100-onvifd; do
