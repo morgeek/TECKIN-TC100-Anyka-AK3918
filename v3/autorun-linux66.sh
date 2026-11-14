@@ -167,6 +167,8 @@ fi
 sh /mnt/scripts/reboot-tracker.sh boot </dev/null >/dev/null 2>&1
 sh /mnt/v3/linux66-sd/boot-guard start </dev/null >/dev/null 2>&1
 SAFE=0; if [ -f /tmp/safemode ]; then SAFE=1; fi
+# Automatic core PLL overclock stepper: applies target PLL (or rolls back on crash / safemode) after boot-guard + cfg-persist
+if [ -f /mnt/v3/linux66-sd/overclock-step ]; then sh /mnt/v3/linux66-sd/overclock-step boot </dev/null >/dev/null 2>&1; fi
 # item 56.3: the serial console's 5 minute timer (the getty loop is S39tc100-linux66): off after 5 minutes without a
 # session, kept in safe mode, with boot.conf SERIAL_CONSOLE=on or /tmp/console-keep
 if [ -f /mnt/v3/linux66-sd/console-timer ]; then ( sh /mnt/v3/linux66-sd/console-timer </dev/null >/dev/null 2>&1 & ); fi
@@ -428,6 +430,12 @@ fi
 # 12b2b. Reboot tracker every 15 minutes: the critical log lines to important.log and the "last seen alive" heartbeat
 #        that dates an unexpected restart (SD card when there is one, else RAM: never the flash)
 sh /mnt/scripts/housekeeper.sh job add reboot-tracker bg 900 300 - sh /mnt/scripts/reboot-tracker.sh hk </dev/null >/dev/null 2>&1
+# 12b2c. Overclock campaign telemetry & 24h step promotion every 15 minutes (first tick after 2 min)
+if [ -f /mnt/v3/linux66-sd/overclock-step ]; then
+	if ! sh /mnt/scripts/housekeeper.sh job add overclock-step bg 900 120 /var/run/overclock-step.pid sh /mnt/v3/linux66-sd/overclock-step hk </dev/null >/dev/null 2>&1; then
+		( while :; do sleep 900; sh /mnt/v3/linux66-sd/overclock-step hk </dev/null >/dev/null 2>&1; done ) &
+	fi
+fi
 # item 32: WIFI_AIM=1: the front LED blinks with the Wi-Fi signal for 5 minutes, to aim the camera without a screen
 on "$BC_WIFI_AIM" && ( exec sh /mnt/scripts/wifi-aim.sh run ) </dev/null >/dev/null 2>&1 &
 # item 40: WIFI_ROAM=1: leave a weak access point for a much better one of the same SSID (repeaters, mesh)

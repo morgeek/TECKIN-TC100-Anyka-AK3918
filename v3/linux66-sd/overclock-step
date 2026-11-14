@@ -1,0 +1,601 @@
+#!/bin/sh
+# overclock-step boot|hk|tick|status|reset
+#
+# Automatic, flash-safe step-by-step core PLL validation (510 -> 516 -> 522 MHz).
+# Kernel always boots safely at 480 MHz (0x010213f0); this script raises SYSCTRL 0x08
+# via /sys/module/anyka/parameters/core_pll only after /rom, /mnt/config (cfga/cfgb),
+# watchdog, and boot-guard are active, and right before tc100_rtsp opens audio/video.
+# Any unexpected reboot, kernel oops, SPI timeout, or safe-mode trip locks the board
+# onto the last 24h-validated step (or 480 MHz if the first step fails).
+# Camera-side shell: busybox ash.
+
+OC_CFG=${OC_CFG:-/mnt/config}
+OC_STATE=${OC_STATE:-$OC_CFG/overclock.state}
+OC_BOOTCONF=${OC_BOOTCONF:-$OC_CFG/boot.conf}
+OC_LOG=${OC_LOG:-$OC_CFG/log/overclock.log}
+OC_SAMPLE_LOG=${OC_SAMPLE_LOG:-/tmp/logs/overclock-samples.log}
+OC_SD_SAMPLE_LOG=${OC_SD_SAMPLE_LOG:-/mnt/sd/logs/overclock-samples.log}
+OC_LOG_MAX_LINES=${OC_LOG_MAX_LINES:-120}
+OC_SAMPLE_MAX_LINES=${OC_SAMPLE_MAX_LINES:-400}
+OC_SD_SAMPLE_MAX_LINES=${OC_SD_SAMPLE_MAX_LINES:-2000}
+
+OC_SYS_PLL=${OC_SYS_PLL:-/sys/module/anyka/parameters/core_pll}
+OC_SYS_ASIC=${OC_SYS_ASIC:-/sys/module/anyka/parameters/asic_hz}
+OC_SYS_NR3D=${OC_SYS_NR3D:-/sys/module/ak39_vi/parameters/nr3d}
+OC_SYS_NR3D_OVF=${OC_SYS_NR3D_OVF:-/sys/module/ak39_vi/parameters/nr3d_overflow}
+
+OC_CPUINFO=${OC_CPUINFO:-/proc/cpuinfo}
+OC_UPTIME=${OC_UPTIME:-/proc/uptime}
+OC_LOADAVG=${OC_LOADAVG:-/proc/loadavg}
+OC_MEMINFO=${OC_MEMINFO:-/proc/meminfo}
+OC_PROC_STAT=${OC_PROC_STAT:-/proc/stat}
+OC_MOUNTS=${OC_MOUNTS:-/proc/mounts}
+OC_WIRELESS=${OC_WIRELESS:-/proc/net/wireless}
+OC_PAUSE=${OC_PAUSE:-/var/run/tc100rec.pause}
+OC_RTSP_STAT=${OC_RTSP_STAT:-/var/run/tc100_rtsp.stat}
+OC_RTSP_LOG=${OC_RTSP_LOG:-/tmp/logs/tc100_rtsp.log}
+OC_WIFI_QUAL=${OC_WIFI_QUAL:-/tmp/wifi-quality}
+OC_LAST_REBOOT=${OC_LAST_REBOOT:-/tmp/last-reboot-reason}
+OC_SAFEMODE=${OC_SAFEMODE:-/tmp/safemode}
+OC_CPUSTAT=${OC_CPUSTAT:-/tmp/overclock.cpustat}
+OC_LAST_H6=${OC_LAST_H6:-/tmp/overclock.last_h6}
+
+OC_PERSIST_CMD=${OC_PERSIST_CMD:-sh /mnt/v3/linux66-sd/cfg-persist save}
+OC_INTENT_CMD=${OC_INTENT_CMD:-sh /mnt/scripts/reboot-tracker.sh intent}
+OC_BOOTGUARD_CMD=${OC_BOOTGUARD_CMD:-sh /mnt/v3/linux66-sd/boot-guard clear}
+OC_REBOOT_CMD=${OC_REBOOT_CMD:-reboot}
+OC_DMESG_CMD=${OC_DMESG_CMD:-dmesg}
+
+oc_ts() { date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo 1970-01-01; }
+
+oc_log_console() {
+  echo "[overclock-step] $*" > /dev/console 2>/dev/null || true
+  logger -t tc100-event -p user.notice "overclock-step: $*" 2>/dev/null || true
+}
+
+oc_append_cap() { # FILE MAX_LINES LINE
+  _ac_f=$1; _ac_max=$2; _ac_line=$3
+  mkdir -p "${_ac_f%/*}" 2>/dev/null || return 1
+  printf '%s\n' "$_ac_line" >> "$_ac_f" 2>/dev/null || return 1
+  _ac_n=$(wc -l < "$_ac_f" 2>/dev/null)
+  _ac_n=${_ac_n##* }; _ac_n=${_ac_n%%[!0-9]*}
+  if [ -n "$_ac_n" ] && [ "$_ac_n" -gt "$_ac_max" ] 2>/dev/null; then
+    tail -n "$_ac_max" "$_ac_f" > "$_ac_f.tmp.$$" 2>/dev/null && mv -f "$_ac_f.tmp.$$" "$_ac_f" 2>/dev/null || rm -f "$_ac_f.tmp.$$"
+  fi
+}
+
+oc_log_event() {
+  _le_line="$(oc_ts) $*"
+  oc_append_cap "$OC_LOG" "$OC_LOG_MAX_LINES" "$_le_line"
+}
+
+oc_log_sample() {
+  _ls_line="$(oc_ts) $*"
+  oc_append_cap "$OC_SAMPLE_LOG" "$OC_SAMPLE_MAX_LINES" "$_ls_line"
+  if [ ! -e "$OC_PAUSE" ] && grep -qE ' /mnt/sd (vfat|exfat) rw' "$OC_MOUNTS" 2>/dev/null; then
+    oc_append_cap "$OC_SD_SAMPLE_LOG" "$OC_SD_SAMPLE_MAX_LINES" "$_ls_line"
+  fi
+}
+
+oc_conf() { # KEY DEFAULT
+  _c_v=
+  if [ -r "$OC_BOOTCONF" ]; then
+    _c_v=$(sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}\$/\1/p" "$OC_BOOTCONF" 2>/dev/null | tail -n 1)
+  fi
+  echo "${_c_v:-$2}"
+}
+
+oc_load_conf() {
+  _auto=$(oc_conf OVERCLOCK_AUTO 1)
+  case "$_auto" in
+    0|no|off|false) CONF_AUTO=0 ;;
+    *) CONF_AUTO=1 ;;
+  esac
+
+  CONF_HOLD_S=$(oc_conf OVERCLOCK_HOLD_S 86400)
+  case "$CONF_HOLD_S" in ''|*[!0-9]*) CONF_HOLD_S=86400 ;; esac
+  if [ "${OC_ALLOW_SHORT_HOLD:-0}" != 1 ] && [ "$CONF_HOLD_S" -lt 300 ]; then
+    CONF_HOLD_S=300
+  fi
+
+  CONF_MAX_MHZ=$(oc_conf OVERCLOCK_MAX_MHZ 522)
+  case "$CONF_MAX_MHZ" in
+    510|516|522) ;;
+    *) CONF_MAX_MHZ=522 ;;
+  esac
+}
+
+mhz_to_reg() {
+  case "$1" in
+    480) echo "0x010213f0" ;;
+    510) echo "0x010212aa" ;;
+    516) echo "0x010212ac" ;;
+    522) echo "0x010212ae" ;;
+    *) echo "0x010213f0" ;;
+  esac
+}
+
+next_step_mhz() {
+  case "$1" in
+    480) echo "510" ;;
+    510) echo "516" ;;
+    516) echo "522" ;;
+    522) echo "522" ;;
+    *) echo "480" ;;
+  esac
+}
+
+audio_rates_for_mhz() {
+  case "$1" in
+    510) ADC_HZ=8000.75; DAC_HZ=8000.75; SKEW_PPM=0; AV_DRIFT=+5.6 ;;
+    516) ADC_HZ=7998.51; DAC_HZ=7998.51; SKEW_PPM=0; AV_DRIFT=-11.2 ;;
+    522) ADC_HZ=7996.32; DAC_HZ=7996.32; SKEW_PPM=0; AV_DRIFT=-27.6 ;;
+    *)   ADC_HZ=8012.82; DAC_HZ=8000.00; SKEW_PPM=-1600; AV_DRIFT=+96.2 ;;
+  esac
+}
+
+valid_mhz() {
+  case "$1" in
+    480|510|516|522) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+read_state() {
+  ST_STATUS=init
+  ST_CUR=510
+  ST_VAL=480
+  ST_FAIL=0
+  ST_REASON=none
+  ST_ARMED=0
+  ST_BOOTS=0
+  ST_BOGO480=""
+  ST_UPDATED=""
+  [ -r "$OC_STATE" ] || return 0
+  while IFS='=' read -r _k _v || [ -n "$_k" ]; do
+    case "$_k" in
+      status) ST_STATUS=$_v ;;
+      current_mhz) ST_CUR=$_v ;;
+      validated_mhz) ST_VAL=$_v ;;
+      failed_mhz) ST_FAIL=$_v ;;
+      failed_reason) ST_REASON=$_v ;;
+      armed) ST_ARMED=$_v ;;
+      step_boots) ST_BOOTS=$_v ;;
+      bogomips_480) ST_BOGO480=$_v ;;
+      last_updated) ST_UPDATED=$_v ;;
+    esac
+  done < "$OC_STATE"
+  case "$ST_STATUS" in init|testing|locked|disabled) ;; *) ST_STATUS=init ;; esac
+  valid_mhz "$ST_CUR" || ST_CUR=510
+  valid_mhz "$ST_VAL" || ST_VAL=480
+  case "$ST_FAIL" in ''|*[!0-9]*) ST_FAIL=0 ;; esac
+  case "$ST_ARMED" in 0|1) ;; *) ST_ARMED=0 ;; esac
+  case "$ST_BOOTS" in ''|*[!0-9]*) ST_BOOTS=0 ;; esac
+}
+
+write_state() {
+  mkdir -p "${OC_STATE%/*}" 2>/dev/null || return 1
+  ST_UPDATED="$(oc_ts)"
+  {
+    printf 'status=%s\n' "$ST_STATUS"
+    printf 'current_mhz=%s\n' "$ST_CUR"
+    printf 'validated_mhz=%s\n' "$ST_VAL"
+    printf 'failed_mhz=%s\n' "$ST_FAIL"
+    printf 'failed_reason=%s\n' "$ST_REASON"
+    printf 'armed=%s\n' "$ST_ARMED"
+    printf 'step_boots=%s\n' "$ST_BOOTS"
+    printf 'bogomips_480=%s\n' "$ST_BOGO480"
+    printf 'last_updated=%s\n' "$ST_UPDATED"
+  } > "$OC_STATE.tmp.$$" 2>/dev/null && mv -f "$OC_STATE.tmp.$$" "$OC_STATE"
+}
+
+run_persist() {
+  sh -c "$OC_PERSIST_CMD" </dev/null >/dev/null 2>&1 || oc_log_console "cfg-persist save failed"
+}
+
+read_one_line() {
+  _rl=
+  [ -r "$1" ] && read -r _rl < "$1" 2>/dev/null
+  echo "${_rl:-$2}"
+}
+
+read_bogomips() {
+  _bm=$(sed -n 's/^BogoMIPS[[:space:]]*:[[:space:]]*//p' "$OC_CPUINFO" 2>/dev/null | head -n 1)
+  echo "${_bm:--}"
+}
+
+read_uptime_s() {
+  _up=0
+  if [ -r "$OC_UPTIME" ]; then
+    read -r _up _ < "$OC_UPTIME" 2>/dev/null
+    _up=${_up%.*}
+  fi
+  case "$_up" in ''|*[!0-9]*) _up=0 ;; esac
+  echo "$_up"
+}
+
+read_cpu_pct() {
+  CPU_BUSY="-"; CPU_IDLE="-"
+  [ -r "$OC_PROC_STAT" ] || return 0
+  read -r _tag _u _n _s _id _io _irq _sirq _rest < "$OC_PROC_STAT" 2>/dev/null || return 0
+  [ "$_tag" = cpu ] || return 0
+  _busy=$((${_u:-0} + ${_n:-0} + ${_s:-0} + ${_irq:-0} + ${_sirq:-0}))
+  _idle=$((${_id:-0} + ${_io:-0}))
+  _tot=$((_busy + _idle))
+  _pb=0; _pt=0
+  if [ -r "$OC_CPUSTAT" ]; then
+    read -r _pb _pt < "$OC_CPUSTAT" 2>/dev/null || { _pb=0; _pt=0; }
+  fi
+  printf '%s %s\n' "$_busy" "$_tot" > "$OC_CPUSTAT" 2>/dev/null || true
+  _db=$((_busy - _pb)); _dt=$((_tot - _pt))
+  if [ "$_pt" -gt 0 ] && [ "$_dt" -gt 0 ] 2>/dev/null; then
+    _res=$(awk -v db="$_db" -v dt="$_dt" 'BEGIN { b=(db*100.0)/dt; if (b<0) b=0; if (b>100) b=100; printf "%.1f %.1f", b, 100.0-b }')
+    CPU_BUSY=${_res%% *}
+    CPU_IDLE=${_res##* }
+  elif [ "$_tot" -gt 0 ] 2>/dev/null; then
+    _res=$(awk -v b="$_busy" -v t="$_tot" 'BEGIN { p=(b*100.0)/t; printf "%.1f %.1f", p, 100.0-p }')
+    CPU_BUSY=${_res%% *}
+    CPU_IDLE=${_res##* }
+  fi
+}
+
+collect_metrics() {
+  UP_S=$(read_uptime_s)
+  LOAD_STR=$(awk '{print $1","$2","$3}' "$OC_LOADAVG" 2>/dev/null)
+  LOAD_STR=${LOAD_STR:--}
+  PLL_REG=$(read_one_line "$OC_SYS_PLL" "-")
+  ASIC_HZ=$(read_one_line "$OC_SYS_ASIC" "-")
+  BOGO=$(read_bogomips)
+  read_cpu_pct
+
+  MEM_AVAIL="-"; CMA_FREE="-"
+  if [ -r "$OC_MEMINFO" ]; then
+    MEM_AVAIL=$(sed -n 's/^MemAvailable:[[:space:]]*\([0-9]*\).*/\1/p' "$OC_MEMINFO" 2>/dev/null | head -n 1)
+    CMA_FREE=$(sed -n 's/^CmaFree:[[:space:]]*\([0-9]*\).*/\1/p' "$OC_MEMINFO" 2>/dev/null | head -n 1)
+    MEM_AVAIL=${MEM_AVAIL:--}; CMA_FREE=${CMA_FREE:--}
+  fi
+
+  NR3D=$(read_one_line "$OC_SYS_NR3D" "-")
+  NR3D_OVF=$(read_one_line "$OC_SYS_NR3D_OVF" "-")
+
+  RTSP_CAP="-"; RTSP_CLI="-"; RTSP_DROP="-"; ENC_MS="-"; SND_WAIT="-"; AEC_STATE="-"
+  if [ -r "$OC_RTSP_STAT" ]; then
+    while IFS=' ' read -r _sk _sv || [ -n "$_sk" ]; do
+      case "$_sk" in
+        captured) RTSP_CAP=$_sv ;;
+        clients) RTSP_CLI=$_sv ;;
+        dropped) RTSP_DROP=$_sv ;;
+      esac
+    done < "$OC_RTSP_STAT"
+  fi
+  if [ -r "$OC_RTSP_LOG" ]; then
+    _st_line=$(tail -n 100 "$OC_RTSP_LOG" 2>/dev/null | grep 'STAT ' | tail -n 1)
+    if [ -n "$_st_line" ]; then
+      set -- $_st_line
+      while [ $# -ge 2 ]; do
+        case "$1" in
+          cap) [ "$RTSP_CAP" = "-" ] && RTSP_CAP=$2 ;;
+          enc_ms) ENC_MS=$2 ;;
+          snd_wait) SND_WAIT=$2 ;;
+          clients) [ "$RTSP_CLI" = "-" ] && RTSP_CLI=$2 ;;
+          dropped) [ "$RTSP_DROP" = "-" ] && RTSP_DROP=$2 ;;
+        esac
+        shift
+      done
+    fi
+    _aec_line=$(tail -n 120 "$OC_RTSP_LOG" 2>/dev/null | grep -E 'echo cancellation|aec.*realign|aec.*reset' | tail -n 1)
+    if [ -n "$_aec_line" ]; then
+      AEC_STATE=$(printf '%s' "$_aec_line" | tr ' \t' '_' | sed 's/[^A-Za-z0-9._:=+-]//g' | tail -c 48)
+    fi
+  fi
+
+  RSSI="-"
+  if [ -r "$OC_WIFI_QUAL" ]; then
+    RSSI=$(sed -n 's/^rssi=//p' "$OC_WIFI_QUAL" 2>/dev/null | head -n 1)
+  fi
+  if [ -z "$RSSI" ] || [ "$RSSI" = "-" ] || [ "$RSSI" = "null" ]; then
+    RSSI=$(awk '/wlan0/{gsub(/\./,"",$4); print $4; exit}' "$OC_WIRELESS" 2>/dev/null)
+  fi
+  RSSI=${RSSI:--}
+
+  audio_rates_for_mhz "$ST_CUR"
+
+  OOPS_CNT=0; MMC_ERR=0; SPI_ERR=0; I2C_ERR=0; USB_ERR=0; CODEC_LINE="-"
+  _dm_counts=$(sh -c "$OC_DMESG_CMD" 2>/dev/null | awk '
+    /Unable to handle kernel|Internal error:|Oops:|BUG:|Kernel panic/ { oops++ }
+    /akmci.*(error|timeout)|mmcblk.*I\/O error/ { mmc++ }
+    /ak39-spi.*timeout/ { spi++ }
+    /ak39-i2c.*(timeout|Unable)/ { i2c++ }
+    /otg_hs.*error|usb 1-1.*error/ { usb++ }
+    END { printf "%d %d %d %d %d\n", oops+0, mmc+0, spi+0, i2c+0, usb+0 }
+  ')
+  set -- $_dm_counts
+  if [ $# -ge 5 ]; then
+    OOPS_CNT=$1; MMC_ERR=$2; SPI_ERR=$3; I2C_ERR=$4; USB_ERR=$5
+  fi
+}
+
+format_sample_kv() {
+  printf 'up_s=%s mhz=%s status=%s validated_mhz=%s pll_reg=%s asic_hz=%s bogomips=%s cpu_busy_pct=%s cpu_idle_pct=%s load=%s mem_avail_kb=%s cma_free_kb=%s cap_5s=%s dropped=%s enc_ms=%s snd_wait=%s clients=%s nr3d=%s nr3d_ovf=%s adc_hz=%s dac_hz=%s skew_ppm=%s av_drift_ms_min=%s aec=%s rssi=%s oops=%s mmc_err=%s spi_err=%s i2c_err=%s usb_err=%s' \
+    "$UP_S" "$ST_CUR" "$ST_STATUS" "$ST_VAL" "$PLL_REG" "$ASIC_HZ" "$BOGO" "$CPU_BUSY" "$CPU_IDLE" "$LOAD_STR" \
+    "$MEM_AVAIL" "$CMA_FREE" "$RTSP_CAP" "$RTSP_DROP" "$ENC_MS" "$SND_WAIT" "$RTSP_CLI" "$NR3D" "$NR3D_OVF" \
+    "$ADC_HZ" "$DAC_HZ" "$SKEW_PPM" "$AV_DRIFT" "$AEC_STATE" "$RSSI" \
+    "$OOPS_CNT" "$MMC_ERR" "$SPI_ERR" "$I2C_ERR" "$USB_ERR"
+}
+
+trigger_reboot() { # REASON_FOR_INTENT
+  _tr_why=$1
+  sh -c "$OC_BOOTGUARD_CMD" </dev/null >/dev/null 2>&1 || true
+  $OC_INTENT_CMD "$_tr_why" </dev/null >/dev/null 2>&1 || true
+  run_persist
+  sync 2>/dev/null || true
+  sh -c "$OC_REBOOT_CMD" </dev/null >/dev/null 2>&1 || true
+}
+
+cmd_boot() {
+  oc_load_conf
+  read_state
+
+  if [ "$CONF_AUTO" = 0 ]; then
+    if [ "$ST_STATUS" != "disabled" ]; then
+      ST_STATUS=disabled
+      ST_ARMED=0
+      ST_BOOTS=0
+      oc_log_event "DISABLED staying at 480 MHz (OVERCLOCK_AUTO=0)"
+      write_state
+      run_persist
+    fi
+    return 0
+  fi
+
+  # Wait: if previously disabled and now OVERCLOCK_AUTO=1 again, re-init from 510 MHz.
+  if [ "$ST_STATUS" = "disabled" ]; then
+    ST_STATUS=init
+    ST_CUR=510
+    ST_VAL=480
+    ST_FAIL=0
+    ST_REASON=none
+    ST_ARMED=0
+    ST_BOOTS=0
+  fi
+
+  if [ -f "$OC_SAFEMODE" ]; then
+    oc_log_console "SAFE MODE active: staying at 480 MHz"
+    if [ "$ST_STATUS" = "testing" ] && [ "$ST_ARMED" = 1 ]; then
+      ST_FAIL=$ST_CUR
+      ST_REASON=safemode_triggered
+      ST_CUR=$ST_VAL
+      ST_STATUS=locked
+      ST_ARMED=0
+      ST_BOOTS=0
+      oc_log_event "ROLLBACK_SAFEMODE failed_mhz=$ST_FAIL fallback_mhz=$ST_CUR reason=$ST_REASON"
+      write_state
+      run_persist
+    else
+      oc_log_event "SAFE_MODE_SKIP staying at 480 MHz"
+    fi
+    return 0
+  fi
+
+  if [ ! -e "$OC_SYS_PLL" ]; then
+    oc_log_event "NO_SYSFS kernel lacks $OC_SYS_PLL, staying at 480 MHz"
+    oc_log_sample "EVENT=NO_SYSFS mhz=480"
+    return 0
+  fi
+
+  _bogo_now=$(read_bogomips)
+  if [ -z "$ST_BOGO480" ] || [ "$ST_BOGO480" = "-" ]; then
+    [ "$_bogo_now" != "-" ] && ST_BOGO480=$_bogo_now
+  fi
+
+  _need_persist=0
+  if [ "$ST_STATUS" = "init" ]; then
+    _p480=$(read_one_line "$OC_SYS_PLL" "-")
+    _a480=$(read_one_line "$OC_SYS_ASIC" "-")
+    oc_log_event "INIT_BASELINE_480 mhz=480 pll_reg=$_p480 asic_hz=$_a480 bogomips_480=${ST_BOGO480:--}"
+    ST_STATUS=testing
+    ST_CUR=510
+    ST_VAL=480
+    ST_FAIL=0
+    ST_REASON=none
+    ST_ARMED=1
+    ST_BOOTS=1
+    _need_persist=1
+  elif [ "$ST_STATUS" = "testing" ] && [ "$ST_ARMED" = 1 ]; then
+    _lr=$(cat "$OC_LAST_REBOOT" 2>/dev/null || echo "")
+    case "$_lr" in
+      *"overclock-step: 24h validated"*)
+        ST_ARMED=1
+        ST_BOOTS=1
+        oc_log_event "PROMOTED_BOOT mhz=$ST_CUR validated_mhz=$ST_VAL"
+        _need_persist=1
+        ;;
+      "requested at "*)
+        ST_BOOTS=$((ST_BOOTS + 1))
+        oc_log_event "USER_REBOOT_RESUME mhz=$ST_CUR step_boots=$ST_BOOTS"
+        _need_persist=1
+        ;;
+      *)
+        if [ "$ST_BOOTS" -ge 1 ] || [ "${_lr#UNEXPECTED}" != "$_lr" ]; then
+          ST_FAIL=$ST_CUR
+          _clean_r=$(printf '%s' "$_lr" | tr '|;\n' '   ' | sed 's/  */_/g; s/[^A-Za-z0-9._:=+-]//g' | tail -c 80)
+          [ -n "$_clean_r" ] || _clean_r=unknown_reboot
+          ST_REASON="unexpected_reboot:${_clean_r}"
+          ST_CUR=$ST_VAL
+          ST_STATUS=locked
+          ST_ARMED=0
+          ST_BOOTS=0
+          oc_log_event "ROLLBACK_CRASH failed_mhz=$ST_FAIL fallback_mhz=$ST_CUR reason=$ST_REASON"
+          oc_log_console "ROLLBACK_CRASH: ${ST_FAIL} MHz failed ($ST_REASON), locking on ${ST_CUR} MHz"
+          _need_persist=1
+        else
+          ST_ARMED=1
+          ST_BOOTS=1
+          _need_persist=1
+        fi
+        ;;
+    esac
+  elif [ "$ST_STATUS" = "locked" ]; then
+    ST_CUR=$ST_VAL
+    ST_ARMED=0
+  fi
+
+  if [ "$ST_STATUS" = "testing" ] && [ "$ST_CUR" -gt "$CONF_MAX_MHZ" ]; then
+    ST_CUR=$CONF_MAX_MHZ
+    _need_persist=1
+  fi
+
+  # Guardrail: persist armed state onto flash (cfga/cfgb) AT 480 MHz BEFORE changing core_pll.
+  if [ "$_need_persist" = 1 ]; then
+    write_state
+    run_persist
+  fi
+
+  if [ "$ST_CUR" -gt 480 ]; then
+    _target_reg=$(mhz_to_reg "$ST_CUR")
+    if ! printf '%s\n' "$_target_reg" > "$OC_SYS_PLL" 2>/dev/null; then
+      ST_FAIL=$ST_CUR
+      ST_REASON=sysfs_write_rejected
+      ST_CUR=$ST_VAL
+      ST_STATUS=locked
+      ST_ARMED=0
+      ST_BOOTS=0
+      oc_log_event "ROLLBACK_SYSFS_ERROR failed_mhz=$ST_FAIL fallback_mhz=$ST_CUR reg=$_target_reg"
+      oc_log_console "sysfs rejected $_target_reg (${ST_FAIL} MHz), staying at ${ST_CUR} MHz"
+      write_state
+      run_persist
+      if [ "$ST_CUR" -gt 480 ]; then
+        _fb_reg=$(mhz_to_reg "$ST_CUR")
+        printf '%s\n' "$_fb_reg" > "$OC_SYS_PLL" 2>/dev/null || true
+      fi
+      return 1
+    fi
+  fi
+
+  _act_pll=$(read_one_line "$OC_SYS_PLL" "-")
+  _act_asic=$(read_one_line "$OC_SYS_ASIC" "-")
+  _bogo_after=$(read_bogomips)
+  audio_rates_for_mhz "$ST_CUR"
+
+  oc_log_console "mhz=$ST_CUR status=$ST_STATUS validated=${ST_VAL}MHz pll=$_act_pll asic=$_act_asic adc=${ADC_HZ}Hz dac=${DAC_HZ}Hz skew=${SKEW_PPM}ppm"
+  _boot_line="APPLIED mhz=$ST_CUR status=$ST_STATUS validated_mhz=$ST_VAL failed_mhz=$ST_FAIL pll_reg=$_act_pll asic_hz=$_act_asic bogomips_480=${ST_BOGO480:--} bogomips_now=$_bogo_after adc_hz=$ADC_HZ dac_hz=$DAC_HZ skew_ppm=$SKEW_PPM av_drift_ms_min=$AV_DRIFT"
+  oc_log_event "$_boot_line"
+  oc_log_sample "$_boot_line"
+  return 0
+}
+
+cmd_hk() {
+  oc_load_conf
+  read_state
+  collect_metrics
+
+  _kv=$(format_sample_kv)
+  oc_log_sample "SAMPLE $_kv"
+
+  _h6=$((UP_S / 21600))
+  _prev_h6=0
+  [ -r "$OC_LAST_H6" ] && read -r _prev_h6 < "$OC_LAST_H6" 2>/dev/null
+  case "$_prev_h6" in ''|*[!0-9]*) _prev_h6=0 ;; esac
+  if [ "$_h6" -gt "$_prev_h6" ] 2>/dev/null; then
+    printf '%s\n' "$_h6" > "$OC_LAST_H6" 2>/dev/null || true
+    oc_log_event "SUMMARY_6H h=$((_h6 * 6)) $_kv"
+  fi
+
+  [ "$CONF_AUTO" = 1 ] || return 0
+  [ "$ST_STATUS" = "testing" ] || return 0
+
+  # Guardrail 1: kernel oops or SPI flash timeout while testing > 480 MHz triggers immediate rollback.
+  if [ "$ST_CUR" -gt 480 ] && { [ "$OOPS_CNT" -gt 0 ] || [ "$SPI_ERR" -gt 0 ]; }; then
+    ST_FAIL=$ST_CUR
+    ST_REASON="health_check_failed(oops=$OOPS_CNT,spi_err=$SPI_ERR)"
+    ST_CUR=$ST_VAL
+    ST_STATUS=locked
+    ST_ARMED=0
+    ST_BOOTS=0
+    oc_log_event "ROLLBACK_HEALTH failed_mhz=$ST_FAIL fallback_mhz=$ST_CUR oops=$OOPS_CNT spi_err=$SPI_ERR"
+    oc_log_sample "ROLLBACK_HEALTH failed_mhz=$ST_FAIL fallback_mhz=$ST_CUR oops=$OOPS_CNT spi_err=$SPI_ERR"
+    oc_log_console "health check failed at ${ST_FAIL} MHz (oops=$OOPS_CNT spi_err=$SPI_ERR), rolling back to ${ST_CUR} MHz"
+    write_state
+    trigger_reboot "overclock-step: health rollback from ${ST_FAIL}MHz to ${ST_CUR}MHz"
+    return 0
+  fi
+
+  # Guardrail 2: step validated after OVERCLOCK_HOLD_S (24h = 86400s) uninterrupted uptime.
+  if [ "$UP_S" -ge "$CONF_HOLD_S" ]; then
+    ST_VAL=$ST_CUR
+    oc_log_event "VALIDATED_24H mhz=$ST_VAL $_kv"
+    oc_log_sample "VALIDATED_24H mhz=$ST_VAL $_kv"
+
+    if [ "$ST_CUR" -lt "$CONF_MAX_MHZ" ]; then
+      _next=$(next_step_mhz "$ST_CUR")
+      if [ "$_next" -le "$CONF_MAX_MHZ" ] && [ "$_next" -gt "$ST_CUR" ]; then
+        ST_CUR=$_next
+        ST_STATUS=testing
+        ST_ARMED=1
+        ST_BOOTS=0
+        oc_log_event "PROMOTING from_mhz=$ST_VAL to_mhz=$ST_CUR after_s=$UP_S"
+        oc_log_sample "PROMOTING from_mhz=$ST_VAL to_mhz=$ST_CUR after_s=$UP_S"
+        oc_log_console "${ST_VAL} MHz validated (${UP_S}s), promoting cleanly to ${ST_CUR} MHz"
+        write_state
+        trigger_reboot "overclock-step: 24h validated at ${ST_VAL}MHz, promoting to ${ST_CUR}MHz"
+        return 0
+      fi
+    fi
+
+    ST_STATUS=locked
+    ST_ARMED=0
+    ST_BOOTS=0
+    oc_log_event "LOCKED_MAX mhz=$ST_VAL up_s=$UP_S msg=all_steps_validated"
+    oc_log_sample "LOCKED_MAX mhz=$ST_VAL up_s=$UP_S msg=all_steps_validated"
+    oc_log_console "campaign complete: locked permanently at ${ST_VAL} MHz"
+    write_state
+    run_persist
+  fi
+  return 0
+}
+
+cmd_status() {
+  oc_load_conf
+  read_state
+  _up=$(read_uptime_s)
+  _pll=$(read_one_line "$OC_SYS_PLL" "unavailable")
+  _asic=$(read_one_line "$OC_SYS_ASIC" "unavailable")
+  _bogo=$(read_bogomips)
+  printf 'overclock_auto=%s hold_s=%s max_mhz=%s\n' "$CONF_AUTO" "$CONF_HOLD_S" "$CONF_MAX_MHZ"
+  printf 'status=%s current_mhz=%s validated_mhz=%s failed_mhz=%s failed_reason=%s armed=%s step_boots=%s\n' \
+    "$ST_STATUS" "$ST_CUR" "$ST_VAL" "$ST_FAIL" "$ST_REASON" "$ST_ARMED" "$ST_BOOTS"
+  printf 'live: uptime_s=%s pll_reg=%s asic_hz=%s bogomips_480=%s bogomips_now=%s\n' \
+    "$_up" "$_pll" "$_asic" "${ST_BOGO480:--}" "$_bogo"
+  if [ -r "$OC_LOG" ]; then
+    printf -- '--- %s (tail 20) ---\n' "$OC_LOG"
+    tail -n 20 "$OC_LOG"
+  fi
+  if [ -r "$OC_SAMPLE_LOG" ]; then
+    printf -- '--- %s (tail 5) ---\n' "$OC_SAMPLE_LOG"
+    tail -n 5 "$OC_SAMPLE_LOG"
+  fi
+}
+
+cmd_reset() {
+  rm -f "$OC_LAST_H6" "$OC_CPUSTAT"
+  ST_STATUS=init
+  ST_CUR=510
+  ST_VAL=480
+  ST_FAIL=0
+  ST_REASON=none
+  ST_ARMED=0
+  ST_BOOTS=0
+  ST_BOGO480=""
+  write_state
+  oc_log_event "RESET campaign reset to init (next boot starts at 510 MHz)"
+  run_persist
+  echo "overclock-step: reset to init (starts at 510 MHz on next boot)"
+}
+
+case "$1" in
+  boot) cmd_boot ;;
+  hk|tick) cmd_hk ;;
+  status) cmd_status ;;
+  reset) cmd_reset ;;
+  *) echo "usage: $0 boot | hk | tick | status | reset" >&2; exit 2 ;;
+esac

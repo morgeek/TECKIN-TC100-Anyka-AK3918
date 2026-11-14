@@ -13,7 +13,7 @@ Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
  arch/arm/Makefile                |   1 +
  arch/arm/mach-anyka/Kconfig      |  12 ++
  arch/arm/mach-anyka/Makefile     |   2 +
- arch/arm/mach-anyka/anyka.c      | 118 ++++++++++++
+ arch/arm/mach-anyka/anyka.c      | 199 ++++++++++++++++++++
  drivers/clocksource/Kconfig      |   5 +
  drivers/clocksource/Makefile     |   1 +
  drivers/clocksource/timer-ak39.c | 129 +++++++++++++
@@ -87,7 +87,7 @@ new file mode 100644
 index 000000000..de68cce9f
 --- /dev/null
 +++ b/arch/arm/mach-anyka/anyka.c
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,199 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Anyka AK3918EV300 device tree board support.
@@ -98,6 +98,8 @@ index 000000000..de68cce9f
 +#include <linux/init.h>
 +#include <linux/kernel.h>
 +#include <linux/minmax.h>
++#include <linux/moduleparam.h>
++#include <linux/sysfs.h>
 +#include <asm/mach/arch.h>
 +
 +#define AK39_SYSCTRL		0x08000000
@@ -177,6 +179,7 @@ index 000000000..de68cce9f
 + * loader's own): the ISP then receives no lines.
 + */
 +static unsigned int ak_core_pll = AK39_CORE_PLL_480;
++static unsigned int ak_asic_hz = 120000000;
 +static int __init ak_core_pll_setup(char *str)
 +{
 +	return kstrtouint(str, 0, &ak_core_pll) == 0;
@@ -194,19 +197,36 @@ index 000000000..de68cce9f
 +	return (12000000u * m / (n << od) >> sh) / 2;
 +}
 +
-+static int __init anyka_core_pll(void)
++static int anyka_apply_core_pll(u32 pll, bool force_log)
 +{
-+	void __iomem *sys = ioremap(AK39_SYSCTRL, 0x100);
-+	void __iomem *uart = ioremap(AK39_UART0, 0x10);
-+	u32 pll = ak_core_pll, asic = ak39_asic_hz(pll), div, v;
++	u32 m = pll & 0xff, n = (pll >> 8) & 0xf, od = (pll >> 12) & 3;
++	u32 sh = (pll >> 17) & 7;
++	u32 pll_mhz, asic, div, v;
++	void __iomem *sys;
++	void __iomem *uart;
 +	unsigned long flags;
++	bool changed = false;
 +
-+	if (!sys || !uart || !asic)
-+		return 0;
++	if (od < 1 || n < 2 || n > 6 || m < 84 || m > 254 || sh != 1)
++		return -EINVAL;
++	pll_mhz = (12u * m) / (n << od);
++	asic = ak39_asic_hz(pll);
++	if (pll_mhz < 400 || pll_mhz > 600 || !asic)
++		return -EINVAL;
++
++	sys = ioremap(AK39_SYSCTRL, 0x100);
++	uart = ioremap(AK39_UART0, 0x10);
++	if (!sys || !uart) {
++		if (uart)
++			iounmap(uart);
++		if (sys)
++			iounmap(sys);
++		return -ENOMEM;
++	}
 +	div = asic / 115200 - 1;
 +	if ((readl(sys + AK39_CORE_PLL) & 0x3fff) != (pll & 0x3fff)) {
 +		local_irq_save(flags);
-+		writel(pll | BIT(23), sys + AK39_CORE_PLL);
++		writel((pll & ~BIT(23)) | BIT(23), sys + AK39_CORE_PLL);
 +		writel(readl(sys + AK39_CPU_PLL) | BIT(28), sys + AK39_CPU_PLL);
 +		udelay(100);
 +		v = readl(uart) & ~(0xffff | BIT(22));
@@ -215,14 +235,48 @@ index 000000000..de68cce9f
 +			v |= BIT(22);
 +		writel(v, uart);
 +		local_irq_restore(flags);
-+		pr_info("anyka: core PLL set, ASIC %u Hz, SYSCTRL 0x08 = %08x\n",
-+			asic, readl(sys + AK39_CORE_PLL));
++		changed = true;
 +	}
++	ak_core_pll = pll;
++	ak_asic_hz = asic;
++	if (changed || force_log)
++		pr_info("anyka: core PLL set, PLL %u MHz, ASIC %u Hz, SYSCTRL 0x08 = %08x\n",
++			pll_mhz, asic, readl(sys + AK39_CORE_PLL));
 +	iounmap(uart);
 +	iounmap(sys);
 +	return 0;
 +}
++
++static int __init anyka_core_pll(void)
++{
++	anyka_apply_core_pll(ak_core_pll, false);
++	return 0;
++}
 +early_initcall(anyka_core_pll);
++
++static int ak_core_pll_set(const char *val, const struct kernel_param *kp)
++{
++	u32 pll;
++	int ret = kstrtouint(val, 0, &pll);
++
++	if (ret)
++		return ret;
++	return anyka_apply_core_pll(pll, true);
++}
++
++static int ak_core_pll_get(char *buf, const struct kernel_param *kp)
++{
++	return sysfs_emit(buf, "0x%08x\n", ak_core_pll);
++}
++
++static const struct kernel_param_ops ak_core_pll_ops = {
++	.set = ak_core_pll_set,
++	.get = ak_core_pll_get,
++};
++module_param_cb(core_pll, &ak_core_pll_ops, &ak_core_pll, 0644);
++MODULE_PARM_DESC(core_pll, "runtime-writable SYSCTRL 0x08 core PLL setting");
++module_param_named(asic_hz, ak_asic_hz, uint, 0444);
++MODULE_PARM_DESC(asic_hz, "read-only ASIC bus clock in Hz");
 +
 +static const char * const anyka_dt_compat[] __initconst = {
 +	"anyka,ak3918ev300",

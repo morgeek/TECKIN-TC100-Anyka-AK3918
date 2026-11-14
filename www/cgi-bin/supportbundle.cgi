@@ -39,6 +39,8 @@ dmesg | tail -n 250 > "$W/logs/dmesg.txt" 2>/dev/null
 
 : > "$W/system/driver-params.txt"
 for _sb_p in \
+  "$SB_SYS_DIR/module/anyka/parameters/core_pll" \
+  "$SB_SYS_DIR/module/anyka/parameters/asic_hz" \
   "$SB_SYS_DIR/module/ak_isp/parameters/awb_live" \
   "$SB_SYS_DIR/module/ak39_vi/parameters/nr3d" \
   "$SB_SYS_DIR/module/ak39_vi/parameters/nr3d_overflow" \
@@ -59,6 +61,9 @@ for _sb_log in \
   "$SB_TMP_DIR/logs/tc100_rtsp.log" \
   "$SB_TMP_DIR/logs/daynight.log" \
   "$SB_CONFIG_DIR/log/daynight-last.log" \
+  "$SB_CONFIG_DIR/overclock.state" \
+  "$SB_CONFIG_DIR/log/overclock.log" \
+  "$SB_TMP_DIR/logs/overclock-samples.log" \
   "$SB_TMP_DIR/log/audit.log" \
   "$SB_TMP_DIR/logs/audit.log" \
   "$SB_TMP_DIR/log/service-watchdog.log" \

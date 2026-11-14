@@ -348,4 +348,10 @@ UPDATE_CHECK=0
 # Read once at boot / rtsp-h26x restart. Test status: docs/linux-port/test-queue.md NR3D-01.
 NR3D=1
 
+# Core PLL step-up campaign (branch overclock): steps 480 -> 510 -> 516 -> 522 MHz every OVERCLOCK_HOLD_S uptime in flashmode.
+# Kernel always boots at 480 MHz; v3/linux66-sd/overclock-step applies the step after /mnt/config and rolls back on crash/oops.
+OVERCLOCK_AUTO=1
+OVERCLOCK_HOLD_S=86400
+OVERCLOCK_MAX_MHZ=522
+
 # Camera tampering / occlusion detection: config/tamper.conf (ENABLE, its one switch).
