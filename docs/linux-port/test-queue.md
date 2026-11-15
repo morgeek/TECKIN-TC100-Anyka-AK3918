@@ -115,6 +115,15 @@ older `to test` entries below.
   at 1600 kbit/s after the first, smart still picture not worse. 4: 0 failed pictures in 24 h on both cameras, no
   `status 3` exit. 5: recordings and live view as before. Host tests: `tests/test_h265cmdlist.py` (RateControl
   `test_enc02_*`, FreeEnc `test_enc02_*`, FreeEncEnc02Wiring).
+- **2026-11-15, .24 (main b2f734a, RAM binary with the stock environment, night set 10 fps, still indoor scene, 2
+  clients):** start OK, `free encoder main: capture rate 10 fps (configured 25): 20000 bytes per picture` and
+  `sub: ... 3125` (R1 line as planned); sub-stream opened at the vendor's 57 KB (default since b2f734a), pool free
+  975616 bytes; IDR every 25 pictures (2.5 s) at 10 fps; IDR 71-74 KB (<= 85 KB); 0 failed pictures. Bit rate, same
+  scene, back to back: `RTSP_FE_FPS=0` 280 KB / 5 s (P 2.47 KB, IDR 81 KB), R1 on 280 KB / 5 s (P 2.75 KB, IDR 73 KB):
+  on a still scene in VBR the QP sits on `RTSP_VBR_QP` 33 and R1 changes nothing, as expected (an earlier run at 165
+  KB / 5 s was the dawn light, not the code). rc44 stock on the same scene before: about 400 KB / 5 s (its quality
+  QP was 27, no `RTSP_VBR_QP`). Still to see: 2 (a busy / noisy night scene rising above 650 kbit/s), 1 with
+  `RTSP_FE_SUBBUF=1`, 3 smart=1, 4 over 24 h, 5. Left running on the .24 from 08:17 UTC.
 
 ### NATIVE-02 httpfront answers daynight, hw_state and health.cgi (`src/httpfront/poll.h`) — `to test`
 - **What:** with `HTTPFRONT_NATIVE=1` (the default since rc28), `httpfront` now also answers by itself, without httpd and `sh`, the polled reads: `GET /cgi-bin/state.cgi?cmd=daynight&format=json` (Settings -> Day/night, every 5 s), `GET /cgi-bin/action.cgi?cmd=hw_state&format=json` (Hardware page, every 2 s), and `GET /cgi-bin/health.cgi` (when `/tmp/health_snapshot.cache` is fresh within TTL). Same JSON as the CGI byte for byte, same Basic login (no or wrong login: httpd answers as before). Anything it cannot print exactly as the shell does goes to httpd and the CGI: no `format=json` in the query, a `%XX` / `+` in `cmd` or `format`, a number with a leading zero or too long in `/tmp/cam_ae`, a value ending in `=`; for `hw_state` also a missing `/tmp/csrf_token`, no `/tmp/log`, `/tmp/log/audit.log` over 64 KB (the CGI rotates it), a pid file that is not one number; for `health.cgi` also a missing, expired, or > 1536-byte `/tmp/health_snapshot.cache`. `daynight` reads the files at each request and writes nothing (the CGI keeps its answer 1 s in `/tmp/state-response-daynight-json.cache`). `hw_state` appends the same line as `audit_log` of `action.cgi` to `/tmp/log/audit.log` (`<epoch> cmd=hw_state ip=<client>`). Host tests: `tests/test_httpfront_poll.py` (CGI under busybox ash against the native route on twin trees).
