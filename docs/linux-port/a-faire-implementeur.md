@@ -1,9 +1,63 @@
-# Liste de l'implémenteur — état courant au 2026-11-14
+# Liste de l'implémenteur — état courant au 2026-11-15 (3.0.1)
 
 Les sections datées qui suivent sont des notes historiques des RC précédentes ; leurs cases non cochées ne forment pas
 à elles seules le backlog courant. L'état terrain ci-dessous et les entrées les plus récentes de `test-queue.md` font
 foi. La liste d'origine date de rc25 ; les audits des 3, 4 et 6 novembre sont des instantanés, pas des listes de tâches
 à jour.
+
+## Après 3.0.1 : plafond et polissage (bilan du 2026-11-15 10:15, demande du propriétaire)
+**Bilan :** fluidité, stabilité et Wi-Fi sont près du maximum. Plafond matériel atteint, **ne pas y retourner** : CPU
+ARM 400 MHz (même PLL que la DDR, voir plus bas), 64 Mo de RAM, Wi-Fi 2,4 GHz 1T1R, options de l'encodeur (SAO, AMP,
+tranches multiples, plage de recherche : peu ou pas de gain, risque de blocage), capteur (22 i/s de jour en pièce
+sombre = exposition au maximum de la trame, 1124 / 1125 lignes, pas un défaut). Il reste **un seul levier important**
+(T1) et du polissage. Chaque point : vérifier qu'il n'est pas déjà fait (git log, autre agent), mesurer avant / après
+sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
+
+### A. Le dernier levier important
+- [ ] **T1, contrôle QP par bloc de l'encodeur libre (banc).** Hypothèse Fable ([réponse](frontier/encoder-2026-11-15-reponse.md)) :
+  le tampon « tables » 0x4040 est le tampon de contrôle QP du cœur Allegro (QP min / max câblés 25-48, 36 pour l'IDR,
+  puis une carte QP par bloc). Si c'est le cas : saut forcé des blocs immobiles la nuit, zone d'intérêt mieux codée,
+  moins de débit à netteté égale. **Banc d'abord** (`src/h265enc/fetest.c`, une valeur à la fois, retour à la valeur du
+  vendeur au moindre `picture failed`) ; jamais en défaut avant 24 h sur les deux caméras. Gain : le seul qui change
+  nettement le rapport image / débit. Incertain.
+
+### B. Polissage visible
+- [ ] **Image de nuit (ISP) :** réduction de bruit par niveau de gain (NR1 / NR2, niveaux 512-1024 et au-delà) et netteté
+  sous IR, dans le fichier de réglage (`isp_tune.conf` / `DENOISE=`, attention HW-09 : ajouter la ligne si elle manque).
+  Mesure : instantanés de nuit avant / après au même endroit, `STAT bytes` (un bruit plus faible = aussi moins de
+  débit). Attendu : moins de fourmillement, visages un peu plus lisibles ; pas de miracle.
+- [ ] **Couleurs justes dès l'allumage (AWB-05) :** démarrer le mode manuel depuis les gains sauvegardés (`white balance:
+  starting from saved gains rex / bex`) quand ils sont récents et du même mode jour / nuit, au lieu de 10 s d'automatique
+  de l'ISP (`AWB_MANUAL_AFTER`, `awb_manual_start` dans `tc100_rtsp.c`) ; garder les 10 s si aucun gain valable.
+- [ ] **Fausse bascule en jour après un redémarrage vidéo :** ignorer les compteurs AWB ~30 s après le départ de la vidéo
+  (pic des compteurs au redémarrage de l'ISP ; supervisord C et `auto-night-daemon.sh`). Doublon de l'entrée de la
+  nuit du 15/11 plus bas : une seule correction.
+- [ ] **Bascules jour / nuit à l'aube et au crépuscule :** relire `daynight.log` sur plusieurs jours des deux caméras ;
+  si un aller-retour apparaît quand la lumière hésite, élargir l'hystérésis ou le `MIN_SWITCH` (sans toucher aux défauts
+  validés si aucun aller-retour n'est vu).
+- [ ] **Interface web :** passer en C dans `httpfront` (comme NATIVE-02, `src/httpfront/poll.h`) les dernières lectures
+  encore servies par un CGI shell sur l'onglet Réglages (`fullconfig`, `state.cgi` hors `daynight`). Gain : quelques
+  dixièmes de seconde par page. Même JSON octet pour octet, tests à deux arbres comme `test_httpfront_poll.py`.
+
+### C. Polissage invisible (robustesse, ressources)
+- [ ] **Sauvegarde des réglages 5,4 s → ~1 s (`cfg-persist`) :** la boucle par fichier (~180 forks `cmp` / `md5sum` /
+  `cat`) remplacée par un seul `md5sum` sur tous les fichiers, comparé à la liste de la dernière sauvegarde.
+- [ ] **Une deuxième instance de `tc100_rtsp` ne touche pas au cœur de l'encodeur** avant d'avoir la capture
+  (`fe_hw_init` dans `fe_init` avant `REQBUFS`) : vu le 15/11, le watchdog de service relançait le binaire d'origine
+  pendant un test en RAM, chaque essai faisait perdre une image à l'instance en marche. Ouvrir la capture (ou un verrou
+  `/var/run`) avant la remise à zéro.
+- [ ] **Débit des enregistrements :** valider le mode smart sur 24 h (ENC-02 point 3, `smart=1` sur la .11 depuis
+  3.0.1) ; attendu -10 à -30 % sur une scène calme pour Frigate. Puis décider du défaut `smart` pour toutes.
+- [ ] **Tampon du sous-flux 128 Ko (`RTSP_FE_SUBBUF=1`) :** test ENC-02 point 1 avec le propriétaire (VLC sur le
+  sous-flux) ; s'il passe, en faire le défaut.
+- [ ] **Démarrage :** 3.0.1 sur la .11 : `network_ready` 17,7 s, `rtsp_launched` 25,0 s, `web_ready` 26,3 s,
+  `boot_complete` 70,6 s : le critère `rtsp_launched` ~25 s est atteint. Ne gagner sur 26 → 70 s que si c'est gratuit
+  (lire `/tmp/boot-trace.txt`, déplacer après la vidéo ce qui ne sert pas au flux).
+- [ ] **Annulation d'écho (`RTSP_AUDIO_AEC=1`) :** codée, jamais validée (AEC-01, conversation réelle avec le propriétaire).
+
+### Ce que le polissage ne changera pas
+Définition et sensibilité du capteur, portée du Wi-Fi, nombre de clients simultanés, latence du flux (déjà proche du
+minimum). Résultat attendu : une caméra plus régulière et plus soignée, pas plus puissante.
 
 ## Optimisation « top level » : ce qui reste à gagner (bilan du 2026-11-14 16:30, demande du propriétaire)
 Bilan : le matériel est exploité (encodeur matériel H.264 / H.265 par l'encodeur libre, sous-flux ISP, 3D-NR, OSD ISP,
