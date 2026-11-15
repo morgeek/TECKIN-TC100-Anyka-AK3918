@@ -62,6 +62,16 @@ micro inactif sans DSP, MQTT / présence sans fork). Mesurer avant / après sur 
   choisir la valeur par défaut de nuit.
 
 ### 3. Débit vidéo : VBR / smart réellement efficaces
+- **15/11 : revue Fable de l'encodeur libre** ([réponse](frontier/encoder-2026-11-15-reponse.md)). À faire, dans l'ordre :
+  1. **R1** le budget par image utilise les 25 i/s configurés même à 10 i/s la nuit (d'où les 64 kbit / image mesurés) :
+     `fe_set_fps()` appelé au changement de cadence, GOP compté en temps ;
+  2. **R2** une image trop grosse échoue en boucle (pas de `rc_done`, même QP au prochain IDR) : QP +6 sur dépassement,
+     tampon du sous-flux 57 → 128 Ko, taille d'IDR plafonnée (~0,4 s du plafond) ;
+  3. **R3** en mode smart, le plancher QP (29) est mort avec `RTSP_VBR_QP=33` : coder l'IDR 4-5 QP sous les P à la place ;
+  4. **T1** (banc) vérifier que le tampon « tables » 0x4040 est le tampon de contrôle QP Allegro (QP min/max câblés 25-48 /
+     36 pour l'IDR, puis carte QP par bloc : ROI, saut forcé des blocs immobiles la nuit) — plus gros gain potentiel ;
+  5. **L1 + L2** escalade sur échecs répétés (réouverture, puis sortie pour le superviseur) et bascule de `cur` après échec.
+  À ne pas faire : SAO, AMP, tranches multiples, plage de recherche (peu ou pas de gain, risque de blocage).
 - **MIS À JOUR 14/11 soir : cause trouvée.** Mesuré sur la .24 : ~64 kbit par image quelle que soit la scène (le budget
   1600 / 25) : VBR = CBR. `rc.h` : la QP « qualité » de VBR est `qmin + 2` = 27, trop basse pour qu'une image coûte moins
   que le budget. **À faire (après choix du propriétaire) :** QP qualité réglable (`RTSP_VBR_QP`, défaut proposé 33),
@@ -467,6 +477,7 @@ le fichier dans une nouvelle conversation, sans autre consigne que « réponds �
 | `rtsp` | Programme vidéo : 6,5 % de CPU du fil principal qui ne suit pas le nombre d'images (micro, réveils, tâches à la seconde), coût système par paquet RTP, défauts de page par image | ~7 300 tokens | Relevé du 11/11 ([résumé](frontier/data/rtsp-2026-11-11.md)) ; mieux après une ligne `PROF` (relance de `tc100_rtsp` avec `RTSP_PROFILE=1`, accord du propriétaire) | **Répondu le 11/11, vérifié** : micro traité sans utilisateur (confirmé, correctif après mesure), 2 copies par paquet RTP (confirmé), attente par paquet écartée ; 4 mesures à faire avec accord ([bilan](frontier/rtsp-2026-11-11.md)) |
 | `background` | Scripts de fond : 78 à 100 nouveaux processus par minute, ~3-4 % de CPU invisible ; compter les forks par tâche et les retirer sans changer les sorties | ~9 000 tokens | Relevé du 11/11 ([résumé](frontier/data/background-2026-11-11.md)) | **Répondu le 11/11, vérifié** : ~13 forks par minute retirés de `wifi-quality.sh` et `wifi-roam.sh` (sorties identiques, testées) ; `health-snapshot.sh` et le pont MQTT à reprendre ([bilan](frontier/background-2026-11-11.md)) |
 | `wifi-stall` (hors `brief.py`) | Blocage d'émission Wi-Fi de 4-5 s de la .11 : où les trames attendent-elles, avec les compteurs 0020 / 0021 | sources v6.6 + [données](frontier/data/wifi-stall-counters-2026-11-14.md) | Compteurs de la rc43 | **Répondu le 14/11** (Fable 5.2, lecture seule) : tampon de réordonnancement de la box ou ADDBA, interrupteur `ampdu_tx` proposé ([réponse](frontier/wifi-stall-2026-11-14-reponse.md)) ; à tester |
+| `encoder` (hors `brief.py`) | Revue de l'encodeur libre H.264 / H.265 (`src/h265enc/`, `freeenc.h`, `rc.h`) | code + mesures du 14/11 | rc44 | **Répondu le 15/11** (Fable 5.2, lecture seule) : 5 corrections classées ([réponse](frontier/encoder-2026-11-15-reponse.md)) |
 
 **Ce qu'on ne confie pas à ce modèle :** le câblage d'un réglage dans plusieurs fichiers, la doc, les tests, la CI,
 l'exploration du dépôt, les sessions caméra. Ce travail est mécanique et l'implémenteur le fait pour bien moins cher.
