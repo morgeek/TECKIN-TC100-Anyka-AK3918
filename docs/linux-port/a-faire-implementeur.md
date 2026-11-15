@@ -26,9 +26,9 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
   sous IR, dans le fichier de réglage (`isp_tune.conf` / `DENOISE=`, attention HW-09 : ajouter la ligne si elle manque).
   Mesure : instantanés de nuit avant / après au même endroit, `STAT bytes` (un bruit plus faible = aussi moins de
   débit). Attendu : moins de fourmillement, visages un peu plus lisibles ; pas de miracle.
-- [ ] **Couleurs justes dès l'allumage (AWB-05) :** démarrer le mode manuel depuis les gains sauvegardés (`white balance:
+- [x] **Couleurs justes dès l'allumage (AWB-05) :** démarrer le mode manuel depuis les gains sauvegardés (`white balance:
   starting from saved gains rex / bex`) quand ils sont récents et du même mode jour / nuit, au lieu de 10 s d'automatique
-  de l'ISP (`AWB_MANUAL_AFTER`, `awb_manual_start` dans `tc100_rtsp.c`) ; garder les 10 s si aucun gain valable.
+  de l'ISP (`AWB_MANUAL_AFTER`, `awb_manual_start` dans `tc100_rtsp.c`) ; garder les 10 s si aucun gain valable (`AWB-05-SAVED`).
 - [x] **Fausse bascule en jour après un redémarrage vidéo :** ignorer les compteurs AWB ~30 s après le départ de la vidéo
   (pic des compteurs au redémarrage de l'ISP ; supervisord C et `auto-night-daemon.sh`, `AWB_RESTART_IGNORE=30`, POLISH-01). Doublon de l'entrée de la
   nuit du 15/11 plus bas : une seule correction.

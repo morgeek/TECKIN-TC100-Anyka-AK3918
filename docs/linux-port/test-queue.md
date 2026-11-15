@@ -53,6 +53,13 @@ HW-09 night part, the patch 0003 `finish_request_epx` fix (a-faire-implementeur.
 (just below, 2026-11-15), and the
 older `to test` entries below.
 
+### AWB-05-SAVED Instant manual white balance from saved gains (`[awb]`) — `to test`
+
+- **What:** `src/tc100rtsp/tc100_rtsp.c` (`awb_state_save`, `awb_state_load`, `awb_hw_init`): `/mnt/config/awb.state` now stores `ex_r ex_b mwb_r mwb_g mwb_b bw_want timestamp` (backwards-compatible with 2-number files). When `awb_hw_init()` finds recent (`<= 6 h`, or pre-NTP boot with wall-clock `awb.state`) manual gains from the same day/night mode (`sbw == bw_want`), it enters ISP manual mode (`ISP_SET_WB_TYPE=0`, `ISP_SET_MWB`) immediately instead of running 10 s of ISP automatic mode (`AWB_MANUAL_AFTER`). Falls back to the 10 s auto warmup when missing, stale, or day/night differs.
+- **Switch to turn it off:** `RTSP_AWB_STATE=0` (disables loading/saving `awb.state`) or `RTSP_AWB_MANUAL=0` (keeps ISP automatic mode).
+- **Test:** On a camera with `awb.state` written after settling in day mode, run `controlscripts/rtsp-h26x restart` and check `/tmp/logs/tc100_rtsp.log` for `white balance: ISP in manual mode from saved gains` at startup, then check a snapshot within the first 5 s.
+- **Pass criteria:** Immediate manual mode from saved gains on restart in the same day/night mode (no 10 s auto color shift); 10 s auto fallback when `awb.state` is removed or stale.
+
 ### POLISH-01 Post-3.0.1 safe polish: cfg-persist single md5sum, AWB restart ignore, fe_hw_init guard, native fullconfig/isp_tune (`[polish]`) — `to test`
 
 - **What:**

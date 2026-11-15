@@ -2157,6 +2157,69 @@ class IspAwbHysteresis(unittest.TestCase):
         self.assertLess(req_pos, hw_pos)
         self.assertLess(hw_pos, src.index('S[0].enc = p_open('))
 
+    def test_awb05_saved_manual_gains(self):
+        src = (SRC / 'tc100_rtsp.c').read_text()
+        self.assertIn('#define AWB_STATE_MAX_AGE (6 * 3600)', src)
+        self.assertIn('if (awb_manual && !mwb_r && awb_loaded_mr)', src)
+        fn_load = src[src.index('static const char *awb_next_tok'):src.index('static void awb_hw_init(void)')]
+        atoi_fn = src[src.index('static int atoi_(const char *s)'):src.index('static void sscanf_4')]
+        harness = """
+#include <stdio.h>
+#include <string.h>
+#include <time.h>
+static int awb_state_on = 1, awb_max = 1536, ex_r = 256, ex_b = 256;
+static int awb_saved_r = 256, awb_saved_b = 256, bw_want = 0;
+static int awb_manual = 1, mwb_r, mwb_g, mwb_b;
+static int awb_loaded_mr, awb_loaded_mg, awb_loaded_mb, awb_saved_mwb, awb_saved_bw = -1;
+#define AWB_STATE_MAX_AGE (6 * 3600)
+#define LOG(...) do {} while (0)
+static char fake_path[256];
+static int wfile(const char *p, const void *d, size_t n) { (void)p; FILE *f = fopen(fake_path, "w"); if (!f) return -1; fwrite(d, 1, n, f); fclose(f); return 0; }
+static FILE *fopen_wrap(const char *p, const char *m) { (void)p; return fopen(fake_path, m); }
+#define fopen fopen_wrap
+""" + atoi_fn + fn_load + """
+#undef fopen
+int main(int argc, char **argv) {
+    snprintf(fake_path, sizeof fake_path, "%s", argv[1]);
+    time_t now = time(NULL);
+    FILE *f = fopen(fake_path, "w");
+    fprintf(f, "280 310 350 264 420 0 %lld\\n", (long long)(now - 60));
+    fclose(f);
+    awb_state_load();
+    printf("RECENT mr=%d mg=%d mb=%d ex=%d/%d\\n", awb_loaded_mr, awb_loaded_mg, awb_loaded_mb, ex_r, ex_b);
+
+    f = fopen(fake_path, "w");
+    fprintf(f, "280 310 350 264 420 1 %lld\\n", (long long)(now - 60));
+    fclose(f);
+    awb_state_load();
+    printf("NIGHT_MISMATCH mr=%d ex=%d/%d\\n", awb_loaded_mr, ex_r, ex_b);
+
+    f = fopen(fake_path, "w");
+    fprintf(f, "280 310 350 264 420 0 %lld\\n", (long long)(now - 7 * 3600));
+    fclose(f);
+    awb_state_load();
+    printf("STALE mr=%d ex=%d/%d\\n", awb_loaded_mr, ex_r, ex_b);
+
+    f = fopen(fake_path, "w");
+    fprintf(f, "275 305\\n");
+    fclose(f);
+    awb_state_load();
+    printf("LEGACY mr=%d ex=%d/%d\\n", awb_loaded_mr, ex_r, ex_b);
+    return 0;
+}
+"""
+        with tempfile.TemporaryDirectory() as t:
+            cfile = Path(t, 'awb_state.c')
+            binf = Path(t, 'awb_state')
+            statef = Path(t, 'awb.state')
+            cfile.write_text(harness)
+            subprocess.run(['gcc', '-Wall', '-Wextra', '-o', str(binf), str(cfile)], check=True)
+            out = subprocess.run([str(binf), str(statef)], capture_output=True, text=True, check=True).stdout
+        self.assertIn('RECENT mr=350 mg=264 mb=420 ex=280/310', out)
+        self.assertIn('NIGHT_MISMATCH mr=0 ex=280/310', out)
+        self.assertIn('STALE mr=0 ex=280/310', out)
+        self.assertIn('LEGACY mr=0 ex=275/305', out)
+
 
 if __name__ == '__main__':
     unittest.main()

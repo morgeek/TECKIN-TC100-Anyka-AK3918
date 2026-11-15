@@ -574,6 +574,8 @@ struct isp_wb_stat { unsigned int R[10], G[10], B[10], cnt[10]; unsigned short r
 #define ISP_GET_AWB_STAT _IOR('I', 89, int)
 #define ISP_SET_MWB _IOW('I', 99, int)
 static int awb_manual = 1, mwb_r, mwb_g, mwb_b;	/* awb_manual: wanted; mwb_*: the base (the ISP's automatic gains at start) */
+static int awb_loaded_mr, awb_loaded_mg, awb_loaded_mb, awb_saved_mwb, awb_saved_bw = -1;
+#define AWB_STATE_MAX_AGE (6 * 3600)
 static int awb_manual_on(void)
 {
 	struct isp_wb_stat st;
@@ -651,21 +653,47 @@ static void awb_attr_apply(void)
 	ioctl(awb_fd, ISP_SET_AWB, &a);
 }
 
+static const char *awb_next_tok(const char *s)
+{
+	while (*s && *s != ' ') s++;
+	while (*s == ' ') s++;
+	return s;
+}
+
 static void awb_state_load(void)
 {
 	FILE *f;
-	char buf[32], *q;
-	int r = 0, b = 0;
+	char buf[96];
+	const char *q;
+	int r = 0, b = 0, mr = 0, mg = 0, mb = 0, sbw = -1;
+	long long sts = 0;
 
+	awb_loaded_mr = awb_loaded_mg = awb_loaded_mb = 0;
 	if (!awb_state_on || !(f = fopen("/mnt/config/awb.state", "r"))) return;
 	/* no fscanf: glibc headers turn it into __isoc23_fscanf, which uClibc does not have */
 	if (fgets(buf, sizeof buf, f)) {
 		r = atoi_(buf);
 		q = strchr(buf, ' ');
-		if (q) b = atoi_(q + 1);
+		if (q) {
+			b = atoi_(q + 1);
+			q = awb_next_tok(q + 1);
+			if (*q) { mr = atoi_(q); q = awb_next_tok(q); }
+			if (*q) { mg = atoi_(q); q = awb_next_tok(q); }
+			if (*q) { mb = atoi_(q); q = awb_next_tok(q); }
+			if (*q) { sbw = atoi_(q); q = awb_next_tok(q); }
+			while (*q >= '0' && *q <= '9') sts = sts * 10 + (*q++ - '0');
+		}
 		if (r >= 128 && r <= awb_max && b >= 128 && b <= awb_max) {
+			time_t now = time(NULL);
+			int recent = sts > 0 && ((now >= 1700000000L && sts >= 1700000000L && now >= sts && now - sts <= AWB_STATE_MAX_AGE) ||
+			                         (now < 1700000000L && sts >= 1700000000L) ||
+			                         (now < 1700000000L && sts < 1700000000L && now >= sts && now - sts <= AWB_STATE_MAX_AGE));
 			ex_r = awb_saved_r = r;
 			ex_b = awb_saved_b = b;
+			if (mr >= 1 && mr <= 4095 && mg >= 1 && mg <= 4095 && mb >= 1 && mb <= 4095 && sbw == bw_want && recent) {
+				awb_loaded_mr = mr; awb_loaded_mg = mg; awb_loaded_mb = mb;
+				awb_saved_mwb = 1; awb_saved_bw = sbw;
+			}
 			LOG("white balance: starting from saved gains rex %d bex %d\n", ex_r, ex_b);
 		}
 	}
@@ -676,21 +704,25 @@ static void awb_state_save(void)
 {
 	static time_t last_save;
 	time_t now;
-	char buf[32];
+	char buf[96];
 	int n, dr = ex_r - awb_saved_r, db = ex_b - awb_saved_b;
+	int need_mwb = awb_manual && mwb_r && (!awb_saved_mwb || awb_saved_bw != bw_want);
 
 	if (!awb_state_on) return;
 	if (dr < 0) dr = -dr;
 	if (db < 0) db = -db;
-	if (dr < 8 && db < 8) return;
+	if (dr < 8 && db < 8 && !need_mwb) return;
 	now = time(NULL);
 	if (last_save && now - last_save < 120) return;
 	last_save = now;
-	n = snprintf(buf, sizeof buf, "%d %d\n", ex_r, ex_b);
+	n = snprintf(buf, sizeof buf, "%d %d %d %d %d %d %lld\n",
+	             ex_r, ex_b, mwb_r, mwb_g, mwb_b, bw_want, (long long)now);
 	if (n > 0 && n < (int)sizeof buf) {
 		wfile("/mnt/config/awb.state", buf, (size_t)n);
 		awb_saved_r = ex_r;
 		awb_saved_b = ex_b;
+		awb_saved_mwb = awb_manual && mwb_r > 0;
+		awb_saved_bw = bw_want;
 	}
 }
 
@@ -719,6 +751,18 @@ static void awb_hw_init(void)
 	if (awb_hw_set() < 0) { LOG("white balance: the ISP refused its extra gains: software\n"); close(awb_fd); awb_fd = -1; return; }
 	awb_hw = 1;
 	{ const char *ma = getenv("RTSP_AWB_MANUAL"); if (ma && ma[0] == '0') awb_manual = 0; }
+	if (awb_manual && !mwb_r && awb_loaded_mr) {
+		mwb_r = awb_loaded_mr; mwb_g = awb_loaded_mg; mwb_b = awb_loaded_mb;
+		if (awb_manual_on() == 0) {
+			awb_hw_set();
+			LOG("white balance: ISP in manual mode from saved gains r %d g %d b %d (rex %d bex %d)\n",
+			    mwb_r, mwb_g, mwb_b, ex_r, ex_b);
+		} else {
+			mwb_r = mwb_g = mwb_b = 0;
+			awb_manual = 0;
+			LOG("white balance: the ISP refused the manual mode: its automatic mode stays, with extra gains\n");
+		}
+	}
 	/* AWB-05: the manual mode starts after AWB_MANUAL_AFTER samples (awb_manual_start, from post_awb_sample): at the first
 	 * sample the ISP still shows its seed gains (r 429 g 418 b 256 on the .11, 2026-11-14; its converged result was about
 	 * r 291-360 g 264 b 301-461), and the loop then needed 2 minutes to bring the picture back to neutral */
