@@ -154,9 +154,9 @@ SERIAL_CONSOLE=auto
 # RTSP encoder mode is configured in rtspserver.conf [0]: vbr=0|1 and smart=0|1|2 apply to both streams by default
 # (both default 0; Smart requires vbr=1). RTSP_VBR_SUB / RTSP_SMART_SUB in rtsp.env can explicitly override the
 # sub-stream. Both act on the free encoder: vbr=1 makes the bit rate a ceiling (quality first), smart=1|2 (2 is treated
-# as 1) lengthens the GOP and raises the lowest QP while the scene is still (needs motion detection on; the recorded
-# stream and the browser live view keep the fixed GOP). RTSP_FE_SMART_GOP (default 250, at most 300) and
-# RTSP_FE_SMART_QP (default 4) in rtsp.env tune it.
+# as 1) lengthens the GOP and codes its keyframes at a lower QP while the scene is still (needs motion detection on; the
+# recorded stream and the browser live view keep the fixed GOP). RTSP_FE_SMART_GOP (default 250, at most 300) and
+# RTSP_FE_SMART_QP (default 4, 2 to 5: the keyframe's QP below the P pictures) in rtsp.env tune it.
 # VM_TUNE=1: kernel memory settings for this 64 MB camera (vm.vfs_cache_pressure=150, vm.dirty_background_ratio=5,
 # vm.dirty_ratio=10: cached file names are given back sooner, the card's writes start earlier in the background).
 # No data is at risk. 0 = the kernel's defaults. Takes effect at the next start.

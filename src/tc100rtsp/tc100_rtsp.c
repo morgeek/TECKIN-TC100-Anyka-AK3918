@@ -147,6 +147,7 @@ static void save_frame(int k, const void *d, unsigned len)
 }
 
 static void on_sig(int s) { (void)s; run = 0; }
+static int exit_code;	/* not 0: the server leaves by itself (the free encoder gives no pictures), the service watchdog starts it again */
 
 /* ---- web UI pictures from the hardware JPEG engine (same files as tc100_streamer) ---- */
 #define JSTREAM 0x7e900
@@ -178,6 +179,7 @@ static int jpeg_init(void)
  * headers and rate control: no libakv_encode / libmpi_venc_ex / libplat_* (not even loaded). libakuio stays (the
  * pool, the interrupt wait). Any other main size or codec: the vendor library as before (logged). */
 static int free_enc;
+static int enc_rate, fe_fps_on = 1;	/* ENC-02: the capture rate in use, given to the free encoders (RTSP_FE_FPS=0: not given, as before) */
 static struct fe_env fe_env;
 
 static void *fe_p_open(const struct venc_param *pa)
@@ -224,8 +226,8 @@ static int fe_p_send(void *h, unsigned char *frame, unsigned int len, struct vid
 	(void)len;
 	if (!pa || fe_encode(e, pa, &d, &n, &idr)) {
 		if (e->fails < 5 || e->fails % 100 == 0) {
-			LOG("free encoder: %s picture failed (%u so far; source %08x, length %u, status %08x, 0x8300 %08x)\n", e->hevc ? "H.265" : "H.264",
-			    e->fails, pa, e->last_len, e->last_status, fe_env.regs[0x8300 / 4]);
+			LOG("free encoder: %s picture failed (%u so far, %u larger than the %u-byte stream buffer, P QP now %d; source %08x, length %u, status %08x, 0x8300 %08x)\n", e->hevc ? "H.265" : "H.264",
+			    e->fails, e->overs, e->stream_alloc - 2 * FE_STREAM_HEAD, e->rc.qp, pa, e->last_len, e->last_status, fe_env.regs[0x8300 / 4]);
 			LOG("free encoder: before: 8300 %08x 8014 %08x; wait %d; after: 8018 %08x 801c %08x 8300 %08x\n",
 			    e->dbg[0], e->dbg[1], (int)e->dbg[2], e->dbg[3], e->dbg[4], e->dbg[5]);
 		}
@@ -245,7 +247,7 @@ static int fe_p_close(void *h)
 	struct fe_enc *e = h;
 
 	if (e) {
-		LOG("free encoder: %s closed after %u pictures (%u bytes, %u failed)\n", e->hevc ? "H.265" : "H.264", e->pictures, e->bytes, e->fails);
+		LOG("free encoder: %s closed after %u pictures (%u bytes, %u failed, %u of them too large)\n", e->hevc ? "H.265" : "H.264", e->pictures, e->bytes, e->fails, e->overs);
 		fe_close(e);
 		free(e);
 	}
@@ -280,6 +282,13 @@ static int fe_setup(void)
 	fe_env.reset = (void (*)(void))dlsym(RTLD_DEFAULT, "akuio_reset_video");
 	if (!p_v2p || !p_wait || !fe_env.alloc || !fe_env.release) return -1;
 	p_open = fe_p_open; p_send = fe_p_send; p_release = fe_p_release; p_close = fe_p_close; p_set_br = fe_p_set_br;
+	{	/* ENC-02: the 640x360 stream buffer is 128 KB; RTSP_FE_SUBBUF=0 = the vendor's 57 KB */
+		const char *sb = getenv("RTSP_FE_SUBBUF");
+
+		if (sb && sb[0] == '0') fe_sub_stream(FE_SUB_STREAM_VENDOR);
+		sb = getenv("RTSP_FE_FPS");
+		fe_fps_on = !(sb && sb[0] == '0');
+	}
 	fe_hw_init(&fe_env);	/* a clean core (the reset bit) whatever the previous user left */
 	return 0;
 }
@@ -3578,8 +3587,8 @@ static void smart_setup(struct strm *s)
 	if (!free_enc) { LOG("encoder %s: smart mode needs the free encoder: not set\n", s->name); return; }
 	if (!s->pa.rc_vbr) { LOG("encoder %s: smart mode needs VBR (vbr=1): not set\n", s->name); return; }
 	s->smart = fe_set_smart(s->enc, 1, gl, qx, ms);
-	LOG("encoder %s: smart mode on: GOP %d to %d frames and QP floor +%d on a still scene\n", s->name, s->pa.gop,
-	    ((struct fe_enc *)s->enc)->gop_long, qx);
+	LOG("encoder %s: smart mode on: GOP %d to %d frames and keyframes %d QP below the P pictures on a still scene\n", s->name, s->pa.gop,
+	    ((struct fe_enc *)s->enc)->gop_long, ((struct fe_enc *)s->enc)->idr_extra);
 }
 
 static int strm_reopen(struct strm *s)
@@ -4376,6 +4385,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 					LOG("idle frame rate: %s\n", was_idle ? "lowered" : "back to the full rate");
 					if (was_idle) LOG("idle frame rate: %d fps instead of %d\n", idle_fps, fps);
 				}
+				enc_rate = fr < cap_fps_now() ? fr : cap_fps_now();	/* ENC-02: the rate the encoders really get (night set, low light, idle) */
 				iv = 1.0 / fr;
 				if (tq < due - iv * 0.3) {
 					if (was_idle) md_frame(vb[b.index], tq);	/* the motion check keeps its 4 samples a second */
@@ -4435,19 +4445,28 @@ unsigned char *fpb[2] = { NULL, NULL };
 				struct strm *s = &S[k];
 
 				if (!s->active || !s->enc || !free_enc) continue;
+				struct fe_enc *fe = s->enc;
+
 				if (s->idr_want) { s->idr_want = 0; fe_want_idr(s->enc); }
+				/* ENC-02: every free encoder gets the clock and the capture rate in use (budget per picture, GOP in time) */
+				fe_set_time(fe, (uint32_t)(uint64_t)(t_frame * 1000.0));	/* through uint64_t: wraps after 49.7 days (a double above 2^32 is undefined as uint32_t) */
+				if (fe_fps_on) {
+					int was_fps = fe->fps_now;
+
+					fe_set_fps(fe, enc_rate);
+					if (fe->fps_now != was_fps)
+						LOG("free encoder %s: capture rate %d fps (configured %d): %ld bytes per picture\n", s->name, fe->fps_now, fe->fps, (long)fe->rc.budget);
+				}
 				if (s->smart) {
 					/* the fixed GOP stays on the recorded stream while recording is configured (rec.c starts and rotates
 					 * files on keyframes, 128 samples a fragment, one thumbnail per GOP) and while the browser live
 					 * view reads the stream (livemp4.c drops after 10 s without a keyframe) */
 					int fixed = (rec_mode != REC_OFF && k == rsi) || live_wants(k) || lossy[k];
 					double last = md_tlast > snd_t ? md_tlast : snd_t;
-					struct fe_enc *fe = s->enc;
 					int was = fe->still;
 
 					int moving = md_motion || t_frame - last <= 8.0;
 
-					fe_set_time(fe, (uint32_t)(uint64_t)(t_frame * 1000.0));	/* through uint64_t: wraps after 49.7 days (a double above 2^32 is undefined as uint32_t) */
 					fe_set_still(fe, !fixed && md_on && !moving);
 					/* RTSP_MD_ENC: a floor released WITHOUT motion (recording, live view, a lossy client, smart off) makes the
 					 * pictures bigger without a cause: the mean starts again. Released by motion: kept, or the next motion P frame
@@ -4535,7 +4554,29 @@ unsigned char *fpb[2] = { NULL, NULL };
 				clock_gettime(CLOCK_MONOTONIC, &tb); enc_us += (tb.tv_sec - ta.tv_sec) * 1000000L + (tb.tv_nsec - ta.tv_nsec) / 1000; }
 				s->nsent++;
 				if (r || !st.data || !st.len) {
-					if (k && ++s->fails >= 50) sub_off("the encoder gives no frames");
+					int act;
+
+					s->fails++;
+					if (k && s->fails >= 50) { sub_off("the encoder gives no frames"); continue; }
+					/* ENC-02: the free encoder gives nothing, several pictures in a row (a picture without interrupt takes 2 s):
+					 * every 5 the core is reset and the encoder opened again; after 30 on the main stream the server leaves
+					 * with status 3 and the service watchdog starts it again (one restart per check, its usual error count) */
+					act = free_enc ? fe_fail_action((int)s->fails, !k) : FE_FAIL_NONE;
+					if (act == FE_FAIL_EXIT) {
+						LOG("free encoder: %s: %d pictures failed in a row: the video server stops (status 3), the watchdog starts it again\n", s->name, (int)s->fails);
+						exit_code = 3; run = 0;
+					} else if (act == FE_FAIL_REOPEN) {
+						int row = (int)s->fails;
+
+						LOG("free encoder: %s: %d pictures failed in a row: core reset, encoder closed and opened again\n", s->name, row);
+						fe_hw_init(&fe_env);
+						if (!strm_reopen(s)) {
+							if (k) { sub_off("the encoder did not open again"); continue; }
+							LOG("ak_venc_open failed\n");
+							exit_code = 3; run = 0;
+						}
+						s->fails = row;	/* strm_reopen starts the count again: this one goes on until a picture comes */
+					}
 					continue;
 				}
 				s->fails = 0;
@@ -4627,5 +4668,5 @@ unsigned char *fpb[2] = { NULL, NULL };
 	aud_close();
 	for (int k = 1; k >= 0; k--) if (S[k].enc) p_close(S[k].enc);
 	LOG("tc100_rtsp: stopped after %lu frames\n", ntot);
-	return 0;
+	return exit_code;
 }

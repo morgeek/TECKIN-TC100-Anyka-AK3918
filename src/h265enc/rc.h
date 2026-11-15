@@ -18,6 +18,15 @@
  * mean stays under the ceiling. rc_set_floor raises the lowest QP (smart mode: still scene, qmin + 4) and releases it
  * (floor 0) at once. CBR (vbr 0, no floor) is unchanged, bit for bit.
  *
+ * 2026-11-15 (ENC-02), all without effect until their setter is called:
+ *   rc_set_rate   the real capture rate (night set 10 fps, idle rate): the budget per picture is kbit/s over THAT rate,
+ *                 and RC_SPREAD / RC_VBR_CREDIT keep their length in time (25 pictures at the configured rate).
+ *   rc_set_idr_cap  an IDR is coded at a QP that keeps it under `cap` bytes, judged from the last IDR (size halves
+ *                 every 6 QP): no I-frame burst far above the ceiling, no IDR near the end of the stream buffer.
+ *   rc_set_idr_offset  the IDR's QP below the P QP (RC_IDR_OFFSET by default; the smart mode's still scene uses more).
+ *   rc_over       a picture did not fit the stream buffer (lost): the next one is coded RC_OVER_STEP QP higher and
+ *                 the buffer's size goes into the virtual buffer, so the same picture cannot fail for ever.
+ *
  * License: GPL-2.0-or-later
  */
 #ifndef RC_H
@@ -32,6 +41,7 @@
 #define RC_IDR_OFFSET	2
 #define RC_VBR_QOFF	2	/* VBR: the quality QP is qmin + 2 */
 #define RC_VBR_CREDIT	25	/* VBR: at most 25 pictures of budget saved up (the next second may use 2x the budget) */
+#define RC_OVER_STEP	6	/* a picture larger than the stream buffer: the next one at +6 QP (half the size) */
 
 struct rc {
 	int qmin, qmax, qp;		/* qp: the next P picture's (VBR: the ceiling's QP, see rc_base) */
@@ -40,8 +50,12 @@ struct rc {
 	int vbr_qp;			/* VBR quality QP override (0 = qmin + RC_VBR_QOFF) */
 	int64_t budget;			/* bytes per picture */
 	int64_t buffer;			/* bytes sent over the budget so far (can be negative) */
-	int idr_qp;
+	int idr_qp;			/* the QP of the last IDR coded */
 	int started;			/* the first picture was coded */
+	int kbps, fps0, fps;		/* the bit rate, the configured rate (rc_init) and the capture rate in use (rc_set_rate) */
+	int spread, credit;		/* RC_SPREAD and RC_VBR_CREDIT at the capture rate in use (the same time) */
+	int idr_off;			/* the IDR's QP below the P QP */
+	int64_t idr_cap, idr_bytes;	/* largest IDR wanted (0: no limit); the size of the last IDR (at idr_qp) */
 };
 
 static inline void rc_init(struct rc *r, int kbps, int fps, int qmin, int qmax, int qp0)
@@ -52,7 +66,25 @@ static inline void rc_init(struct rc *r, int kbps, int fps, int qmin, int qmax, 
 	r->qp = qp0 < qmin ? qmin : qp0 > qmax ? qmax : qp0;
 	r->idr_qp = r->qp - RC_IDR_OFFSET;
 	r->started = 0;
+	r->kbps = kbps; r->fps0 = r->fps = fps > 0 ? fps : 25;
+	r->spread = RC_SPREAD; r->credit = RC_VBR_CREDIT;
+	r->idr_off = RC_IDR_OFFSET; r->idr_cap = 0; r->idr_bytes = 0;
 }
+
+/* a new bit rate and / or capture rate (<= 0: unchanged). The budget per picture follows; the pay-back time and the
+ * VBR credit stay what they are at the configured rate (RC_SPREAD pictures of it), counted in pictures of the new one.
+ * The virtual buffer (bytes) is kept. */
+static inline void rc_set_rate(struct rc *r, int kbps, int fps)
+{
+	if (kbps > 0) r->kbps = kbps;
+	if (fps > 0) r->fps = fps;
+	r->budget = (int64_t)r->kbps * 1000 / 8 / r->fps;
+	r->spread = RC_SPREAD * r->fps / r->fps0; if (r->spread < 4) r->spread = 4;
+	r->credit = RC_VBR_CREDIT * r->fps / r->fps0; if (r->credit < 4) r->credit = 4;
+}
+
+static inline void rc_set_idr_cap(struct rc *r, int64_t bytes) { r->idr_cap = bytes > 0 ? bytes : 0; }
+static inline void rc_set_idr_offset(struct rc *r, int off) { r->idr_off = off < 0 ? 0 : off > 12 ? 12 : off; }
 
 /* 16 * log2(a / b) for a, b > 0, to +-1 */
 static inline int rc_log2x16(int64_t a, int64_t b)
@@ -97,8 +129,14 @@ static inline int rc_base(const struct rc *r)
 static inline int rc_qp(struct rc *r, int idr)
 {
 	if (idr) {
-		r->idr_qp = rc_clamp(r, rc_base(r) - RC_IDR_OFFSET);
-		return r->idr_qp;
+		int q = rc_base(r) - r->idr_off;
+
+		if (r->idr_cap > 0 && r->idr_bytes > 0) {	/* the QP at which the last IDR would have been idr_cap bytes */
+			int l = rc_log2x16(r->idr_bytes, r->idr_cap), qc = r->idr_qp + (6 * l + (l > 0 ? 15 : 0)) / 16;
+
+			if (q < qc) q = qc;
+		}
+		return rc_clamp(r, q);	/* idr_qp is the QP of the last IDR coded (rc_done, rc_over) */
 	}
 	return rc_clamp(r, rc_base(r));
 }
@@ -109,25 +147,37 @@ static inline void rc_done(struct rc *r, int idr, int qp, int64_t bytes)
 	int64_t aim;
 	int d;
 
+	if (idr) { r->idr_bytes = bytes; r->idr_qp = qp; }
 	if (!r->started) {
 		/* start: the first IDR says how big the scene is; a P picture is about 1/RC_IDR_SHARE of it at the same QP
 		 * (IPCAM2: 45 KB IDR, 12 KB P at QP 34-36), so the first P QP is set from it at full gain, and the IDR's
 		 * excess is not paid back (no QP surge in the first second) */
 		r->started = 1;
 		if (idr) {
-			d = 6 * rc_log2x16(bytes / RC_IDR_SHARE, r->budget) / 16 + RC_IDR_OFFSET;
+			d = 6 * rc_log2x16(bytes / RC_IDR_SHARE, r->budget) / 16 + r->idr_off;
 			r->qp = rc_clamp(r, qp + d);
 			return;
 		}
 	}
 	r->buffer += bytes - r->budget;		/* an IDR's excess is paid back by the next pictures */
-	if (r->vbr && r->buffer < -r->budget * RC_VBR_CREDIT) r->buffer = -r->budget * RC_VBR_CREDIT;
+	if (r->vbr && r->buffer < -r->budget * r->credit) r->buffer = -r->budget * r->credit;
 	if (idr) return;
-	aim = r->budget - r->buffer / RC_SPREAD;
+	aim = r->budget - r->buffer / r->spread;
 	if (aim < r->budget / 4) aim = r->budget / 4;
 	d = 6 * rc_log2x16(bytes, aim) * RC_GAIN_NUM / (16 * RC_GAIN_DEN);
 	if (d > RC_STEP) d = RC_STEP;
 	if (d < -RC_STEP) d = -RC_STEP;
 	r->qp = rc_clamp(r, qp + d);
+}
+
+/* a picture coded at `qp` was larger than the stream buffer (`limit` bytes) and is lost: the next picture (an IDR,
+ * the caller forces one) is coded RC_OVER_STEP higher, and the limit is counted as sent */
+static inline void rc_over(struct rc *r, int idr, int qp, int64_t limit)
+{
+	int q = qp + r->idr_off + RC_OVER_STEP;	/* the next picture is an IDR, coded at the P QP - idr_off */
+
+	if (idr) { r->idr_bytes = limit; r->idr_qp = qp; }
+	r->buffer += limit - r->budget;
+	if (q > r->qp) r->qp = rc_clamp(r, q);
 }
 #endif

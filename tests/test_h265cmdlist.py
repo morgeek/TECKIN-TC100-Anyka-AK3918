@@ -257,6 +257,38 @@ class RateControl(unittest.TestCase):
             # a still scene sits at qmin (22) in CBR, whatever the floor machinery does
             self.assertEqual(self.run_rc(b, 1600, 500, 1500, 0)[1][:2], [22, 22])
 
+    def test_enc02_rate_cap_offset_and_oversize(self):
+        """ENC-02 (rctest check): the budget per picture follows the capture rate and the bit rate, RC_SPREAD and
+        RC_VBR_CREDIT keep their time; the IDR size limit; the IDR offset; a picture larger than the buffer raises the
+        QP by 6 per try until it fits and its size is counted"""
+        with tempfile.TemporaryDirectory() as d:
+            out = subprocess.run([self.build(d), 'check'], capture_output=True, text=True, check=True).stdout.splitlines()
+        self.assertEqual(out[0], 'budget25 8000 spread 25 credit 25')
+        self.assertEqual(out[1], 'budget10 20000 spread 10 credit 10')
+        self.assertEqual(out[2], 'budget10at800 10000')
+        self.assertEqual(out[3], 'back 8000 spread 25 credit 25')
+        v = dict(l.split() for l in out[4:8])
+        self.assertEqual(v['idr_first'], '30')                 # VBR quality QP 32 - 2, no IDR seen yet
+        self.assertEqual(v['idr_after_160k'], '36')            # twice the limit: 6 QP more
+        self.assertEqual(v['idr_after_80k'], '36')             # at the limit: stays
+        self.assertEqual(v['idr_after_20k'], '30')             # far below: the usual QP again, not lower
+        self.assertEqual(out[8], 'offset2 2 offset4 4 back 2')
+        tries = [l.split() for l in out if l.startswith('over try')]
+        self.assertEqual([int(t[4]) for t in tries], [30, 36, 42])
+        self.assertEqual(out[-1], 'over fits_after 2 buffer_positive 1')
+
+    def test_enc02_cbr_at_10_fps_meets_the_bit_rate(self):
+        """R1: with the capture rate given (10 fps on an encoder opened for 25) CBR fills the configured bit rate; before,
+        the budget per picture stayed that of 25 fps: 40 % of it (647 kbit/s for 1600 on the cameras)"""
+        with tempfile.TemporaryDirectory() as d:
+            b = self.build(d)
+            for kbps, cplx in ((1600, 20000), (1600, 8000), (250, 4000)):   # within the QP range
+                mean = self.run_rc(b, kbps, 400, cplx, 0, 0, 10)[0]
+                self.assertLess(abs(mean / kbps - 1), 0.06, (kbps, cplx, mean))
+            # VBR stays a ceiling at 10 fps
+            mean = self.run_rc(b, 1600, 400, 20000, 1, 0, 10)[0]
+            self.assertLess(mean, 1600 * 1.06)
+
     def test_vbr_is_a_ceiling_and_quality_first(self):
         with tempfile.TemporaryDirectory() as d:
             b = self.build(d)
@@ -447,9 +479,10 @@ class FreeEnc(unittest.TestCase):
     def tearDownClass(cls):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
-    def run_fe(self, codec, n, qp, gop, *extra):
+    def run_fe(self, codec, n, qp, gop, *extra, env=None):
+        e = dict(os.environ); e.update(env or {})
         out = subprocess.run([self.bin, codec, str(n), str(qp), str(gop)] + [str(x) for x in extra], capture_output=True, text=True,
-                             check=True).stdout
+                             check=True, env=e).stdout
         pics = []
         lines = out.splitlines()
         for a, b in zip(lines[0::2], lines[1::2]):
@@ -562,19 +595,129 @@ class FreeEnc(unittest.TestCase):
         # the default long GOP is 250
         self.assertEqual(self.idrs(self.run_fe('hevc', 520, 30, 50, 'smart', 's' * 520, 0)), [0, 250, 500])
 
-    def test_smart_qp_floor_is_respected_and_released(self):
-        # QP range 30..45; the simulated core codes small pictures, so the rate control goes down to its lowest QP
-        pics = self.run_fe('hevc', 60, 30, 100, 'smart', 's' * 30 + 'm' * 30, 250, 45)
-        still = [self.qp(p) for p in pics[10:30] if not p['idr']]
-        moving = [self.qp(p) for p in pics[40:60] if not p['idr']]
-        self.assertEqual(min(still), 34, still)                  # qmin + 4 while still
-        self.assertEqual(min(moving), 32, moving)                # released: the VBR quality QP (qmin + 2)
-        # the same scene without smart (VBR alone) never uses the floor
-        plain = [self.qp(p) for p in self.run_fe('hevc', 60, 30, 100, 'vbr', 's' * 60, 250, 45)[10:] if not p['idr']]
-        self.assertEqual(min(plain), 32, plain)
-        # CBR: down to qmin
+    def test_smart_still_scene_gets_a_better_keyframe_and_no_floor(self):
+        """ENC-02 (R3): the still state no longer raises the lowest QP (dead with the VBR quality QP at 33); its keyframes
+        are 4 QP below the P pictures instead of 2, and the usual 2 come back with motion"""
+        # QP range 26..45, VBR quality QP 34; the simulated core codes small pictures: the P pictures sit at 34
+        env = {'FE_T_VBRQP': '34'}
+        pics = self.run_fe('hevc', 60, 26, 10, 'smart', 's' * 30 + 'm' * 30, 10, 45, env=env)
+        still_p = {self.qp(p) for p in pics[1:30] if not p['idr']}
+        moving_p = {self.qp(p) for p in pics[31:] if not p['idr']}
+        self.assertEqual(still_p, {34}, still_p)                 # no floor: the same P QP in both states
+        self.assertEqual(moving_p, {34}, moving_p)
+        self.assertEqual({self.qp(p) for k, p in enumerate(pics) if p['idr'] and 0 < k < 30}, {30})    # 34 - 4
+        self.assertEqual({self.qp(p) for k, p in enumerate(pics) if p['idr'] and k > 30}, {32})        # 34 - 2
+        # VBR alone and CBR: the usual offset whatever the scene says
+        for mode in ('vbr', 'cbr'):
+            pics = self.run_fe('hevc', 40, 26, 10, mode, 's' * 40, 10, 45, env=env)
+            for a, b in zip(pics, pics[1:]):
+                if a['idr'] and pics.index(a):
+                    self.assertEqual(self.qp(b) - self.qp(a), 2 if self.qp(b) > 27 else self.qp(b) - 26, mode)
+        # CBR still goes down to qmin, VBR alone stays at its quality QP (qmin + 2 by default)
         cbr = [self.qp(p) for p in self.run_fe('hevc', 60, 30, 100, 'cbr', 's' * 60, 250, 45)[10:] if not p['idr']]
         self.assertEqual(min(cbr), 30, cbr)
+        plain = [self.qp(p) for p in self.run_fe('hevc', 60, 30, 100, 'vbr', 's' * 60, 250, 45)[10:] if not p['idr']]
+        self.assertEqual(min(plain), 32, plain)
+        smart = [self.qp(p) for p in self.run_fe('hevc', 60, 30, 100, 'smart', 's' * 60, 250, 45)[10:] if not p['idr']]
+        self.assertEqual(min(smart), 32, smart)
+
+    def info(self, codec, n, qp, gop, *extra, env=None):
+        e = dict(os.environ); e.update(env or {})
+        r = subprocess.run([self.bin, codec, str(n), str(qp), str(gop)] + [str(x) for x in extra], capture_output=True, text=True,
+                           check=True, env=e)
+        out = []
+        for l in r.stderr.splitlines():
+            f = l.split()
+            if f and f[0] == 'info':
+                out.append({f[i]: int(f[i + 1]) for i in range(2, len(f), 2)})
+        lines = r.stdout.splitlines()
+        for d, a in zip(out, lines[0::2]):
+            f = a.split()
+            d['idr'] = int(f[3]); d['len'] = int(f[5]); d['list'] = [int(x, 16) for x in f[7:]]
+            d['qp'] = (d['list'][3] >> 16) & 0xff
+        return out
+
+    def test_enc02_budget_follows_the_capture_rate(self):
+        """R1: 1600 kbit/s is 8000 bytes a picture at 25 fps and 20000 at the 10 fps of the night set, and back"""
+        i = self.info('hevc', 6, 30, 50, 'cbr', '..n..d', env={'FE_T_KBPS': '1600'})
+        self.assertEqual([d['budget'] for d in i], [8000, 8000, 20000, 20000, 20000, 8000])
+        # nothing said: the configured rate, as before
+        self.assertEqual({d['budget'] for d in self.info('avc', 4, 30, 50, 'cbr', '....', env={'FE_T_KBPS': '250'})}, {1250})
+
+    def test_enc02_gop_in_time_at_a_lower_rate(self):
+        """R1: GOP 50 at 25 fps is 2 s. At 10 fps (100 ms a picture) the count alone gave 5 s: the keyframe now comes after
+        2.5 s (5/4 of the GOP's time); at the configured rate and down to 4/5 of it the frame count decides, as before"""
+        for mode in ('cbr', 'vbr'):
+            self.assertEqual(self.idrs(self.run_fe('hevc', 120, 30, 50, mode, '.', 250, 45, 40)), [0, 50, 100], mode)
+            self.assertEqual(self.idrs(self.run_fe('hevc', 120, 30, 50, mode, '.', 250, 45, 49)), [0, 50, 100], mode)
+            self.assertEqual(self.idrs(self.run_fe('hevc', 80, 30, 50, mode, '.', 250, 45, 100)), [0, 25, 50, 75], mode)
+            self.assertEqual(self.idrs(self.run_fe('avc', 40, 30, 50, mode, '.', 250, 45, 200)), [0, 13, 26, 39], mode)
+        # smart mode out of a still scene: the same; in a still scene the long GOP and its own time cap rule (unchanged)
+        self.assertEqual(self.idrs(self.run_fe('hevc', 80, 30, 50, 'smart', 'm', 250, 45, 100)), [0, 25, 50, 75])
+        self.assertEqual(self.idrs(self.run_fe('hevc', 120, 30, 5, 'smart', 's' * 120, 250, 45, 200, 10)), [0, 50, 100])
+
+    def test_enc02_oversized_picture_does_not_loop(self):
+        """R2: a picture larger than the stream buffer is lost, the next one is an IDR 6 QP higher (and again) until it
+        fits; before, the same IDR was tried at the same QP for ever"""
+        # the model: 400 KB P at QP 32 -> an IDR of 1.6 MB at QP 32; the 1920x1080 buffer takes 514 KB
+        i = self.info('hevc', 12, 26, 50, 'cbr', 'o', 250, 51, env={'FE_T_MODEL': '400000', 'FE_T_KBPS': '1600'})
+        lim = i[0]['alloc'] - 2 * 0x820
+        fails = [d for d in i if not d['ok']]
+        self.assertGreaterEqual(len(fails), 1)   # (the +6 steps alone, without the IDR size limit: rctest check)
+        self.assertLessEqual(len(fails), 4, [(d['qp'], d['ok']) for d in i])
+        k = next(n for n, d in enumerate(i) if d['ok'])
+        self.assertEqual([d['ok'] for d in i[:k]], [0] * k)
+        qps = [d['qp'] for d in i[:k + 1]]
+        self.assertTrue(all(b - a >= 6 for a, b in zip(qps, qps[1:])), qps)
+        self.assertEqual(i[k]['idr'], 1)
+        self.assertLessEqual(i[k]['len'], lim + 200)
+        self.assertEqual([d['row'] for d in i[:k + 1]], list(range(1, k + 1)) + [0])
+        # one oversized picture in the middle of a GOP ('O'): the next picture is an IDR at a higher QP
+        i = self.info('hevc', 8, 30, 50, 'cbr', '...O....', 250, 45)
+        self.assertEqual([d['ok'] for d in i], [1, 1, 1, 0, 1, 1, 1, 1])
+        self.assertEqual([d['idr'] for d in i], [1, 0, 0, -1, 1, 0, 0, 0])
+        self.assertGreaterEqual(i[4]['qp'], i[3]['qp'] + 6 - 2)       # the IDR: 6 above the lost P, less its own offset
+
+    def test_enc02_idr_size_limit(self):
+        """R2: the next IDR is coded so that the last one would have been under 0.4 s of the bit rate (80 KB at
+        1600 kbit/s; at least 32 KB, at most 3/4 of the stream buffer)"""
+        i = self.info('hevc', 4, 30, 50, 'cbr', '....', env={'FE_T_KBPS': '1600'})
+        self.assertEqual(i[0]['cap'], 80000)
+        self.assertEqual(self.info('hevc', 1, 30, 50, 'cbr', '.', env={'FE_T_KBPS': '400'})[0]['cap'], 32768)
+        sub = self.info('avc', 1, 30, 50, 'cbr', '.', env={'FE_T_KBPS': '250'})[0]
+        self.assertEqual((sub['alloc'], sub['cap']), (0x20000, 32768))
+        old = self.info('avc', 1, 30, 50, 'cbr', '.', env={'FE_T_KBPS': '250', 'FE_T_SUBBUF': 'vendor'})[0]
+        self.assertEqual((old['alloc'], old['cap']), (0xdf80, 32768))
+        big = self.info('avc', 1, 30, 50, 'cbr', '.', env={'FE_T_KBPS': '2000', 'FE_T_SUBBUF': 'vendor'})[0]
+        self.assertEqual(big['cap'], (0xdf80 - 2 * 0x820) * 3 // 4)
+        # VBR, quality QP 30, a scene whose IDR is 200 KB at QP 28: the first IDR is what it is, the following ones fit
+        i = self.info('hevc', 40, 24, 10, 'vbr', 'o', 250, 51, env={'FE_T_MODEL': '31500', 'FE_T_KBPS': '1600', 'FE_T_VBRQP': '30'})
+        idr = [d for d in i if d['idr'] == 1]
+        self.assertGreater(idr[0]['len'], 150000)
+        for d in idr[1:]:
+            self.assertLessEqual(d['len'], 80000 * 1.06, [(x['qp'], x['len']) for x in idr])
+        self.assertTrue(all(d['ok'] for d in i))
+
+    def test_enc02_failures_toggle_the_frame_buffer_and_count(self):
+        """L2: after a lost picture the IDR goes to the other frame buffer than the lost picture's, as after a good one.
+        L1: failures in a row are counted; 5 = reopen, 30 on the main stream = exit; a good picture ends the row"""
+        i = self.info('hevc', 10, 30, 50, 'cbr', '..FFF.O...', 250, 45)
+        self.assertEqual([d['ok'] for d in i], [1, 1, 0, 0, 0, 1, 0, 1, 1, 1])
+        self.assertEqual([d['row'] for d in i], [0, 0, 1, 2, 3, 0, 1, 0, 0, 0])
+        rec = [d['list'][0x24] for d in i]
+        for a, b in zip(rec, rec[1:]):
+            self.assertNotEqual(a, b)                             # every picture, lost or not, in the other buffer
+        self.assertEqual([d['idr'] for d in i], [1, 0, -1, -1, -1, 1, -1, 1, 0, 0])
+        self.assertEqual(i[3]['list'][0x28], 0)                   # the retries are IDRs: no reference
+        # 31 pictures without interrupt
+        i = self.info('avc', 32, 30, 50, 'cbr', 'F' * 31 + '.', 250, 45)
+        self.assertEqual([d['row'] for d in i], list(range(1, 32)) + [0])
+        self.assertEqual([n + 1 for n, d in enumerate(i) if d['act'] == 1], [5, 10, 15, 20, 25])
+        self.assertEqual([n + 1 for n, d in enumerate(i) if d['act'] == 2], [30, 31])
+        acts = subprocess.run([self.bin, 'actions'], capture_output=True, text=True, check=True).stdout.split()
+        rows = list(zip(*[iter(int(x) for x in acts)] * 3))
+        self.assertEqual([r for r, m, s in rows if s == 1], [5, 10, 15, 20, 25, 30])        # the sub-stream never exits
+        self.assertEqual([r for r, m, s in rows if m == 2], [30, 31])
 
     def test_multi_resolution_h264_and_h265(self):
         for mode, w, h, pitch, ps in (
@@ -589,6 +732,52 @@ class FreeEnc(unittest.TestCase):
                 self.assertEqual(p['list'][0x26], pitch, mode)
                 self.assertEqual(p['list'][0x21] - p['list'][0x20], w * h, mode)
                 self.assertEqual(p['data'].startswith(ps), bool(p['idr']), mode)
+
+
+class FreeEncEnc02Wiring(unittest.TestCase):
+    """ENC-02 source checks in tc100_rtsp.c (the C cannot be run here): the capture rate and the clock reach every free
+    encoder, the failure escalation, the switches"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.src = open(os.path.join(ROOT, 'src/tc100rtsp/tc100_rtsp.c'), encoding='utf-8').read()
+        cls.fe = open(os.path.join(ROOT, 'src/h265enc/freeenc.h'), encoding='utf-8').read()
+
+    def test_capture_rate_and_clock_reach_every_free_encoder(self):
+        self.assertIn('enc_rate = fr < cap_fps_now() ? fr : cap_fps_now();', self.src)
+        loop = self.src[self.src.index('if (!s->active || !s->enc || !free_enc) continue;'):]
+        loop = loop[:loop.index('fe_set_still(')]
+        self.assertLess(loop.index('fe_set_time(fe,'), loop.index('if (s->smart) {'))      # not only in smart mode
+        self.assertLess(loop.index('fe_set_fps(fe, enc_rate);'), loop.index('if (s->smart) {'))
+        self.assertIn('fe_fps_on = !(sb && sb[0] == \'0\');', self.src)                    # RTSP_FE_FPS=0: as before
+        self.assertIn('getenv("RTSP_FE_FPS")', self.src)
+        # cap_fps_now knows the night set and the low-light rate; fr the idle rate
+        f = self.src[self.src.index('static int cap_fps_now(void)'):]
+        f = f[:f.index('\n}\n')]
+        self.assertIn('night_style == 1', f)
+        self.assertIn('lowlight_on', f)
+
+    def test_failure_escalation(self):
+        self.assertIn('#define FE_FAILS_REOPEN 5', self.fe)
+        self.assertIn('#define FE_FAILS_EXIT 30', self.fe)
+        blk = self.src[self.src.index('act = free_enc ? fe_fail_action((int)s->fails, !k) : FE_FAIL_NONE;'):]
+        blk = blk[:blk.index('s->fails = 0;')]
+        self.assertIn('exit_code = 3; run = 0;', blk)
+        self.assertLess(blk.index('fe_hw_init(&fe_env);'), blk.index('strm_reopen(s)'))
+        self.assertIn('s->fails = row;', blk)                    # the reopen does not restart the count
+        self.assertIn('return exit_code;', self.src)
+        # the sub-stream still goes off after 50
+        self.assertIn('if (k && s->fails >= 50) { sub_off("the encoder gives no frames"); continue; }', self.src)
+
+    def test_lost_picture_path_in_the_encoder(self):
+        f = self.fe[self.fe.index('static inline void fe_failed('):]
+        f = f[:f.index('\n}\n')]
+        self.assertIn('e->force_idr = 1;', f)
+        self.assertIn('e->cur ^= 1;', f)
+        self.assertIn('rc_over(&e->rc, idr, q,', self.fe)
+        self.assertEqual(self.fe.count('fe_failed(e);'), 2)
+        self.assertIn('e->stream_alloc = fe_sub_stream(0);', self.fe)
+        self.assertIn('if (sb && sb[0] == \'0\') fe_sub_stream(FE_SUB_STREAM_VENDOR);', self.src)
 
 
 class FreeEncSmartWiring(unittest.TestCase):

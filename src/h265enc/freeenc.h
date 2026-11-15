@@ -7,8 +7,11 @@
  *   buffers    worktab.h (work), the tables head, zeros; two frame buffers take turns as reconstruction / reference
  *   start      H.265: mask bit 0 (bit 2 clear: set, the core hangs after an H.264 picture), clock bit 15 set,
  *              0x8084 = 2; H.264: mask bit 2 (bit 0 clear), clock bit 15 clear, 2 then 8 (venctrace)
- *   recovery   no interrupt: the core is reset (fe_hw_init), the picture is lost
- *   rate       rc.h, one QP per picture; VBR (fe_set_vbr) and the smart mode below
+ *   recovery   no interrupt: the core is reset (fe_hw_init), the picture is lost. After any lost picture the next one is
+ *              an IDR into the OTHER frame buffer (as after a good picture); a picture larger than the stream buffer
+ *              raises the QP (rc_over). The caller counts the failures in a row: fe_fail_action (reopen, then exit).
+ *   rate       rc.h, one QP per picture; VBR (fe_set_vbr) and the smart mode below; fe_set_fps gives the capture rate
+ *              in use (night, idle rate): the budget per picture and, with fe_set_time, the GOP follow it
  * The caller gives the register window and libakuio's pool calls (struct fe_env), and the physical address of each
  * NV12 picture (Y then UV right after it, as in the capture buffers). One encoder picture at a time: tc100_rtsp
  * encodes the main and sub pictures and the JPEGs one after the other in its capture loop.
@@ -48,7 +51,9 @@ struct fe_enc {
 	uint32_t pa, frame_size, f_uv, f_mv, f_col, rec_pitch, stream_off, stream_alloc, tables_off, work_off, small_off,
 		 list_off;
 	int cur, frame, idrs, force_idr;
-	int smart, gop_long, floor_extra;	/* smart mode (fe_set_smart): long GOP and QP floor while the scene is still */
+	int smart, gop_long, idr_extra;		/* smart mode (fe_set_smart): long GOP and a better keyframe while the scene is still */
+	int fps_now, timed, row;		/* capture rate in use (fe_set_fps); fe_set_time was called; failed pictures in a row */
+	uint32_t gop_ms, overs;			/* the base GOP in time (at the configured rate); pictures larger than the stream buffer */
 	int still, idr_want;			/* fe_set_still; a client waits for a keyframe (fe_want_idr) */
 	uint32_t max_ms, now_ms, idr_ms;	/* smart mode: a keyframe at least every max_ms (fe_set_time gives now_ms) */
 	struct rc rc;
@@ -82,6 +87,25 @@ static const uint8_t FE_TABLES_HEAD[20] = { 0xc4, 0x09, 0xe8, 0x03, 0x00, 0x01, 
 
 static inline uint32_t fe_up(uint32_t v, uint32_t a) { return (v + a - 1) & ~(a - 1); }
 
+/* The stream buffer of the 640x360 encoder: 128 KB (2026-11-15, ENC-02) instead of the vendor's 0xdf80 (57 KB), which a
+ * detailed IDR at a low QP can exceed. The pool has the room: 9600 KiB hold the JPEG buffer (0.54 MB), the 1920x1080
+ * encoder (7.39 MB) and this one (0.92 -> 0.99 MB). set > 0: another size from the next fe_open on
+ * (RTSP_FE_SUBBUF=0 in tc100_rtsp: the vendor's); returns the size in use. */
+#define FE_SUB_STREAM_VENDOR 0xdf80u
+#define FE_SUB_STREAM_ALLOC 0x20000u
+static inline uint32_t fe_sub_stream(uint32_t set)
+{
+	static uint32_t v = FE_SUB_STREAM_ALLOC;
+
+	if (set) v = set;
+	return v;
+}
+
+/* An IDR is kept under 0.4 s of the bit rate (80 KB at 1600 kbit/s; never asked below 32 KB, a keyframe has to look
+ * like something) and under 3/4 of the stream buffer: rc_set_idr_cap */
+#define FE_IDR_CAP_MS 400
+#define FE_IDR_CAP_MIN 32768
+
 /* the frame buffer written last, per codec, across encoders (set with cur >= 0, read with cur < 0) */
 static inline int fe_last_cur(int hevc, int cur)
 {
@@ -94,6 +118,17 @@ static inline int fe_last_cur(int hevc, int cur)
 /* hevc 1 = H.265, 0 = H.264; w x h = 1920x1080, 1280x720 or 640x360; stride: of the source's Y plane (the width; a
  * bigger stride also lets a 640x360 H.264 encoder read the top-left of a bigger picture, the warm-up frame of
  * tc100_rtsp). NULL when out of pool memory. */
+/* the rate control's bit rate and capture rate (<= 0: unchanged), and the IDR size limit that goes with them */
+static inline void fe_rate(struct fe_enc *e, int kbps, int fps)
+{
+	int64_t cap, lim = (int64_t)(e->stream_alloc - 2 * FE_STREAM_HEAD) * 3 / 4;
+
+	rc_set_rate(&e->rc, kbps, fps);
+	cap = (int64_t)e->rc.kbps * 125 * FE_IDR_CAP_MS / 1000;
+	if (cap < FE_IDR_CAP_MIN) cap = FE_IDR_CAP_MIN;
+	rc_set_idr_cap(&e->rc, cap > lim ? lim : cap);
+}
+
 static inline struct fe_enc *fe_open_wh(const struct fe_env *env, struct fe_enc *e, int hevc, int w, int h, int stride,
 					int fps, int gop, int kbps, int qmin, int qmax)
 {
@@ -119,7 +154,7 @@ static inline struct fe_enc *fe_open_wh(const struct fe_env *env, struct fe_enc 
 		e->stream_alloc = 0x40000;
 	} else {	/* 640x360: Y (tiled, pitch 0xa00), UV, motion info (0x1240 bytes), co-located info */
 		e->frame_size = 0x63000; e->f_uv = 0x3c000; e->f_mv = 0x5a000; e->f_col = 0x5b240; e->rec_pitch = 0xa00;
-		e->stream_alloc = 0xdf80;
+		e->stream_alloc = fe_sub_stream(0);
 	}
 	o = 2 * e->frame_size;
 	e->stream_off = o; o = fe_up(o + e->stream_alloc, 0x1000);
@@ -137,6 +172,9 @@ static inline struct fe_enc *fe_open_wh(const struct fe_env *env, struct fe_enc 
 	if (hevc) h265_work_table(e->mem + e->work_off); else h264_work_table(e->mem + e->work_off);
 	e->qp0 = (qmin + qmax) / 2 < 32 ? (qmin + qmax) / 2 : 32;
 	rc_init(&e->rc, kbps > 0 ? kbps : 1000, e->fps, qmin > 0 ? qmin : 20, qmax > 0 && qmax <= 51 ? qmax : 51, e->qp0);
+	e->fps_now = e->fps;
+	e->gop_ms = (uint32_t)(e->gop * 1250 / e->fps);	/* a quarter more: down to 4/5 of the configured rate the frame count decides */
+	fe_rate(e, 0, 0);
 	e->plen = hevc ? h265_param_sets(e->params, sizeof e->params, (uint32_t)e->w, (uint32_t)e->h, (uint32_t)e->fps)
 		       : h264_param_sets(e->params, sizeof e->params, (uint32_t)e->w, (uint32_t)e->h, (uint32_t)e->fps,
 					 (uint32_t)(kbps > 0 ? kbps : (e->w > 640 ? 1000 : 250)));
@@ -159,7 +197,18 @@ static inline void fe_close(struct fe_enc *e)
 /* ABR: a new target bit rate (the buffer of the rate control is kept) */
 static inline void fe_set_kbps(struct fe_enc *e, int kbps)
 {
-	if (kbps > 0) e->rc.budget = (int64_t)kbps * 1000 / 8 / e->fps;
+	if (kbps > 0) fe_rate(e, kbps, 0);
+}
+
+/* the capture rate in use, when it is not the configured one (the 10 fps night parameter set, the low-light rate, the
+ * idle rate): the budget per picture is the bit rate over this rate (rc_set_rate). <= 0 or above the configured rate:
+ * the configured rate. Cheap when nothing changed: call it before every picture. */
+static inline void fe_set_fps(struct fe_enc *e, int fps)
+{
+	if (fps <= 0 || fps > e->fps) fps = e->fps;
+	if (fps == e->fps_now) return;
+	e->fps_now = fps;
+	fe_rate(e, 0, fps);
 }
 
 /* VBR (quality first, kbit/s is a ceiling, rc.h); 0 = CBR as before. Call before the first picture. */
@@ -168,14 +217,17 @@ static inline void fe_set_vbr_qp(struct fe_enc *e, int qp) { rc_set_vbr_qp(&e->r
 
 #define FE_SMART_GOP_MAX 300	/* POC: 2 x pictures since the IDR must stay below 1024 (10 bits), H.264 frame_num wraps at 16 */
 #define FE_SMART_QP_EXTRA 4
-#define FE_SMART_QP_MAX 5	/* a bigger floor makes its release look like motion to the encoder-size motion detector (RTSP_MD_ENC) */
+#define FE_SMART_QP_MAX 5	/* the still scene's keyframe: at most 5 QP below the P QP (4 by default) */
 #define FE_SMART_MAXS_DEFAULT 10
 
 /* Smart mode: while fe_set_still(e, 1), a keyframe is only coded when the long GOP (gop_long, default 250, at most
  * FE_SMART_GOP_MAX, never shorter than the base GOP) is over, max_s seconds (default 10, 2 to 12) have passed since the
  * last keyframe (the frame rate can be lowered: the GOP counts frames) or a client asks for one (fe_want_idr), and the
- * lowest QP is raised by qp_extra (default 4, at most FE_SMART_QP_MAX) above the lowest QP of the rate control. Out of a still scene the base GOP and
- * the old QP come back at once. Smart mode needs VBR (the vendor firmware has it only in VBR; in CBR the bit rate is
+ * keyframe is coded qp_extra (default 4, at most FE_SMART_QP_MAX, at least RC_IDR_OFFSET) below the P QP instead of
+ * RC_IDR_OFFSET (2), within the IDR size limit (fe_rate): on a still scene nearly every P block is a skip, so the
+ * keyframe's quality is the quality of the whole long GOP. (Until 2026-11-15 qp_extra raised the lowest QP instead; with
+ * the VBR quality QP at 33 that floor, qmin + 4, did nothing.) Out of a still scene the base GOP and the usual keyframe
+ * QP come back at once. Smart mode needs VBR (the vendor firmware has it only in VBR; in CBR the bit rate is
  * the contract and the floor would only take quality away from a budget that has to be filled anyway): without
  * fe_set_vbr(e, 1) it is not active. gop_long, qp_extra, max_s <= 0: the defaults. Returns 1 when active. */
 static inline int fe_set_smart(struct fe_enc *e, int on, int gop_long, int qp_extra, int max_s)
@@ -184,23 +236,24 @@ static inline int fe_set_smart(struct fe_enc *e, int on, int gop_long, int qp_ex
 	if (gop_long <= 0) gop_long = 250;
 	if (gop_long > FE_SMART_GOP_MAX) gop_long = FE_SMART_GOP_MAX;
 	e->gop_long = gop_long < e->gop ? e->gop : gop_long;
-	e->floor_extra = qp_extra <= 0 ? FE_SMART_QP_EXTRA : qp_extra > FE_SMART_QP_MAX ? FE_SMART_QP_MAX : qp_extra;
+	e->idr_extra = qp_extra <= 0 ? FE_SMART_QP_EXTRA : qp_extra > FE_SMART_QP_MAX ? FE_SMART_QP_MAX : qp_extra;
+	if (e->idr_extra < RC_IDR_OFFSET) e->idr_extra = RC_IDR_OFFSET;
 	if (max_s <= 0) max_s = FE_SMART_MAXS_DEFAULT;
 	e->max_ms = (uint32_t)(max_s < 2 ? 2 : max_s > 12 ? 12 : max_s) * 1000u;
-	if (!e->smart) { e->still = 0; rc_set_floor(&e->rc, 0); }
+	if (!e->smart) { e->still = 0; rc_set_idr_offset(&e->rc, RC_IDR_OFFSET); }
 	return e->smart;
 }
 
 /* the clock of the caller in milliseconds (wraps), read by the time limit of the smart mode */
-static inline void fe_set_time(struct fe_enc *e, uint32_t ms) { e->now_ms = ms; }
+static inline void fe_set_time(struct fe_enc *e, uint32_t ms) { e->now_ms = ms; e->timed = 1; }
 
-/* the scene is still (1) or not (0): the long GOP and the QP floor apply only while it is */
+/* the scene is still (1) or not (0): the long GOP and the better keyframe apply only while it is */
 static inline void fe_set_still(struct fe_enc *e, int still)
 {
 	still = still && e->smart;
 	if (still == e->still) return;
 	e->still = still;
-	rc_set_floor(&e->rc, still ? e->rc.qmin + e->floor_extra : 0);
+	rc_set_idr_offset(&e->rc, still ? e->idr_extra : RC_IDR_OFFSET);
 }
 
 /* a client waits for a keyframe (wait_idr was set): the next one comes at the base GOP at the latest */
@@ -209,12 +262,17 @@ static inline void fe_want_idr(struct fe_enc *e) { e->idr_want = 1; }
 /* 1 when the next fe_encode codes a keyframe (the thumbnails of the recorder are made on those frames):
  * frame 0, after a failed picture, the long GOP over, or the base GOP over and the scene not still, a client waiting
  * or max_ms since the last keyframe.
- * With smart mode off this is frame % gop == 0 as before. */
+ * With smart mode off this is frame % gop == 0 as before at the configured frame rate; with a clock (fe_set_time) and
+ * out of a still scene the base GOP also ends after 5/4 of its time at the configured rate (gop_ms: 2.5 s for 50 frames
+ * at 25 fps; the margin keeps the frame count in charge at the configured rate, whatever the jitter), so that the 10 fps
+ * night set or the idle rate do not stretch it to 5 s and more. */
 static inline int fe_next_idr(const struct fe_enc *e)
 {
 	int gl = e->smart && e->still && e->gop_long > e->gop ? e->gop_long : e->gop;
 
-	return e->frame == 0 || e->force_idr || e->frame >= gl ||
+	int tdue = e->timed && !(e->smart && e->still) && e->frame > 0 && (uint32_t)(e->now_ms - e->idr_ms) >= e->gop_ms;
+
+	return e->frame == 0 || e->force_idr || e->frame >= gl || tdue ||
 	       (e->frame >= e->gop && (!(e->smart && e->still) || e->idr_want || (uint32_t)(e->now_ms - e->idr_ms) >= e->max_ms));
 }
 
@@ -307,6 +365,29 @@ static inline int fe_run(struct fe_enc *e, uint32_t list_pa)
 static int fe_run(struct fe_enc *e, uint32_t list_pa);	/* fetest.c: the simulated core */
 #endif
 
+/* a picture is lost: the next one is an IDR, written to the other frame buffer (what the lost one left in this one is
+ * not a reference, and an IDR into the buffer written last has hung the core, see fe_open_wh) */
+static inline void fe_failed(struct fe_enc *e)
+{
+	e->fails++; e->row++; e->force_idr = 1;
+	fe_last_cur(e->hevc, e->cur);
+	e->cur ^= 1;
+}
+
+/* What the caller does after `row` failed pictures in a row on a stream (main: the stream the server cannot run
+ * without): FE_FAIL_REOPEN every FE_FAILS_REOPEN (reset the core, close and open the encoder), FE_FAIL_EXIT at
+ * FE_FAILS_EXIT on the main stream (leave with a non-zero status: the service watchdog starts the server again, once
+ * per check, and reboots after its usual error count). A picture without interrupt takes 2 s: 10 s, then 60 s. */
+#define FE_FAILS_REOPEN 5
+#define FE_FAILS_EXIT 30
+enum { FE_FAIL_NONE, FE_FAIL_REOPEN, FE_FAIL_EXIT };
+static inline int fe_fail_action(int row, int main_stream)
+{
+	if (row <= 0) return FE_FAIL_NONE;
+	if (main_stream && row >= FE_FAILS_EXIT) return FE_FAIL_EXIT;
+	return row % FE_FAILS_REOPEN == 0 ? FE_FAIL_REOPEN : FE_FAIL_NONE;
+}
+
 /* encode the NV12 picture at physical src_pa (Y, then UV at src_pa + stride * height); 0 and *data / *len / *idr,
  * or -1 */
 static inline int fe_encode(struct fe_enc *e, uint32_t src_pa, uint8_t **data, uint32_t *len, int *idr_out)
@@ -323,9 +404,15 @@ static inline int fe_encode(struct fe_enc *e, uint32_t src_pa, uint8_t **data, u
 	fe_list(e, l, src_pa, src_pa + (uint32_t)e->stride * (uint32_t)e->h, idr, q, poc);
 	e->mem[e->tables_off + 18] = !e->hevc && idr ? 0x1f : 0x19;
 	e->mem[e->tables_off + 19] = idr ? 0x24 : 0x30;
-	if (fe_run(e, e->pa + e->list_off) < 0) { e->last_len = 0; e->last_status = 0xffffffffu; e->fails++; e->force_idr = 1; return -1; }
+	if (fe_run(e, e->pa + e->list_off) < 0) { e->last_len = 0; e->last_status = 0xffffffffu; fe_failed(e); return -1; }
 	n = l[0x41];
-	if (!n || n > e->stream_alloc - 2 * FE_STREAM_HEAD) { e->last_len = n; e->last_status = l[0x40]; e->fails++; e->force_idr = 1; return -1; }
+	if (!n || n > e->stream_alloc - 2 * FE_STREAM_HEAD) {
+		e->last_len = n; e->last_status = l[0x40];
+		/* too large for the stream buffer: a higher QP for the next try, or the same IDR fails for ever */
+		if (n) { e->overs++; rc_over(&e->rc, idr, q, (int64_t)(e->stream_alloc - 2 * FE_STREAM_HEAD)); }
+		fe_failed(e);
+		return -1;
+	}
 	h = e->hevc ? h265_slice_nal(hb, sizeof hb, idr, q, poc) : h264_slice_nal(hb, sizeof hb, idr, q, fr, (uint32_t)(e->idrs & 1));
 	if (h < 0) return -1;
 	hl = (uint32_t)h + (idr ? (uint32_t)e->plen : 0);
@@ -333,6 +420,7 @@ static inline int fe_encode(struct fe_enc *e, uint32_t src_pa, uint8_t **data, u
 	if (idr) memcpy(st + off, e->params, (size_t)e->plen);
 	memcpy(st + FE_STREAM_HEAD - (uint32_t)h, hb, (size_t)h);
 	if (idr) e->idrs++;
+	e->row = 0;
 	rc_done(&e->rc, idr, q, (int64_t)h + n);
 	fe_last_cur(e->hevc, e->cur);
 	e->cur ^= 1;

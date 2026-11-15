@@ -49,8 +49,72 @@ Validated on the cameras and made the default where it applies; the entries are 
 
 **Still open (in priority order):** WIFI-STALL-01 (next: `ampdu_tx` switch, owner's decision), AWB-01 step 3 (owner,
 white paper / tungsten), UPD-01 (b), WIFI-TRY-01 / WIFI-TXATTEN / WIFI-RXAGG on a camera, ENC-01 and AEC-01 measurements,
-HW-09 night part, the patch 0003 `finish_request_epx` fix (a-faire-implementeur.md, 13/11), HRTIMER-01, MQTT-HA-01, and the
+HW-09 night part, the patch 0003 `finish_request_epx` fix (a-faire-implementeur.md, 13/11), HRTIMER-01, MQTT-HA-01, ENC-02
+(just below, 2026-11-15), and the
 older `to test` entries below.
+
+### ENC-02 Free encoder: budget at the real frame rate, oversize path, IDR size limit, still-scene keyframe, failure escalation (`[enc-fixes]`) — `to test`
+
+- **Why:** the read-only review of 2026-11-15 (`frontier/encoder-2026-11-15-reponse.md`, items R1, R2, R3, L1 + L2;
+  approved by the owner). Host tests only so far: nothing of this has run on a camera.
+- **What (`src/h265enc/rc.h`, `freeenc.h`, `src/tc100rtsp/tc100_rtsp.c`):**
+  1. **R1, budget and GOP at the real capture rate.** The rate control computed the bytes per picture from the
+     configured 25 fps even at the 10 fps of the night parameter set (the measured 64 kbit per picture = 647 kbit/s
+     for a 1600 kbit/s setting). `fe_set_fps()` now gets the rate in use before every picture: the lower of the idle /
+     configured rate and `cap_fps_now()` (night set, low-light rate). The pay-back time and the VBR credit keep their
+     length in time. With the clock (`fe_set_time`, now given in every mode) the base GOP also ends after 5/4 of its
+     time at the configured rate (50 frames at 25 fps: 2.5 s; at 10 fps a keyframe every 25 pictures instead of every
+     50 = 5 s). Smart mode's still state is unchanged (long GOP, `RTSP_FE_SMART_MAXS`). At the configured rate nothing
+     changes (the frame count decides down to 20 fps for 25).
+  2. **R2, a picture larger than the stream buffer.** Before: lost, and the same IDR tried again at the same QP, for
+     ever. Now the next IDR is coded 6 QP higher (`rc_over`, again 6 if it still does not fit) and the buffer's size is
+     counted as sent. **IDR size limit:** an IDR is coded at the QP at which the last IDR would have stayed under
+     0.4 s of the bit rate (80 KB at 1600 kbit/s; never asked below 32 KB, never above 3/4 of the stream buffer), CBR
+     and VBR. **Sub-stream buffer 57 KB -> 128 KB** (`fe_sub_stream`): the 9600 KiB pool holds the JPEG buffer
+     (0.54 MB), the 1920x1080 encoder (7.39 MB) and the 640x360 one (0.92 -> 0.99 MB), about 0.9 MB stay free. The
+     list word 0x3d of the H.264 640x360 pictures is then 0x20000 instead of the vendor's 0xdf80: **the one thing here
+     the core has never seen** (the 720p / 1080p encoders already use other sizes).
+  3. **R3, smart mode on a still scene.** The QP floor (`minqp` + `RTSP_FE_SMART_QP` = 29) did nothing since the VBR
+     quality QP is 33 (VBR-QP-01). It is gone; instead the keyframes of the still state are coded
+     `RTSP_FE_SMART_QP` (default 4, 2 to 5) below the P pictures instead of 2, within the IDR size limit: with the long
+     GOP nearly every P block is a skip, the keyframe is the picture. Normal mode keeps 2.
+  4. **L1 + L2, failures.** After any lost picture the next IDR goes to the other frame buffer (as after a good
+     picture). Failed pictures in a row are counted per stream: every 5 the core is reset and the encoder closed and
+     opened again (log `pictures failed in a row: core reset, encoder closed and opened again`); after 30 on the main
+     stream `tc100_rtsp` leaves with status 3 (log `the video server stops (status 3)`) and the service watchdog
+     (`scripts/service-watchdog.sh`, one check a minute, its usual error count before a reboot) starts it again: no
+     restart storm. A picture without interrupt takes 2 s: reopen after 10 s, exit after 60 s. The sub-stream still
+     goes off after 50.
+- **Switches / revert (`/mnt/config/rtsp.env`, then `controlscripts/rtsp-h26x restart`):** `RTSP_FE_FPS=0`: the
+  capture rate is not given to the encoders (budget and GOP as before; the clock alone changes nothing at the
+  configured rate). `RTSP_FE_SUBBUF=0`: the vendor's 57 KB sub-stream buffer. `RTSP_FE_SMART_QP=2`: the still state's
+  keyframes as the others. The QP +6 on an oversized picture, the IDR size limit, the frame buffer toggle and the
+  escalation have no switch (they only act where the encoder failed or burst before).
+- **Test (one camera first, `RTSP_DEBUG=1` for the `FRAME main IDR|P len` lines; log `/tmp/logs/tc100_rtsp.log`):**
+  1. **Start and sub-stream (the first thing to check):** open the sub-stream (VLC on the sub path) for 10 min, by day.
+     Log: `encoder sub 640x360 ... open; pool used U, free F` (F about 0.9 MB, not less than 0.5 MB), no
+     `picture failed` line, the picture decodes without errors. If the sub-stream gives `picture failed` at once:
+     `RTSP_FE_SUBBUF=0`, restart, note it here.
+  2. **Night budget (R1):** at night with the 10 fps set: the log shows `free encoder main: capture rate 10 fps
+     (configured 25): 20000 bytes per picture` (1600 kbit/s). Compare `STAT ... bytes` per 5 s with the night before
+     (about 400 KB = 647 kbit/s when the ceiling was binding): on a noisy / busy night scene it may now rise up to
+     about 1 MB (1600 kbit/s), never above; on a calm scene with `RTSP_VBR_QP=33` it stays where the quality QP puts
+     it. `FRAME main IDR` every 25 pictures (2.5 s) at 10 fps, every 50 by day. Back to day: `capture rate 25 fps`.
+     The same with `IDLE_FPS` if it is used.
+  3. **IDR sizes (R2, R3):** `grep 'FRAME main IDR'`: by day no IDR above about 85 KB after the first one (1600
+     kbit/s); with `smart=1` on a still scene the IDRs are larger than with `smart=0` (QP 29 instead of 31 at
+     `RTSP_VBR_QP=33`) and the still picture is cleaner (snapshot of a detailed area, both ways), the still-scene bit
+     rate (`STAT bytes`) not more than about 10 % above the smart=0 one thanks to the long GOP.
+  4. **Failures:** `grep -c 'picture failed'` stays 0 over a night and a day; the `closed after N pictures (... F
+     failed, O of them too large)` lines show F = 0. If a failure ever shows: the next lines must be an IDR and, from 5
+     in a row, the reopen line. The exit path cannot be provoked without hanging the core: checked on the host only.
+  5. Recording and the browser live view over one day / night switch: files play, thumbnails present, no gap at the
+     switch (the GOP in time moves the keyframes at 10 fps).
+- **Pass criteria:** 1: sub-stream clean with the 128 KB buffer, pool free >= 0.5 MB. 2: the night log line, night
+  `STAT bytes` <= the ceiling and >= the night before on the same scene, keyframe every 2.5 s at 10 fps. 3: IDR <= 85 KB
+  at 1600 kbit/s after the first, smart still picture not worse. 4: 0 failed pictures in 24 h on both cameras, no
+  `status 3` exit. 5: recordings and live view as before. Host tests: `tests/test_h265cmdlist.py` (RateControl
+  `test_enc02_*`, FreeEnc `test_enc02_*`, FreeEncEnc02Wiring).
 
 ### NATIVE-02 httpfront answers daynight, hw_state and health.cgi (`src/httpfront/poll.h`) — `to test`
 - **What:** with `HTTPFRONT_NATIVE=1` (the default since rc28), `httpfront` now also answers by itself, without httpd and `sh`, the polled reads: `GET /cgi-bin/state.cgi?cmd=daynight&format=json` (Settings -> Day/night, every 5 s), `GET /cgi-bin/action.cgi?cmd=hw_state&format=json` (Hardware page, every 2 s), and `GET /cgi-bin/health.cgi` (when `/tmp/health_snapshot.cache` is fresh within TTL). Same JSON as the CGI byte for byte, same Basic login (no or wrong login: httpd answers as before). Anything it cannot print exactly as the shell does goes to httpd and the CGI: no `format=json` in the query, a `%XX` / `+` in `cmd` or `format`, a number with a leading zero or too long in `/tmp/cam_ae`, a value ending in `=`; for `hw_state` also a missing `/tmp/csrf_token`, no `/tmp/log`, `/tmp/log/audit.log` over 64 KB (the CGI rotates it), a pid file that is not one number; for `health.cgi` also a missing, expired, or > 1536-byte `/tmp/health_snapshot.cache`. `daynight` reads the files at each request and writes nothing (the CGI keeps its answer 1 s in `/tmp/state-response-daynight-json.cache`). `hw_state` appends the same line as `audit_log` of `action.cgi` to `/tmp/log/audit.log` (`<epoch> cmd=hw_state ip=<client>`). Host tests: `tests/test_httpfront_poll.py` (CGI under busybox ash against the native route on twin trees).
