@@ -48,7 +48,7 @@ More screenshots: [gallery](docs/linux-port/internals.md#screenshots).
 
 ## Quick start
 
-You need a TECKIN TC100, a **microSD card of 32 GB or less**, and a computer. Full details, with what you should see at
+You need a TECKIN TC100, a **microSD card of at least 256 MB**, and a computer. Full details, with what you should see at
 each step, in the **[installation guide](docs/install.md)** ([en français](docs/install.fr.md)).
 
 1. **Download** `tc100-<version>-sd.zip` from the
