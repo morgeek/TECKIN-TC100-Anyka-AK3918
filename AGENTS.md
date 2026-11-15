@@ -68,9 +68,9 @@ hardware facts, test loop), then `docs/known-issues.md`.
 - CI `.github/workflows/build-kernel-linux66.yml` (~12-19 min per push) builds the kernel: artifact `tc100-linux66-cma16-kernel`
   (`oipc.img` = uImage, `tc100test/*`) and `tc100-linux66-symbols` (System.map, vmlinux). Decode oopses with the symbols of
   the same run, not with a local build (addresses differ).
-- `src/tc100rtsp` = free RTSP server (H.264/H.265 over RTP, TCP and UDP, optional G.711 A-law audio track, `-a 1`); built with
-  `make` using the glibc ARM cross compiler but linked to run under the camera's uClibc loader. `src/libakuio` = userspace
-  access to the vendor encoder libraries. `v3/` = boot script and initramfs for 6.6; `controlscripts/`, `www/` = V3 user space.
+- `src/tc100rtsp` = free RTSP server (H.264/H.265 over RTP, TCP and UDP, optional G.711 A-law audio track, `-a 1`); built as
+  a native `musl`-linked binary with the free encoder (`src/h265enc/freeenc.h`) since `3.0.1-rc34`. `src/libakuio` = userspace
+  access to the encoder kernel driver / vendor encoder libraries. `v3/` = boot script and initramfs for 6.6; `controlscripts/`, `www/` = V3 user space.
   The other free programs, all built by CI: `src/httpfront` (web front), `src/whep` (WebRTC gateway, built by Buildroot),
   `src/onvifd`, `src/mqttd`, `src/supervisord`, `src/mdnsd`, `src/logfwd`, `src/netacl`, `src/rwconf`, `src/ispflip`,
   `src/jpegenc`; bench / research tools: `src/ispfps`, `src/h265enc`; `src/webui` = build steps of the web UI (CSS
@@ -95,7 +95,7 @@ hardware facts, test loop), then `docs/known-issues.md`.
 - **Core PLL must be 480 MHz (SYSCTRL 0x08 = 0x010213f0, ASIC 120 MHz).** At 640 MHz (the 4.4 value) 2 of 4 one-hour H.265 runs
   crashed with corrupted registers; at 480 MHz 6 of 6 runs survived (up to 2 h). `ak_core_pll=<value>` overrides it for tests.
 - Memory map: encoder pool: 12 MiB region at 0x81800000 (reusable CMA area of its own, pool 9600K by default; the 1 MiB guard zones were removed on 2026-10-29), CMA 20 MiB at 0x82c00000
-  (`cma=18M` on the command line; the DT value of 28 MiB does not fit). The 3D-NR reference frame (6 MiB) never fits at video start, so 3D-NR is off by default; `NR3D=1` in `boot.conf` takes it before the video starts (720p is the reliable mode; the only free 8 MiB window, 0x82400000-0x82c00000, is deliberately left alone; test queue NR3D-01).
+  (`cma=18M` on the command line; the DT value of 28 MiB does not fit). The 3D-NR reference frame (6 MiB) never fits at video start; `NR3D=1` (default in `config/boot.conf.dist` since rc43) reserves it before the video starts (both 1080p and 720p validated).
 - ISP sub channel: on by default in the kernel (`ak39_vi.sub_channel=0` turns it off; older kernels need `=1` on the
   command line, U-Boot `flashargs`/`flashboot`, `stock-hook.sh`); `tc100_rtsp`
   then takes the 640x360 picture from the ISP (`RTSP_HWSUB=0` = CPU sampling). U-Boot reads at most 256 characters per line:

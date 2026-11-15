@@ -103,11 +103,11 @@ and [docs/api.md](docs/api.md). Two-way audio: [docs/two-way-audio.md](docs/two-
 
 - Plain **HTTP only** on the camera (a login, but no HTTPS): use it on your own network, never forward its ports from
   the internet. For HTTPS put a [reverse proxy](docs/linux-port/internals.md#https-with-a-reverse-proxy) in front.
-- No VPN, no encoder smart mode (1080p and 720p main stream + 640x360 sub-stream are supported).
+- No VPN (1080p and 720p main stream + 640x360 sub-stream are supported; encoder smart mode is available via `smart=1` / `RTSP_FE_SMART_QP`).
 - Only one hardware variant is officially validated so far (JX-F23 sensor, RTL8188FU Wi-Fi, 8 MiB flash):
   [hardware variants](docs/hardware-variants.md).
-- Push-to-talk and two-way audio through the speaker are not yet checked on a camera.
-- Colours are slightly warm, and by day in low light the camera drops to 10 fps on purpose.
+- Speaker playback is confirmed; browser push-to-talk and ONVIF/RTSP two-way audio backchannel are still in camera qualification.
+- By day in low light the camera drops to 10 fps on purpose.
 - The default web password is public until you change it; a banner reminds you.
 
 The up-to-date list is [docs/known-issues.md](docs/known-issues.md).
