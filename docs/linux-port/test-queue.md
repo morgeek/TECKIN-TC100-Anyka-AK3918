@@ -805,13 +805,6 @@ or requires U-Boot prompt commands.
   the camera pingable again without a power cut. `meta.txt` of the saved boots: `wifi_power_fail=`.
 - **Pass:** the manual cycle disconnects and brings the chip back; a real failure recovers without a power cut.
 
-### R12-05 IR LED protection (every source; Day/night page, hours) — `to test`
-- **What:** after `IR_LED_MAX_ON` seconds of night (50400 = 14 h, the stock value) day mode for 600 s, then the normal
-  decision again; 0 = off. Console: `IR LEDs on for N s: day mode for 600 s (IR LED protection)`.
-- **Test:** `IR_LED_MAX_ON=120` in `/mnt/config/daynight.conf` (the page takes whole hours: edit the file for the test),
-  restart the daemon (`auto-night-detection stop; start`), night mode: after 2 minutes the line, day mode, 10 minutes
-  later back to night (if dark). Then the page value back to 14.
-
 ### R12-07 The web page: every new switch wired — `to test` (owner, needs the login)
 - Settings, Streams & audio: "Bit rate mode" (main stream form), Save: the form reports "Saved and checked", the
   selected value returns after a reload, `rtspserver.conf` [0] `vbr` matches it, and the RTSP log reports
@@ -825,32 +818,6 @@ or requires U-Boot prompt commands.
 
 Context: [hardware-acceleration.md](hardware-acceleration.md). None of this was compiled or run before it was pushed
 (no compiler on the author's machine): the first check is that the CI run is green.
-
-### HW-09 Noise reduction by the ISP (Image page, `DENOISE`, item 37) — `partly passed` (2026-11-12, .11 rc37, daylight)
-- **What:** a Noise reduction slider on the Image page. `tc100_rtsp` stretches the weight curves of the tuning file's
-  NR1 (raw) and NR2 (luma) sets, manual and 9 gain-linked, along the pixel difference: 2 % per step, -50 = almost none,
-  +50 = twice as wide. The driver keeps picking the set of the gain level. Nothing is written while the slider is at 0.
-  At each video start the log has `noise reduction: gain levels ...` and the NR1 / NR2 mode and sets (read only).
-  Also a "Noise Reduction" slider in Home Assistant (MQTT command `isp_denoise`).
-- **Test:** live tuning on, at night (gain at its maximum, the iso16 set), noise reduction -50, 0, +50: log
-  `noise reduction: N in the ISP (iso16 NR2 w[4] a -> b)`; the grain on flat dark areas goes up / down (compare
-  snapshots of the same scene); the bit rate goes up / down. The "Applied on the camera" line shows the value.
-- **Fail:** picture broken, frozen or unchanged at ±50: note the log; set DENOISE=0 (the tuning file's values come
-  back at the next video start).
-- **Also (review of 2026-11-11, `docs/linux-port/frontier/nr-2026-11-11.md`):** DENOISE=25, restart tc100_rtsp: the
-  `a` of `w[4] a -> b` must be the same as before the restart (base not stretched twice); a day / night switch with
-  DENOISE != 0 logs `noise reduction: 25 in the ISP` again after `night parameter set`; alternate -50 / +50 every
-  second for 10 min while streaming: no kernel message, no corrupted frame.
-- **Result 2026-11-12 (.11, 3.0.1-rc37, by day, through `isp_tune_set` as the page does; isp_tune.conf restored after,
-  backup `isp_tune.conf.bak-20261112`):**
-  - start-up log: gain levels and the NR1 / NR2 sets of the day and of the night parameter set: **passed**;
-  - -50 / 0 / +50 / 25: `iso16 NR2 w[4] 451 -> 0 / 451 / 834 / 709`, `/var/run/isp_tune.status` follows: **passed**;
-  - DENOISE=25, restart of tc100_rtsp: `451 -> 709` again (base not stretched twice): **passed**;
-  - -50 / +50 every second for 10 min while streaming (497 changes, 94 applied: the file is read every few seconds):
-    no refusal, 0 dropped frames in 121 STAT lines, client kept, no kernel error (one `tuning parameter set 0` line,
-    the day set), base stays 451: **passed**; day picture after it clean;
-  - still to do **at night** (gain at its maximum): grain at -50 / 0 / +50 on snapshots, and `noise reduction: N in the
-    ISP` again after a day / night switch with DENOISE != 0.
 
 ## Web UI on 3.0: checks that need the camera (audit of 2026-10-30)
 
@@ -3584,9 +3551,8 @@ Status: `failed on the .11 2026-11-14`: still oscillates on a static scene (resu
 - `overclock-step set off` at 13:54 UTC: `mode=off`, `failed_reason=manual_off`, SYSCTRL 0x08 back to `0x010213F0`
   (480 / ASIC 120 MHz, read with devmem), `OVERCLOCK_AUTO=0`, `OVERCLOCK_TARGET_MHZ=480` in boot.conf (backup
   `boot.conf.bak-overclock`), stream unaffected (`dropped 0`).
-- Defect for the `overclock` branch: after the live switch back to 480 the microphone ADC reads `adc_hz 8012.82`
-  against `dac_hz 8000.00` (`skew_ppm -1600`): the ADC2 divider of the live path is not the one of a 480 MHz boot. Gone at
-  the next reboot. Not worth fixing unless the branch goes on.
+- After the live switch back to 480 the microphone ADC read `adc_hz 8012.82` against `dac_hz 8000.00`. **Corrected
+  2026-11-15:** not an overclock defect, the .24 (never overclocked) logs `adc achieves 8012 Hz` at 480 MHz too.
 
 ### AWB-03 first try on the .11 (2026-11-14 13:58-14:01 UTC, CI build of 0097192, binary in RAM, stock server restored)
 - `tc100_rtsp` of 0097192 (`AWB_HOLD`=2, `AWB_AVG`=2) run in place of the stock one for 120 s, same arguments, stream kept
@@ -3665,3 +3631,17 @@ Status: `failed on the .11 2026-11-14`: still oscillates on a static scene (resu
   the cfg-persist lock): the ~10 s it held in front of the video are gone. Step 9 got a sub-marker (`step_9_ircut_done`).
 - **To check with the next build:** the boot trace on both cameras (expected `rtsp_launched` ~25 s instead of ~35 s, no
   10 s gaps), `cfg-persist save` time (expected ~1-2 s), the safe-mode count still correct (`config/.boot-guard`).
+
+### Night check 2026-11-15 00:04-00:30 UTC (owner's request at 01:04 local; the scheduled 23:15 UTC check had no Mac bridge)
+- **State found:** both cameras up 6 h 10 (rc44 since 17:50 / 17:53 UTC, no unplanned reboot), `nr3d_overflow 0`, filter at
+  night, B&W snapshots. The .24 switched to night at 00:00, the .11 at 00:03 (its lamp off: AWB count 863 739 -> 7 040;
+  the 00:02 "mode=day" line was its last line before the switch, not an inconsistency).
+- **My AWB-05 RAM test binaries were still running** (started 14/11 ~19:30 UTC with the stock server's arguments but
+  **without its environment**): at night ~23 fps instead of the night set's 10 fps. Stock rc44 restarted on both with
+  `rtsp-launch.sh` (environment complete): 10 fps, `ISP: night parameter set of the tuning file`. **Rule for later RAM
+  tests:** start the test binary with the stock process's environment (`/proc/<pid>/environ`), as `v3/dev/try-rtsp.sh`
+  does, not with the arguments alone.
+- **HW-09 (night) and R12-05: passed** (archived; the .24's isp_tune.conf had no `DENOISE=` line: a sed alone changes
+  nothing, the line must be appended).
+- **Correction:** the `.11` microphone rate `adc_hz 8012.82` after the overclock switch-off is not an overclock defect: the
+  .24, never overclocked, logs `akpcm: capture requested 8000 Hz, adc achieves 8012 Hz` too (the ADC divider at 480 MHz).

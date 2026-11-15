@@ -2467,3 +2467,36 @@ Declined after the tester's answer: `cma=16M`, wpa_supplicant out of the RAM ima
 - **Switch / revert:** Manual `scripts/wifi-try.sh revert` or waiting for the timer window; script writes only to `/sys/module/rtl8xxxu/parameters/{ampdu_rx,tx_atten}` and `/tmp/wifi-try/*`.
 - **Test:** On a camera connected over Wi-Fi (not rescue AP): run `scripts/wifi-try.sh tx_atten=6 30` (do NOT confirm) and verify `tx_atten` returns to `0` after ~30 s; run `scripts/wifi-try.sh ampdu_rx=0 30` followed by `scripts/wifi-try.sh confirm` within 30 s and verify `ampdu_rx` remains `N`.
 - **Pass criteria:** No Wi-Fi drop required, automatic revert restores the exact prior sysfs value on expiry or simulated gateway loss, `confirm` keeps the tested value (host unit tests `tests/test_wifi_try.py` pass).
+
+### HW-09 Noise reduction by the ISP (Image page, `DENOISE`, item 37) — `passed 2026-11-15 (.24 rc44, night, iso16 set): DENOISE -50 / 0 / +50 live: log w[4] 451 -> 0 / 451 / 834, grain 7.68 / 5.68 / 4.25, JPEG 191 / 148 / 119 KB; config restored (same md5)`
+- **What:** a Noise reduction slider on the Image page. `tc100_rtsp` stretches the weight curves of the tuning file's
+  NR1 (raw) and NR2 (luma) sets, manual and 9 gain-linked, along the pixel difference: 2 % per step, -50 = almost none,
+  +50 = twice as wide. The driver keeps picking the set of the gain level. Nothing is written while the slider is at 0.
+  At each video start the log has `noise reduction: gain levels ...` and the NR1 / NR2 mode and sets (read only).
+  Also a "Noise Reduction" slider in Home Assistant (MQTT command `isp_denoise`).
+- **Test:** live tuning on, at night (gain at its maximum, the iso16 set), noise reduction -50, 0, +50: log
+  `noise reduction: N in the ISP (iso16 NR2 w[4] a -> b)`; the grain on flat dark areas goes up / down (compare
+  snapshots of the same scene); the bit rate goes up / down. The "Applied on the camera" line shows the value.
+- **Fail:** picture broken, frozen or unchanged at ±50: note the log; set DENOISE=0 (the tuning file's values come
+  back at the next video start).
+- **Also (review of 2026-11-11, `docs/linux-port/frontier/nr-2026-11-11.md`):** DENOISE=25, restart tc100_rtsp: the
+  `a` of `w[4] a -> b` must be the same as before the restart (base not stretched twice); a day / night switch with
+  DENOISE != 0 logs `noise reduction: 25 in the ISP` again after `night parameter set`; alternate -50 / +50 every
+  second for 10 min while streaming: no kernel message, no corrupted frame.
+- **Result 2026-11-12 (.11, 3.0.1-rc37, by day, through `isp_tune_set` as the page does; isp_tune.conf restored after,
+  backup `isp_tune.conf.bak-20261112`):**
+  - start-up log: gain levels and the NR1 / NR2 sets of the day and of the night parameter set: **passed**;
+  - -50 / 0 / +50 / 25: `iso16 NR2 w[4] 451 -> 0 / 451 / 834 / 709`, `/var/run/isp_tune.status` follows: **passed**;
+  - DENOISE=25, restart of tc100_rtsp: `451 -> 709` again (base not stretched twice): **passed**;
+  - -50 / +50 every second for 10 min while streaming (497 changes, 94 applied: the file is read every few seconds):
+    no refusal, 0 dropped frames in 121 STAT lines, client kept, no kernel error (one `tuning parameter set 0` line,
+    the day set), base stays 451: **passed**; day picture after it clean;
+  - still to do **at night** (gain at its maximum): grain at -50 / 0 / +50 on snapshots, and `noise reduction: N in the
+    ISP` again after a day / night switch with DENOISE != 0.
+
+### R12-05 IR LED protection (every source; Day/night page, hours) — `passed 2026-11-15 (.24 rc44, night): IR_LED_MAX_ON=120, IR_LED_REST=60: day forced 130 s after the daemon restart, back to night ~60 s later, forced again after ~124 s; file restored (same md5), back to night`
+- **What:** after `IR_LED_MAX_ON` seconds of night (50400 = 14 h, the stock value) day mode for 600 s, then the normal
+  decision again; 0 = off. Console: `IR LEDs on for N s: day mode for 600 s (IR LED protection)`.
+- **Test:** `IR_LED_MAX_ON=120` in `/mnt/config/daynight.conf` (the page takes whole hours: edit the file for the test),
+  restart the daemon (`auto-night-detection stop; start`), night mode: after 2 minutes the line, day mode, 10 minutes
+  later back to night (if dark). Then the page value back to 14.
