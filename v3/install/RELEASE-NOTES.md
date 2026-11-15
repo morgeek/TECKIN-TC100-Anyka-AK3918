@@ -2,6 +2,33 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
+## What is new in 3.0.1 (Final Release)
+3.0.1 gathers the test builds 3.0.1-rc37 to rc44 (details below) and the work of 14-15 November. Updating from 3.0.0
+keeps the settings. In short:
+- **Picture colour:** the ISP's white balance runs in manual mode and our grey-world loop steers its gains after the
+  first 10 s (AWB-05): the slow tint cycle seen on both test cameras is gone (picture colour spread 0.05-0.6 instead of
+  10-13 on a steady scene), and a still scene costs far fewer bits (night, 10 fps: 155 KB per 5 s instead of 400 KB).
+  `RTSP_AWB_MANUAL=0` in `/mnt/config/rtsp.env` returns to the ISP's automatic mode, with its colour-temperature
+  hysteresis raised (`RTSP_ISP_AWB_STABLE`, default 60).
+- **Free encoder (ENC-02):** the budget per picture and the GOP follow the real capture rate (10 fps at night: the
+  bit rate can now use the whole ceiling when the scene needs it, keyframe every 2.5 s); a picture larger than the
+  stream buffer no longer fails again and again; keyframes are kept under 0.4 s of the bit rate; in smart mode the
+  keyframe of a still scene is coded 4 QP below the P pictures (`RTSP_FE_SMART_QP`); after repeated failures the
+  encoder is reopened, then the video server stops for the service watchdog to start it again. Switches:
+  `RTSP_FE_FPS=0`, `RTSP_FE_SUBBUF=1` (128 KB sub-stream buffer, not the default yet).
+- **VBR really variable:** quality QP `RTSP_VBR_QP` (default 33) instead of 27, which kept VBR at the ceiling.
+- **Wi-Fi:** TX aggregation (A-MPDU) off by default (`WIFI_AMPDU_TX=0`): 0 video stalls on the camera that had them;
+  USB host fix (kernel patch 0022).
+- **IR-cut:** the filter position is asserted again every 30 min (`IRCUT_REASSERT_MIN`): a filter left out of the day
+  position gave a magenta picture.
+- **Settings:** a key removed from daynight.conf no longer keeps its last value until a restart; saving the settings
+  to the flash takes half the time (no more 10 s of full CPU); the boot guard saves its count in the background;
+  `/tmp/boot-trace.txt` logs the boot steps.
+- **Web interface:** reorganized menus, native answers for the polled pages (`httpfront`), faster CGIs and caches.
+
+Known limits: the 128 KB sub-stream buffer and the echo cancellation (`RTSP_AUDIO_AEC=1`) stay off until tested;
+after a restart of the video server the day / night switch may go to day for about 20 s in the dark.
+
 ## What is new in 3.0.1-rc44 (test build, branch main)
 Everything in 3.0.1-rc43 below, plus:
 - **Web UI organization & responsiveness:** navigation and Settings sidebar organized into 4 logical poles (`Watch`, `Camera`,

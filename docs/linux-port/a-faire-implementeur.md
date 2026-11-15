@@ -74,6 +74,10 @@ micro inactif sans DSP, MQTT / présence sans fork). Mesurer avant / après sur 
   À ne pas faire : SAO, AMP, tranches multiples, plage de recherche (peu ou pas de gain, risque de blocage).
   **15/11 : 1, 2, 3 et 5 codés** (accord du propriétaire ; branche `enc-fixes`, tests hôte seulement) : à vérifier sur
   une caméra, `test-queue.md` ENC-02 (interrupteurs `RTSP_FE_FPS=0`; tampon sous-flux 128 Ko en option `RTSP_FE_SUBBUF=1`, 57 Ko vendeur par défaut). Reste le 4 (T1, banc).
+  **15/11 matin, .24 (fusionné sur main, b2f734a) :** ligne R1 correcte, IDR 71-74 Ko toutes les 2,5 s la nuit, 0 échec
+  quand rien ne dérange le test. Le débit d'une scène fixe dépend surtout de la balance des blancs : rc44 400 Ko / 5 s,
+  nouveau binaire avec AWB-05 155 Ko / 5 s, sans AWB-05 (`RTSP_AWB_MANUAL=0`) 1 Mo / 5 s (R1 laisse monter au plafond
+  les variations de couleur de l'ISP). Reste : scène chargée la nuit, 24 h, 128 Ko, smart=1.
 - **MIS À JOUR 14/11 soir : cause trouvée.** Mesuré sur la .24 : ~64 kbit par image quelle que soit la scène (le budget
   1600 / 25) : VBR = CBR. `rc.h` : la QP « qualité » de VBR est `qmin + 2` = 27, trop basse pour qu'une image coûte moins
   que le budget. **À faire (après choix du propriétaire) :** QP qualité réglable (`RTSP_VBR_QP`, défaut proposé 33),
@@ -177,6 +181,11 @@ contredise.
   script shell) : chaque lecture repart des valeurs par défaut. Vu en vrai : `IR_LED_MAX_ON=120` d'un test restait actif.
 - [ ] **Petit :** bascule en jour dans le noir 20 s après un redémarrage du serveur vidéo (pic des compteurs AWB au
   redémarrage de l'ISP) ; ignorer les compteurs AWB ~30 s après le départ de la vidéo.
+
+- [ ] **Petit (vu le 15/11 en test RAM) :** un deuxième `tc100_rtsp` qui démarre pendant qu'un autre tourne remet le cœur
+  de l'encodeur à zéro (`fe_hw_init` dans `fe_init`) avant de trouver la capture occupée (`REQBUFS: Resource busy`) :
+  l'autre perd une image (AKUIO_WAIT_IRQ). Ouvrir la capture (ou un verrou) avant `fe_hw_init`. Sans effet en usage
+  normal (une seule instance), mais le watchdog de service peut en lancer une.
 
 ### Encore ouvert au 2026-11-14 (par ordre de valeur)
 1. **WIFI-STALL-01 (.11), mis à jour le 14/11 après-midi :** essais sans le propriétaire (test-queue « Wi-Fi trials on

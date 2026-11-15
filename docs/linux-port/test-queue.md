@@ -124,6 +124,15 @@ older `to test` entries below.
   KB / 5 s was the dawn light, not the code). rc44 stock on the same scene before: about 400 KB / 5 s (its quality
   QP was 27, no `RTSP_VBR_QP`). Still to see: 2 (a busy / noisy night scene rising above 650 kbit/s), 1 with
   `RTSP_FE_SUBBUF=1`, 3 smart=1, 4 over 24 h, 5. Left running on the .24 from 08:17 UTC.
+- **2026-11-15, .24, second look (same still night scene):** the RAM binary had 4 `picture failed` (AKUIO_WAIT_IRQ
+  timeout, one picture each, the next one fine) in 15 min, each within seconds of a `service-watchdog` restart of the
+  stock `tc100_rtsp` (its check did not see a process of that name): that start resets the encoder core (`fe_hw_init`)
+  before it finds the capture busy (`REQBUFS: Resource busy`). Run under the name `tc100_rtsp` (watchdog satisfied): 0
+  failed in 2 x 55 s. A RAM-test artefact, not an ENC-02 fault; see the implementer list (a second instance must not
+  touch the core before it holds the capture). The bit rate is the white balance, not the encoder: rc44 400 KB / 5 s
+  (P 6.7 KB, IDR 68-78 KB every 50 at budget 8000); new binary with `RTSP_AWB_MANUAL=0` 1 MB / 5 s (P 18 KB: the ISP's
+  automatic white balance moves the colour every picture, and R1 now lets that rise to the 1600 kbit/s ceiling at
+  10 fps); new binary with AWB-05 (default) 155 KB / 5 s (P 170 bytes, IDR 73 KB every 25).
 
 ### NATIVE-02 httpfront answers daynight, hw_state and health.cgi (`src/httpfront/poll.h`) — `to test`
 - **What:** with `HTTPFRONT_NATIVE=1` (the default since rc28), `httpfront` now also answers by itself, without httpd and `sh`, the polled reads: `GET /cgi-bin/state.cgi?cmd=daynight&format=json` (Settings -> Day/night, every 5 s), `GET /cgi-bin/action.cgi?cmd=hw_state&format=json` (Hardware page, every 2 s), and `GET /cgi-bin/health.cgi` (when `/tmp/health_snapshot.cache` is fresh within TTL). Same JSON as the CGI byte for byte, same Basic login (no or wrong login: httpd answers as before). Anything it cannot print exactly as the shell does goes to httpd and the CGI: no `format=json` in the query, a `%XX` / `+` in `cmd` or `format`, a number with a leading zero or too long in `/tmp/cam_ae`, a value ending in `=`; for `hw_state` also a missing `/tmp/csrf_token`, no `/tmp/log`, `/tmp/log/audit.log` over 64 KB (the CGI rotates it), a pid file that is not one number; for `health.cgi` also a missing, expired, or > 1536-byte `/tmp/health_snapshot.cache`. `daynight` reads the files at each request and writes nothing (the CGI keeps its answer 1 s in `/tmp/state-response-daynight-json.cache`). `hw_state` appends the same line as `audit_log` of `action.cgi` to `/tmp/log/audit.log` (`<epoch> cmd=hw_state ip=<client>`). Host tests: `tests/test_httpfront_poll.py` (CGI under busybox ash against the native route on twin trees).
