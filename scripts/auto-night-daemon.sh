@@ -44,6 +44,7 @@ DN_RTSPCONF=${DN_RTSPCONF:-/mnt/config/rtspserver.conf}
 CAM_AE=${CAM_AE:-/tmp/cam_ae}
 CAM_LUMA=${CAM_LUMA:-/tmp/cam_luma}
 CAM_AWB=${CAM_AWB:-/tmp/cam_awb}
+DN_RTSP_PID=${DN_RTSP_PID:-/var/run/v4l2rtspserver.pid}
 IRCUT_FILE=${DN_IRCUT:-/var/run/ircut}
 NIGHTMODE=${DN_NIGHTMODE:-/mnt/scripts/nightmode.sh}
 DN_LOG=${DN_LOG:-/tmp/logs/daynight.log}
@@ -72,9 +73,13 @@ VENDOR_LOCK=900
 IR_LED_MAX_ON=50400
 IR_LED_REST=600
 IR_LED_MODE=auto
+AWB_RESTART_IGNORE=30
 DN_VCNT=0
 DN_AWB_LAST=
 DN_AWB_SAME=0
+DN_AWB_IGNORE_UNTIL=0
+DN_AE_DOWN=0
+DN_RTSP_PID_LAST=
 DN_LAST_SW=-100000
 DN_SW_LUM=0
 DN_LOCK_UNTIL=0
@@ -109,7 +114,7 @@ read_daynight() {
   # every read starts from the defaults (2026-11-15): a key removed from the file kept its last value until a restart
   THRESHOLD_NIGHT=40; THRESHOLD_DAY=100; AE_NIGHT_ABOVE=15000; AE_DAY_BELOW=3000
   VENDOR_NIGHT_LUM=3584; VENDOR_DAY_LUM=1536; AWB_DAY_CNT=200000; AWB_NIGHT_CNT=1200
-  VENDOR_LOCK=900; IR_LED_MAX_ON=50400; IR_LED_REST=600; DAYNIGHT_SOURCE=luma; IR_LED_MODE=auto
+  VENDOR_LOCK=900; IR_LED_MAX_ON=50400; IR_LED_REST=600; DAYNIGHT_SOURCE=luma; IR_LED_MODE=auto; AWB_RESTART_IGNORE=30
   while IFS='=' read -r _k _v; do
     case "$_k" in
       LUMA_NIGHT|LUMA_DAY)
@@ -134,6 +139,9 @@ read_daynight() {
       MIN_SWITCH)
         case "$_v" in ''|*[!0-9]*) continue ;; esac
         [ "${#_v}" -le 4 ] && [ "$_v" -le 3600 ] && MIN_SWITCH="$_v" ;;
+      AWB_RESTART_IGNORE)
+        case "$_v" in ''|*[!0-9]*) continue ;; esac
+        [ "${#_v}" -le 4 ] && [ "$_v" -le 3600 ] && AWB_RESTART_IGNORE="$_v" ;;
     esac
   done < "$DN_CONF"
   # the gap: day must need a clearly lower index than night
@@ -238,9 +246,32 @@ dn_vendor_lum() {
   DN_LUM=$(( $2 * _vg / _vm * 40 / _vl ))
 }
 
+# Ignore AWB counts for AWB_RESTART_IGNORE s after video starts or restarts (ISP startup spike can trigger false day).
+dn_awb_check_restart() {
+  if [ -r "$DN_RTSP_PID" ] && read -r _pid < "$DN_RTSP_PID" && [ -n "$_pid" ]; then
+    if [ "$_pid" != "$DN_RTSP_PID_LAST" ]; then
+      DN_RTSP_PID_LAST="$_pid"
+      if [ "$AWB_RESTART_IGNORE" -gt 0 ]; then
+        DN_AWB_IGNORE_UNTIL=$((NOW + AWB_RESTART_IGNORE))
+        DN_AWB_SAME=0; DN_AWB_LAST=
+      fi
+    fi
+  fi
+  if [ "$DN_AE_DOWN" = 1 ]; then
+    DN_AE_DOWN=0
+    if [ "$AWB_RESTART_IGNORE" -gt 0 ]; then
+      DN_AWB_IGNORE_UNTIL=$((NOW + AWB_RESTART_IGNORE))
+      DN_AWB_SAME=0; DN_AWB_LAST=
+    fi
+  fi
+}
+
 # white balance counts of /tmp/cam_awb -> DN_AWB_DAY (1: daylight, a count above AWB_DAY_CNT) and DN_AWB_VIS (1:
 # visible light, one of the first five above AWB_NIGHT_CNT); without the file the metric decides alone
 dn_awb() {
+  if [ "$NOW" -lt "$DN_AWB_IGNORE_UNTIL" ]; then
+    DN_AWB_DAY=0; DN_AWB_VIS=0; return 0
+  fi
   DN_AWB_DAY=0; DN_AWB_VIS=1
   [ -r "$CAM_AWB" ] || return 0
   read -r _w0 _w1 _w2 _w3 _w4 _w5 _w6 _w7 _w8 _w9 _wct < "$CAM_AWB" || return 0
@@ -263,11 +294,12 @@ dn_awb() {
 
 # One decision of the vendor source; returns 1 when /tmp/cam_ae cannot be used. $1 = now (tests), else the clock.
 dn_step_vendor() {
-  [ -r "$CAM_AE" ] || return 1
-  read -r _l _e _a _d _i _k _m < "$CAM_AE" || return 1
-  dn_vendor_lum "$_l" "$_e" "$_a" "$_d" "$_i" "$_k" "$_m" || return 1
+  [ -r "$CAM_AE" ] || { DN_AE_DOWN=1; return 1; }
+  read -r _l _e _a _d _i _k _m < "$CAM_AE" || { DN_AE_DOWN=1; return 1; }
+  dn_vendor_lum "$_l" "$_e" "$_a" "$_d" "$_i" "$_k" "$_m" || { DN_AE_DOWN=1; return 1; }
   [ -n "$1" ] && NOW="$1" || read_now
   read_cut
+  dn_awb_check_restart
   dn_awb
   _want=
   if [ "$CUR_CUT" = ON ]; then

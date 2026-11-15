@@ -290,7 +290,6 @@ static int fe_setup(void)
 		sb = getenv("RTSP_FE_FPS");
 		fe_fps_on = !(sb && sb[0] == '0');
 	}
-	fe_hw_init(&fe_env);	/* a clean core (the reset bit) whatever the previous user left */
 	return 0;
 }
 
@@ -4018,6 +4017,8 @@ unsigned char *fpb[2] = { NULL, NULL };
 
 		if (cached) rq.flags = V4L2_MEMORY_FLAG_NON_COHERENT;
 		if (ioctl(fd, VIDIOC_REQBUFS, &rq) < 0) { LOG("REQBUFS: %s\n", strerror(errno)); return 1; }
+		/* Reset the encoder core only after owning the capture device, so a second instance failing REQBUFS does not disrupt the running one. */
+		if (free_enc) fe_hw_init(&fe_env);
 		if (cached)
 			LOG("capture buffers: %s\n", (rq.capabilities & V4L2_BUF_CAP_SUPPORTS_MMAP_CACHE_HINTS) && (rq.flags & V4L2_MEMORY_FLAG_NON_COHERENT)
 				? "cached" : "uncached (the kernel has no cache hints for this queue)");

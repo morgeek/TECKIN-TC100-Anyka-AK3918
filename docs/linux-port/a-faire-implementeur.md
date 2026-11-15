@@ -29,23 +29,22 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
 - [ ] **Couleurs justes dès l'allumage (AWB-05) :** démarrer le mode manuel depuis les gains sauvegardés (`white balance:
   starting from saved gains rex / bex`) quand ils sont récents et du même mode jour / nuit, au lieu de 10 s d'automatique
   de l'ISP (`AWB_MANUAL_AFTER`, `awb_manual_start` dans `tc100_rtsp.c`) ; garder les 10 s si aucun gain valable.
-- [ ] **Fausse bascule en jour après un redémarrage vidéo :** ignorer les compteurs AWB ~30 s après le départ de la vidéo
-  (pic des compteurs au redémarrage de l'ISP ; supervisord C et `auto-night-daemon.sh`). Doublon de l'entrée de la
+- [x] **Fausse bascule en jour après un redémarrage vidéo :** ignorer les compteurs AWB ~30 s après le départ de la vidéo
+  (pic des compteurs au redémarrage de l'ISP ; supervisord C et `auto-night-daemon.sh`, `AWB_RESTART_IGNORE=30`, POLISH-01). Doublon de l'entrée de la
   nuit du 15/11 plus bas : une seule correction.
 - [ ] **Bascules jour / nuit à l'aube et au crépuscule :** relire `daynight.log` sur plusieurs jours des deux caméras ;
   si un aller-retour apparaît quand la lumière hésite, élargir l'hystérésis ou le `MIN_SWITCH` (sans toucher aux défauts
   validés si aucun aller-retour n'est vu).
-- [ ] **Interface web :** passer en C dans `httpfront` (comme NATIVE-02, `src/httpfront/poll.h`) les dernières lectures
-  encore servies par un CGI shell sur l'onglet Réglages (`fullconfig`, `state.cgi` hors `daynight`). Gain : quelques
+- [x] **Interface web :** passer en C dans `httpfront` (comme NATIVE-02, `src/httpfront/poll.h`) les dernières lectures
+  encore servies par un CGI shell sur l'onglet Réglages (`fullconfig`, `isp_tune` dans `state.cgi` hors `daynight`, POLISH-01). Gain : quelques
   dixièmes de seconde par page. Même JSON octet pour octet, tests à deux arbres comme `test_httpfront_poll.py`.
 
 ### C. Polissage invisible (robustesse, ressources)
-- [ ] **Sauvegarde des réglages 5,4 s → ~1 s (`cfg-persist`) :** la boucle par fichier (~180 forks `cmp` / `md5sum` /
-  `cat`) remplacée par un seul `md5sum` sur tous les fichiers, comparé à la liste de la dernière sauvegarde.
-- [ ] **Une deuxième instance de `tc100_rtsp` ne touche pas au cœur de l'encodeur** avant d'avoir la capture
-  (`fe_hw_init` dans `fe_init` avant `REQBUFS`) : vu le 15/11, le watchdog de service relançait le binaire d'origine
-  pendant un test en RAM, chaque essai faisait perdre une image à l'instance en marche. Ouvrir la capture (ou un verrou
-  `/var/run`) avant la remise à zéro.
+- [x] **Sauvegarde des réglages 5,4 s → ~1 s (`cfg-persist`) :** la boucle par fichier (~180 forks `cmp` / `md5sum` /
+  `cat`) remplacée par un seul `md5sum` sur tous les fichiers (POLISH-01).
+- [x] **Une deuxième instance de `tc100_rtsp` ne touche pas au cœur de l'encodeur** avant d'avoir la capture
+  (`fe_hw_init` déplacé après `VIDIOC_REQBUFS`, POLISH-01) : vu le 15/11, le watchdog de service relançait le binaire d'origine
+  pendant un test en RAM, chaque essai faisait perdre une image à l'instance en marche.
 - [ ] **Débit des enregistrements :** valider le mode smart sur 24 h (ENC-02 point 3, `smart=1` sur la .11 depuis
   3.0.1) ; attendu -10 à -30 % sur une scène calme pour Frigate. Puis décider du défaut `smart` pour toutes.
 - [ ] **Tampon du sous-flux 128 Ko (`RTSP_FE_SUBBUF=1`) :** test ENC-02 point 1 avec le propriétaire (VLC sur le

@@ -72,7 +72,24 @@ refresh_deleted() {
 }
 # awb.state (the white balance gains tc100_rtsp rewrites every few minutes while the light drifts) is stored in every slot
 # but never counts as a change: it would wear the flash. It goes out with the next real save (boot-guard, a deliberate reboot).
-signature() { refresh_deleted; cd "$(dirname $CFG)" || return 1; list | while read f; do case "$f" in */awb.state) continue;; esac; md5sum "$f"; done | md5sum | cut -d' ' -f1; }
+_sig_files() {
+  find "$1" -type f | sort | while read f; do
+    case "$f" in *.dist|*.pid|*.tmp|*.lock|*/._*|*/.DS_Store|*/ssl/cacert/*|*/ssl/*.sh|*/openssl.cnf|*/swap_header*|*/isp_f23_*|*/isp.conf|*/autostart/0*|*/presets/*.json.dist|*/awb.state) continue;; esac
+    echo "$f"
+  done
+}
+signature() {
+  refresh_deleted
+  cd "$(dirname "$CFG")" || return 1
+  b=$(basename "$CFG")
+  # Single md5sum over all tracked config files instead of ~180 per-file cmp/md5sum forks.
+  _files=$(_sig_files "$b")
+  if [ -n "$_files" ]; then
+    printf '%s\n' "$_files" | xargs md5sum | md5sum | cut -d' ' -f1
+  else
+    md5sum </dev/null | cut -d' ' -f1
+  fi
+}
 
 # slot header -> "seq len md5" or nothing when the slot is empty/corrupt
 slot_info() {

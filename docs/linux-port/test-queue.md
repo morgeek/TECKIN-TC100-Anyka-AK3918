@@ -53,6 +53,22 @@ HW-09 night part, the patch 0003 `finish_request_epx` fix (a-faire-implementeur.
 (just below, 2026-11-15), and the
 older `to test` entries below.
 
+### POLISH-01 Post-3.0.1 safe polish: cfg-persist single md5sum, AWB restart ignore, fe_hw_init guard, native fullconfig/isp_tune (`[polish]`) — `to test`
+
+- **What:**
+  1. `v3/linux66-sd/cfg-persist`: `signature()` computes a single `xargs md5sum | md5sum` over tracked files instead of ~180 per-file `cmp`/`md5sum` forks.
+  2. `src/supervisord/supervisord.c` + `scripts/auto-night-daemon.sh`: ignore `/tmp/cam_awb` counts for `AWB_RESTART_IGNORE` s (default 30) after `tc100_rtsp` starts/restarts (PID change or `/tmp/cam_ae` recovery), preventing false day switches from ISP startup AWB spikes.
+  3. `src/tc100rtsp/tc100_rtsp.c`: move `fe_hw_init(&fe_env)` from `fe_setup()` to right after `VIDIOC_REQBUFS` succeeds so a second instance failing `REQBUFS` never resets the running encoder core.
+  4. `src/httpfront/poll.h`: native C handlers for `state.cgi?cmd=isp_tune&format=json` and `state.cgi?cmd=fullconfig` (byte-for-byte parity with `state.cgi`, fallback to `httpd` on edge cases).
+- **Switches / revert:**
+  - `AWB_RESTART_IGNORE=0` in `/mnt/config/daynight.conf` disables the 30 s AWB ignore window.
+  - `TC100_NATIVE_STATUS=0` disables all native `httpfront` handlers (falls back to `httpd`).
+- **Test & pass criteria:**
+  1. `time sh /mnt/v3/linux66-sd/cfg-persist flush` (or `save` after a config change): completes in ~1-2 s instead of ~5.4 s; `cfg-persist status` shows `state=ok`.
+  2. At night (`ircut=0`), run `controlscripts/rtsp-h26x restart`: `/tmp/logs/daynight.log` stays `mode=night` over the next 60 s (no false switch to day 20 s after restart).
+  3. While `tc100_rtsp` is streaming, launch a second `/tmp/tc100_rtsp` (expected to fail `REQBUFS: Device or resource busy`): running `tc100_rtsp` logs 0 `picture failed` / `AKUIO_WAIT_IRQ` errors.
+  4. Open Settings and Image tuning tabs in the web UI: loads cleanly in < 50 ms for `fullconfig` and `isp_tune`, values match `state.cgi`.
+
 ### ENC-02 Free encoder: budget at the real frame rate, oversize path, IDR size limit, still-scene keyframe, failure escalation (`[enc-fixes]`) — `to test`
 
 - **Why:** the read-only review of 2026-11-15 (`frontier/encoder-2026-11-15-reponse.md`, items R1, R2, R3, L1 + L2;

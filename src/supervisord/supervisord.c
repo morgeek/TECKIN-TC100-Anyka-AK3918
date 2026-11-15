@@ -214,14 +214,15 @@ static const char *const src_name[] = { "luma", "ae", "isp", "vendor" };
 static ll THRESHOLD_NIGHT = 40, THRESHOLD_DAY = 100, AE_NIGHT_ABOVE = 15000, AE_DAY_BELOW = 3000;
 static ll VENDOR_NIGHT_LUM = 3584, VENDOR_DAY_LUM = 1536, AWB_DAY_CNT = 200000, AWB_NIGHT_CNT = 1200;
 static ll VENDOR_LOCK = 900, IR_LED_MAX_ON = 50400, IR_LED_REST = 600, NIGHT_HOLD = 10, DAY_HOLD = 60, MIN_SWITCH = 180;
+static ll AWB_RESTART_IGNORE = 30;
 static int DAYNIGHT_SOURCE = SRC_LUMA;
 static int IR_LED_MODE;	/* 0 auto, 1 off, 2 force */
 static char DN_MODE[16] = "2";
 
 static ll LOW_LIGHT_COUNT, BRIGHT_LIGHT_COUNT, DN_VCNT, DN_LAST_SW = -100000, DN_SW_LUM, DN_LOCK_UNTIL, DN_LOCK_LUM;
-static ll DN_NIGHT_SINCE, DN_REST_UNTIL, DN_DARK_SINCE, DN_BRIGHT_SINCE, DN_LAST_SWITCH, DN_TOO_SOON;
-static int have_last_switch, have_too_soon, DN_AWB_SAME, DN_AWB_DAY, DN_AWB_VIS, CUR_CUT_ON = 1;
-static char DN_AWB_LAST[200];
+static ll DN_NIGHT_SINCE, DN_REST_UNTIL, DN_DARK_SINCE, DN_BRIGHT_SINCE, DN_LAST_SWITCH, DN_TOO_SOON, DN_AWB_IGNORE_UNTIL;
+static int have_last_switch, have_too_soon, DN_AWB_SAME, DN_AWB_DAY, DN_AWB_VIS, CUR_CUT_ON = 1, DN_AE_DOWN;
+static char DN_AWB_LAST[200], DN_RTSP_PID_LAST[32];
 static ll DN_LOG_AT, DN_LOG_N;
 static int SLP = 8;
 
@@ -229,9 +230,9 @@ static void night_reset(void)
 {
 	LOW_LIGHT_COUNT = BRIGHT_LIGHT_COUNT = DN_VCNT = DN_SW_LUM = DN_LOCK_UNTIL = DN_LOCK_LUM = 0;
 	DN_LAST_SW = -100000;
-	DN_NIGHT_SINCE = DN_REST_UNTIL = DN_DARK_SINCE = DN_BRIGHT_SINCE = DN_LOG_AT = DN_LOG_N = 0;
-	have_last_switch = have_too_soon = DN_AWB_SAME = 0;
-	DN_AWB_LAST[0] = 0;
+	DN_NIGHT_SINCE = DN_REST_UNTIL = DN_DARK_SINCE = DN_BRIGHT_SINCE = DN_LOG_AT = DN_LOG_N = DN_AWB_IGNORE_UNTIL = 0;
+	have_last_switch = have_too_soon = DN_AWB_SAME = DN_AE_DOWN = 0;
+	DN_AWB_LAST[0] = DN_RTSP_PID_LAST[0] = 0;
 	SLP = 8;
 }
 
@@ -269,7 +270,7 @@ static void conf_daynight(void)
 	 * restarted (the .24 kept IR_LED_MAX_ON=120 of a test after the file was restored: day every 2 minutes all night) */
 	THRESHOLD_NIGHT = 40; THRESHOLD_DAY = 100; AE_NIGHT_ABOVE = 15000; AE_DAY_BELOW = 3000;
 	VENDOR_NIGHT_LUM = 3584; VENDOR_DAY_LUM = 1536; AWB_DAY_CNT = 200000; AWB_NIGHT_CNT = 1200;
-	VENDOR_LOCK = 900; IR_LED_MAX_ON = 50400; IR_LED_REST = 600;
+	VENDOR_LOCK = 900; IR_LED_MAX_ON = 50400; IR_LED_REST = 600; AWB_RESTART_IGNORE = 30;
 	DAYNIGHT_SOURCE = SRC_LUMA; IR_LED_MODE = 0;
 	for (p = b; (e = strchr(p, '\n')); p = e + 1) {	/* IFS='=' */
 		char *v, *k = p;
@@ -312,6 +313,9 @@ static void conf_daynight(void)
 		} else if (!strcmp(k, "MIN_SWITCH")) {
 			if (!all_digits(v) || l > 4 || dec(v) > 3600) continue;
 			MIN_SWITCH = dec(v);
+		} else if (!strcmp(k, "AWB_RESTART_IGNORE")) {
+			if (!all_digits(v) || l > 4 || dec(v) > 3600) continue;
+			AWB_RESTART_IGNORE = dec(v);
 		}
 	}
 	if (AE_DAY_BELOW >= AE_NIGHT_ABOVE) AE_DAY_BELOW = AE_NIGHT_ABOVE / 2;	/* the gap: day needs a lower index */
@@ -469,6 +473,31 @@ static int dn_step_ae(void)	/* 0 = used, -1 = /tmp/cam_ae cannot be used (the ca
 	return 0;
 }
 
+/* Ignore AWB counts for AWB_RESTART_IGNORE s after video starts or restarts (ISP startup spike can trigger false day). */
+static void dn_awb_check_restart(void)
+{
+	char pid[32];
+
+	if (first_line(envs("DN_RTSP_PID", "/var/run/v4l2rtspserver.pid"), pid, sizeof pid) == 0 && pid[0]) {
+		if (strcmp(pid, DN_RTSP_PID_LAST)) {
+			snprintf(DN_RTSP_PID_LAST, sizeof DN_RTSP_PID_LAST, "%s", pid);
+			if (AWB_RESTART_IGNORE > 0) {
+				DN_AWB_IGNORE_UNTIL = NOW + AWB_RESTART_IGNORE;
+				DN_AWB_SAME = 0;
+				DN_AWB_LAST[0] = 0;
+			}
+		}
+	}
+	if (DN_AE_DOWN) {
+		DN_AE_DOWN = 0;
+		if (AWB_RESTART_IGNORE > 0) {
+			DN_AWB_IGNORE_UNTIL = NOW + AWB_RESTART_IGNORE;
+			DN_AWB_SAME = 0;
+			DN_AWB_LAST[0] = 0;
+		}
+	}
+}
+
 /* white balance counts of /tmp/cam_awb -> DN_AWB_DAY (a count above AWB_DAY_CNT) and DN_AWB_VIS (one of the first five
  * above AWB_NIGHT_CNT); without a usable file the metric decides alone */
 static void dn_awb(void)
@@ -477,6 +506,11 @@ static void dn_awb(void)
 	int i;
 	ll v[10];
 
+	if (NOW < DN_AWB_IGNORE_UNTIL) {
+		DN_AWB_DAY = 0;
+		DN_AWB_VIS = 0;
+		return;
+	}
 	DN_AWB_DAY = 0; DN_AWB_VIS = 1;
 	if (first_line(envs("CAM_AWB", "/tmp/cam_awb"), b, sizeof b) != 0) return;
 	if (words(b, w, 11) < 11) return;
@@ -506,9 +540,10 @@ static int dn_step_vendor(void)
 	int want = -1;
 	char why[160];
 
-	if (!read_ae(&a) || !dn_vendor_lum(a.w, a.w[6], &lum)) return -1;
+	if (!read_ae(&a) || !dn_vendor_lum(a.w, a.w[6], &lum)) { DN_AE_DOWN = 1; return -1; }
 	read_now();
 	read_cut();
+	dn_awb_check_restart();
 	dn_awb();
 	if (CUR_CUT_ON) { if (lum > VENDOR_NIGHT_LUM && DN_AWB_DAY == 0) want = 1; }
 	else if (lum < VENDOR_DAY_LUM && DN_AWB_VIS == 1) want = 0;

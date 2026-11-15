@@ -27,7 +27,7 @@ DN = '/cgi-bin/state.cgi?cmd=daynight&format=json'
 HW = '/cgi-bin/action.cgi?cmd=hw_state&format=json'
 RW = re.compile(r'/(mnt|tmp|proc|var/run|sys)/')        # test_statusline.PATHS plus /sys (the LEDs, the button)
 FILES = {'www/cgi-bin': ['state.cgi', 'action.cgi', 'func.cgi', 'statelib.cgi'],
-         'scripts': ['common_functions.sh', 'event-logger.sh', 'action.d/hardware.sh']}
+         'scripts': ['common_functions.sh', 'event-logger.sh', 'isp-tune.sh', 'action.d/hardware.sh']}
 
 
 def build(base, over):
@@ -492,6 +492,26 @@ class Poll(unittest.TestCase):
         self.assertIn('    hw_state)', (ROOT / 'scripts/action.d/hardware.sh').read_text())
         self.assertIn('"cgi-bin/state.cgi?cmd=daynight&format=json&_="', (ROOT / 'src/webui/index/80-camera-controls.js').read_text())
         self.assertIn("'cgi-bin/action.cgi?cmd=hw_state&format=json&_='", (ROOT / 'www/hardware.html').read_text())
+
+    def test_isp_tune_and_fullconfig_parity(self):
+        over = {
+            'mnt/config/boot.conf': 'ISP_TUNE=1\nSERVICE_TRIM=0\nINTEGRATION_PROFILE=default\n',
+            'mnt/config/isp_tune.conf': 'BRIGHTNESS=12\nCONTRAST=-5\nPOWER_HZ=50\nEXPOSURE_MAX_PCT=80\nMASK1=10,20,30,40\nMASK_COLOR=gray\n',
+            'var/run/isp_tune.status': 'BRIGHTNESS=12\nPOWER_HZ=50\nEXPOSURE_NOW=1000\n',
+            'mnt/config/hostname.conf': 'CAM-TEST\n',
+            'mnt/config/timezone.conf': 'CET-1\n',
+            'mnt/config/ntp_srv.conf': 'pool.ntp.org\n',
+            'proc/net/route': 'Iface\tDestination\tGateway\tFlags\nwlan0\t00000000\t0101A8C0\t0003\n',
+            'sys/class/leds/blue_led/brightness': '1\n',
+            'sys/class/leds/red_led/brightness': '0\n',
+        }
+        with tempfile.TemporaryDirectory() as b:
+            fb = build(b, over)
+            self.start(fb)
+            it_path = '/cgi-bin/state.cgi?cmd=isp_tune&format=json'
+            self.assertEqual(self.native(it_path, it_path), cgi(fb, it_path))
+            fc_path = '/cgi-bin/state.cgi?cmd=fullconfig&_=1'
+            self.assertEqual(self.native(fc_path, fc_path), cgi(fb, fc_path))
 
 
 if __name__ == '__main__':

@@ -158,6 +158,30 @@ class LanOnlyEverywhere(unittest.TestCase):
         self.assertIn('( TC100_NET_ALLOW="$(netacl_allow_list)"; export TC100_NET_ALLOW', text('scripts/common_functions.sh'))
         launch = text('v3/linux66-sd/rtsp-launch.sh')
         self.assertLess(launch.index('export TC100_NET_ALLOW'), launch.index('exec /tmp/tc100_rtsp'))
+
+    def test_cfg_persist_signature_single_md5sum(self):
+        src = text('v3/linux66-sd/cfg-persist')
+        self.assertIn('xargs md5sum | md5sum', src)
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            cfg = d / 'config'
+            defaults = d / 'defaults'
+            cfg.mkdir()
+            defaults.mkdir()
+            (cfg / 'boot.conf').write_text('A=1\n')
+            (cfg / 'awb.state').write_text('100 100\n')
+            env = dict(os.environ, CFG=str(cfg), DEFAULTS=str(defaults), CFG_STATUS=str(d / 'status'))
+            cmd = ['sh', '-c', '. "%s" >/dev/null 2>&1; signature' % (ROOT / 'v3/linux66-sd/cfg-persist')]
+            # Call signature directly via a tiny wrapper since cfg-persist runs a case on $1
+            w = d / 'sig.sh'
+            w.write_text('#!/bin/sh\n' + src.split('\ncase "$1" in', 1)[0] + '\nsignature\n')
+            s1 = subprocess.check_output(['sh', str(w)], env=env, text=True).strip()
+            (cfg / 'awb.state').write_text('200 200\n')
+            s2 = subprocess.check_output(['sh', str(w)], env=env, text=True).strip()
+            self.assertEqual(s1, s2)
+            (cfg / 'boot.conf').write_text('A=2\n')
+            s3 = subprocess.check_output(['sh', str(w)], env=env, text=True).strip()
+            self.assertNotEqual(s1, s3)
         hf = text('src/httpfront/httpfront.c')
         self.assertIn('parse_allow(getenv_(envp, "TC100_NET_ALLOW"));', hf)
         self.assertIn('if (!allowed(ip)) { sc(SYS_close, c, 0, 0, 0, 0); continue; }', hf)

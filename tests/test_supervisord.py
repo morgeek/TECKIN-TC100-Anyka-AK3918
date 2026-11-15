@@ -242,6 +242,28 @@ class AutoNightParity(unittest.TestCase):
             sc.add('night')
         self.compare(sc)
 
+    def test_awb_restart_ignore_prevents_false_day(self):
+        sc = Scenario(self.d)
+        sc.add('conf', 'DAYNIGHT_SOURCE=vendor\nMIN_SWITCH=0\nIR_LED_MAX_ON=0\nAWB_RESTART_IGNORE=30')
+        # Start in night mode (ircut=0) with dark lum, then CAM_AE disappears and returns (video restart)
+        # followed by an AWB spike for 20 s: must NOT switch to day during the 30 s ignore window.
+        sc.add('cut', '0')
+        sc.add('now', 100)
+        sc.add('ae', self.ae(lumi=40, exp=100, a=256, d=256, i=256, m='1125'))
+        sc.add('awb', '100 100 100 100 100 100 100 100 100 100 5000')
+        sc.add('night')
+        # Simulate video restart: CAM_AE missing, then returns at t=110 with AWB spike
+        sc.add('ae', '')
+        sc.add('now', 105)
+        sc.add('night')
+        for t in (110, 118, 126, 134):
+            sc.add('now', t)
+            sc.add('ae', self.ae(lumi=40, exp=100, a=256, d=256, i=256, m='1125'))
+            sc.add('awb', '%d 100 100 100 100 100 100 100 100 100 5000' % (5000 + t))
+            sc.add('night')
+        out = self.compare(sc)
+        self.assertEqual(out[1], '')
+
     def test_ir_led_protection_and_manual_mode(self):
         sc = Scenario(self.d)
         sc.add('conf', 'DAYNIGHT_SOURCE=ae\nMIN_SWITCH=0\nNIGHT_HOLD=2\nDAY_HOLD=600\nIR_LED_MAX_ON=60\nIR_LED_REST=30')

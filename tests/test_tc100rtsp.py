@@ -2148,6 +2148,15 @@ class IspAwbHysteresis(unittest.TestCase):
         # the structure is the driver's: 16 + 3 + 6 * 10 + 3 + 10 shorts
         self.assertEqual(16 + 3 + 6 * 10 + 3 + 10, 92)
 
+    def test_fe_hw_init_after_reqbufs(self):
+        src = (ROOT / 'src/tc100rtsp/tc100_rtsp.c').read_text()
+        fe_setup_body = src[src.index('static int fe_setup(void)'):src.index('static uint32_t jpeg_run(')]
+        self.assertNotIn('fe_hw_init', fe_setup_body)
+        req_pos = src.index('if (ioctl(fd, VIDIOC_REQBUFS, &rq) < 0)')
+        hw_pos = src.index('if (free_enc) fe_hw_init(&fe_env);')
+        self.assertLess(req_pos, hw_pos)
+        self.assertLess(hw_pos, src.index('S[0].enc = p_open('))
+
 
 if __name__ == '__main__':
     unittest.main()
