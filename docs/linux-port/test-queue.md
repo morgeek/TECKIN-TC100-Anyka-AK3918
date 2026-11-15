@@ -3645,3 +3645,28 @@ Status: `failed on the .11 2026-11-14`: still oscillates on a static scene (resu
   nothing, the line must be appended).
 - **Correction:** the `.11` microphone rate `adc_hz 8012.82` after the overclock switch-off is not an overclock defect: the
   .24, never overclocked, logs `akpcm: capture requested 8000 Hz, adc achieves 8012 Hz` too (the ADC divider at 480 MHz).
+
+### More night checks 2026-11-15 00:20-00:45 UTC (owner: "if you see other things to test at night, do it")
+- **WIFI-STALL-01 on rc44 (boot default `WIFI_AMPDU_TX` absent / 0 = off):** both cameras `ampdu_tx=N` from boot, one BA
+  session opened before autorun then closed (`ba_tx_start/oper/stop` 1/1/1, the reassociation worked). .11, Mac ping every
+  0.5 s for 8.3 min: **0 replies later than 0.3 s** (max 147 ms), 1.2 % isolated losses without delay. Before: 1.7-2.2
+  stalls of up to 5 s a minute. **Passed with the boot setting.**
+- **IR-cut re-assert (rc44):** housekeeper job `ircut-reassert` registered on both cameras.
+- **cfg-persist block read (main, not in rc44):** the new script run on the .24 against the real flash: stock save 10.42 s,
+  new **5.36 / 5.46 s**, both slots valid after (header md5 = data md5). The remaining ~5 s: the per-file loop (61 `cmp`
+  against the defaults, 41 `md5sum`, 78 `cat`, ~180 forks per save; `sh -x` profile). **Next (implementer):** one
+  `md5sum` over all files compared against a precomputed list of the defaults' sums, one `tar` of the changed ones.
+- **AWB-05 binary at night with the stock environment** (`/proc/<pid>/environ` exported, 29 variables): night parameter set,
+  10 fps, filter at night, 0 overflow. Restored to the stock rc44 server afterwards.
+- **The ISP's night parameter set itself puts the white balance in manual** (`wbmode` reads manual on the .24 at night after
+  a fresh stock start): not a leftover of the tests; the day set gives the automatic mode back at dawn. AWB-05's 10 s
+  re-assertion only acts once our loop runs (it does not run on a B&W picture).
+- **Defect found and fixed: removed keys kept their last value.** After R12-05 the restored `daynight.conf` (no
+  `IR_LED_MAX_ON` line) still gave day every 2 minutes: `conf_daynight()` (supervisord.c) and `read_daynight()`
+  (auto-night-daemon.sh) only assigned the keys present, so `IR_LED_MAX_ON=120` stayed until the process restarted
+  (`auto-night-detection stop / start` only toggles the job inside tc100-supervisord). Live fix on the .24: the default
+  values written, read, file restored (same md5): night held from 00:35:57. **Code fix:** both readers start every read
+  from the defaults; tests `ConfReadsStartFromDefaults` (C structure, shell value coming back).
+- **Minor, noted:** 20 s after a restart of the video server the .24 switched to day in the dark (00:31, AWB count 334 748
+  right after the ISP restart, luma 39) and back to night 35 s later. An AWB-count transient at an ISP restart; a hold of
+  ~30 s on the AWB counts after the video starts would avoid it (supervisord, `vendor` source).

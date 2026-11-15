@@ -79,6 +79,8 @@ micro inactif sans DSP, MQTT / présence sans fork). Mesurer avant / après sur 
   (aujourd'hui appliqué à chaud seulement).
 
 ### 5. Temps de démarrage
+- **15/11 nuit :** nouveau `cfg-persist` essayé sur la .24 : sauvegarde 10,4 s → 5,4 s. Les 5 s restantes = la boucle par
+  fichier (~180 forks : `cmp` / `md5sum` / `cat`) ; à faire : un seul `md5sum` comparé à une liste précalculée.
 - **14/11 soir, cause principale trouvée et corrigée :** chaque sauvegarde des réglages en flash bloquait le CPU à 100 %
   ~10 s (lecture des deux emplacements octet par octet, `dd bs=1`), au démarrage et à chaque changement de réglage.
   Lecture par blocs de 4 Kio (0,15 s au lieu de 2,5 s par emplacement, vérifié sur la .24) et compteur de boot-guard
@@ -157,6 +159,12 @@ contredise.
   entre `scripts/mqtt-bridge.sh` et `src/mqttd/mqttd.c`).
 - [x] **Optimisations logicielles (`[opt]`, 14/11) — micro au repos, zéro fork MQTT/présence, correctif impulsion reset hrtimer et nettoyage (`IDLE-MIC-01` / `HRTIMER-01` dans `test-queue.md`) :**
   `aud_pump()` (`src/tc100rtsp/tc100_rtsp.c`) saute `access("/tmp/speaker-play.lock")` et `adsp_sample()`/`aud_aec_sample()` quand seule la détection sonore utilise le micro (et réinitialise l'état DSP/AEC à la reprise), `mqtt-bridge.sh` / `presence-mode.sh` suppriment les sous-coquilles sur le chemin périodique (`publish_health`, `build_diag_payload`, `presence_current`), le patch `0008` passe `venc_soft_reset()` à `usleep_range(1000, 2000)` (1–2 ms sous `HIGH_RES_TIMERS`), et les fonctions mortes inutilisées sont retirées. (`ENC-01` déjà actif et en observation ; l'AWB interne ISP est laissé de côté comme demandé.)
+
+### Corrigé dans la nuit du 15/11
+- [x] **Clés supprimées de daynight.conf qui gardaient leur valeur** jusqu'au redémarrage du processus (supervisord C et
+  script shell) : chaque lecture repart des valeurs par défaut. Vu en vrai : `IR_LED_MAX_ON=120` d'un test restait actif.
+- [ ] **Petit :** bascule en jour dans le noir 20 s après un redémarrage du serveur vidéo (pic des compteurs AWB au
+  redémarrage de l'ISP) ; ignorer les compteurs AWB ~30 s après le départ de la vidéo.
 
 ### Encore ouvert au 2026-11-14 (par ordre de valeur)
 1. **WIFI-STALL-01 (.11), mis à jour le 14/11 après-midi :** essais sans le propriétaire (test-queue « Wi-Fi trials on

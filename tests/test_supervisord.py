@@ -1363,3 +1363,31 @@ class SoundSwitch(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ConfReadsStartFromDefaults(unittest.TestCase):
+    """2026-11-15: a key removed from daynight.conf kept its last value until a restart (the .24 kept the test's
+    IR_LED_MAX_ON=120 after the file was restored: day every 2 minutes all night). Both versions reset first."""
+
+    def test_c_resets_before_parsing(self):
+        src = (ROOT / 'src/supervisord/supervisord.c').read_text()
+        fn = src[src.index('static void conf_daynight(void)'):]
+        fn = fn[:fn.index('\n}\n')]
+        reset = fn.index('IR_LED_MAX_ON = 50400; IR_LED_REST = 600;')
+        self.assertLess(fn.index('n = slurp(envs("DN_CONF"'), reset)
+        self.assertLess(reset, fn.index("/* IFS='=' */"))
+        for kv in ('THRESHOLD_NIGHT = 40', 'AWB_DAY_CNT = 200000', 'VENDOR_LOCK = 900', 'DAYNIGHT_SOURCE = SRC_LUMA', 'IR_LED_MODE = 0'):
+            self.assertIn(kv, fn[reset - 400:reset + 200])
+
+    def test_shell_value_comes_back_when_the_key_goes(self):
+        src = (ROOT / 'scripts/auto-night-daemon.sh').read_text()
+        fn = src[src.index('read_daynight() {'):]
+        fn = fn[:fn.index('\n}\n') + 3]
+        with tempfile.TemporaryDirectory() as t:
+            c = Path(t, 'daynight.conf'); r = Path(t, 'rtspserver.conf'); r.write_text('daynight=2\n')
+            code = ('DN_CONF=%s; DN_RTSPCONF=%s\n' % (c, r) + fn +
+                    '\nprintf "IR_LED_MAX_ON=120\\nAWB_DAY_CNT=5\\n" > %s; read_daynight; echo "$IR_LED_MAX_ON $AWB_DAY_CNT"\n' % c +
+                    ': > %s; read_daynight; echo "$IR_LED_MAX_ON $AWB_DAY_CNT"\n' % c)
+            out = subprocess.run(SHELL + ['-c', code], capture_output=True, text=True, check=True).stdout.split('\n')
+            self.assertEqual(out[0], '120 5')
+            self.assertEqual(out[1], '50400 200000')

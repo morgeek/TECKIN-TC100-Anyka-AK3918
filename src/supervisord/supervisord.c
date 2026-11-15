@@ -265,6 +265,12 @@ static void conf_daynight(void)
 	}
 	n = slurp(envs("DN_CONF", "/mnt/config/daynight.conf"), b, sizeof b);
 	if (n < 0) return;
+	/* every read starts from the defaults (2026-11-15): a key removed from the file kept its last value until the daemon
+	 * restarted (the .24 kept IR_LED_MAX_ON=120 of a test after the file was restored: day every 2 minutes all night) */
+	THRESHOLD_NIGHT = 40; THRESHOLD_DAY = 100; AE_NIGHT_ABOVE = 15000; AE_DAY_BELOW = 3000;
+	VENDOR_NIGHT_LUM = 3584; VENDOR_DAY_LUM = 1536; AWB_DAY_CNT = 200000; AWB_NIGHT_CNT = 1200;
+	VENDOR_LOCK = 900; IR_LED_MAX_ON = 50400; IR_LED_REST = 600;
+	DAYNIGHT_SOURCE = SRC_LUMA; IR_LED_MODE = 0;
 	for (p = b; (e = strchr(p, '\n')); p = e + 1) {	/* IFS='=' */
 		char *v, *k = p;
 		size_t l;

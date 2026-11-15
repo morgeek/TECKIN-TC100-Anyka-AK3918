@@ -106,6 +106,10 @@ read_daynight() {
     done < "$DN_RTSPCONF"
   fi
   [ -r "$DN_CONF" ] || return 0
+  # every read starts from the defaults (2026-11-15): a key removed from the file kept its last value until a restart
+  THRESHOLD_NIGHT=40; THRESHOLD_DAY=100; AE_NIGHT_ABOVE=15000; AE_DAY_BELOW=3000
+  VENDOR_NIGHT_LUM=3584; VENDOR_DAY_LUM=1536; AWB_DAY_CNT=200000; AWB_NIGHT_CNT=1200
+  VENDOR_LOCK=900; IR_LED_MAX_ON=50400; IR_LED_REST=600; DAYNIGHT_SOURCE=luma; IR_LED_MODE=auto
   while IFS='=' read -r _k _v; do
     case "$_k" in
       LUMA_NIGHT|LUMA_DAY)
