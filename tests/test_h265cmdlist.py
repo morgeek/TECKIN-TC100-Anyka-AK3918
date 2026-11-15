@@ -777,7 +777,7 @@ class FreeEncEnc02Wiring(unittest.TestCase):
         self.assertIn('rc_over(&e->rc, idr, q,', self.fe)
         self.assertEqual(self.fe.count('fe_failed(e);'), 2)
         self.assertIn('e->stream_alloc = fe_sub_stream(0);', self.fe)
-        self.assertIn('if (sb && sb[0] == \'0\') fe_sub_stream(FE_SUB_STREAM_VENDOR);', self.src)
+        self.assertIn('if (!(sb && sb[0] == \'1\')) fe_sub_stream(FE_SUB_STREAM_VENDOR);', self.src)
 
 
 class FreeEncSmartWiring(unittest.TestCase):

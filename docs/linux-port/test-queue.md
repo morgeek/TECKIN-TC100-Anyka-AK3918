@@ -87,14 +87,14 @@ older `to test` entries below.
      goes off after 50.
 - **Switches / revert (`/mnt/config/rtsp.env`, then `controlscripts/rtsp-h26x restart`):** `RTSP_FE_FPS=0`: the
   capture rate is not given to the encoders (budget and GOP as before; the clock alone changes nothing at the
-  configured rate). `RTSP_FE_SUBBUF=0`: the vendor's 57 KB sub-stream buffer. `RTSP_FE_SMART_QP=2`: the still state's
+  configured rate). `RTSP_FE_SUBBUF=1`: the 128 KB sub-stream buffer (opt-in; the default stays the vendor's 57 KB until a bench test, the core has never been given that list value). `RTSP_FE_SMART_QP=2`: the still state's
   keyframes as the others. The QP +6 on an oversized picture, the IDR size limit, the frame buffer toggle and the
   escalation have no switch (they only act where the encoder failed or burst before).
 - **Test (one camera first, `RTSP_DEBUG=1` for the `FRAME main IDR|P len` lines; log `/tmp/logs/tc100_rtsp.log`):**
-  1. **Start and sub-stream (the first thing to check):** open the sub-stream (VLC on the sub path) for 10 min, by day.
+  1. **Start and sub-stream (the first thing to check, with `RTSP_FE_SUBBUF=1`):** open the sub-stream (VLC on the sub path) for 10 min, by day.
      Log: `encoder sub 640x360 ... open; pool used U, free F` (F about 0.9 MB, not less than 0.5 MB), no
      `picture failed` line, the picture decodes without errors. If the sub-stream gives `picture failed` at once:
-     `RTSP_FE_SUBBUF=0`, restart, note it here.
+     remove `RTSP_FE_SUBBUF=1`, restart, note it here. Passed: make 128 KB the default.
   2. **Night budget (R1):** at night with the 10 fps set: the log shows `free encoder main: capture rate 10 fps
      (configured 25): 20000 bytes per picture` (1600 kbit/s). Compare `STAT ... bytes` per 5 s with the night before
      (about 400 KB = 647 kbit/s when the ceiling was binding): on a noisy / busy night scene it may now rise up to

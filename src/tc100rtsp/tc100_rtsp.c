@@ -282,10 +282,11 @@ static int fe_setup(void)
 	fe_env.reset = (void (*)(void))dlsym(RTLD_DEFAULT, "akuio_reset_video");
 	if (!p_v2p || !p_wait || !fe_env.alloc || !fe_env.release) return -1;
 	p_open = fe_p_open; p_send = fe_p_send; p_release = fe_p_release; p_close = fe_p_close; p_set_br = fe_p_set_br;
-	{	/* ENC-02: the 640x360 stream buffer is 128 KB; RTSP_FE_SUBBUF=0 = the vendor's 57 KB */
+	{	/* ENC-02: the 640x360 stream buffer stays the vendor's 57 KB until 128 KB (a list value the core has never
+		 * been given) is bench-tested; RTSP_FE_SUBBUF=1 = 128 KB */
 		const char *sb = getenv("RTSP_FE_SUBBUF");
 
-		if (sb && sb[0] == '0') fe_sub_stream(FE_SUB_STREAM_VENDOR);
+		if (!(sb && sb[0] == '1')) fe_sub_stream(FE_SUB_STREAM_VENDOR);
 		sb = getenv("RTSP_FE_FPS");
 		fe_fps_on = !(sb && sb[0] == '0');
 	}

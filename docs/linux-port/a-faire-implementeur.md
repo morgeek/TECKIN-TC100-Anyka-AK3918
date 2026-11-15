@@ -73,7 +73,7 @@ micro inactif sans DSP, MQTT / présence sans fork). Mesurer avant / après sur 
   5. **L1 + L2** escalade sur échecs répétés (réouverture, puis sortie pour le superviseur) et bascule de `cur` après échec.
   À ne pas faire : SAO, AMP, tranches multiples, plage de recherche (peu ou pas de gain, risque de blocage).
   **15/11 : 1, 2, 3 et 5 codés** (accord du propriétaire ; branche `enc-fixes`, tests hôte seulement) : à vérifier sur
-  une caméra, `test-queue.md` ENC-02 (interrupteurs `RTSP_FE_FPS=0`, `RTSP_FE_SUBBUF=0`). Reste le 4 (T1, banc).
+  une caméra, `test-queue.md` ENC-02 (interrupteurs `RTSP_FE_FPS=0`; tampon sous-flux 128 Ko en option `RTSP_FE_SUBBUF=1`, 57 Ko vendeur par défaut). Reste le 4 (T1, banc).
 - **MIS À JOUR 14/11 soir : cause trouvée.** Mesuré sur la .24 : ~64 kbit par image quelle que soit la scène (le budget
   1600 / 25) : VBR = CBR. `rc.h` : la QP « qualité » de VBR est `qmin + 2` = 27, trop basse pour qu'une image coûte moins
   que le budget. **À faire (après choix du propriétaire) :** QP qualité réglable (`RTSP_VBR_QP`, défaut proposé 33),
