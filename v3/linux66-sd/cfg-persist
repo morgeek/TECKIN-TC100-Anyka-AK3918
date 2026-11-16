@@ -107,8 +107,10 @@ slot_data() {  # name -> payload on stdout (after the header line)
   dd if=/dev/${m}ro bs=4096 2>/dev/null | tail -c +$((hl + 1)) | head -c "$2"
 }
 slot_valid() {
-  n=$(slot_info "$1") || return 1; [ -n "$n" ] || return 1; set -- $n
-  [ "$(slot_data $SLOT | md5sum | cut -d' ' -f1)" = "$3" ]
+  # the slot is named by $1 (it used to read a global that only "best" sets: any other caller checked a stale slot); "set --" below overwrites $1, so the name is kept first
+  _sv=$1
+  n=$(slot_info "$_sv") || return 1; [ -n "$n" ] || return 1; set -- $n
+  [ "$(slot_data "$_sv" | md5sum | cut -d' ' -f1)" = "$3" ]
 }
 best() {  # prints the name of the valid slot with the highest seq, with its seq
   bn=; bs=-1
@@ -166,7 +168,10 @@ save)
   { printf 'TC1CFG %s %s %s\n' $new $sz $md; cat $T.tgz; } > $T.slot
   m=$(find_mtd $tgt) || { log "no flash slot $tgt"; rm -f $T.*; set_status error "no flash partition $tgt"; exit 3; }
   [ $(( $(cat /sys/class/mtd/$m/flags) & 1024 )) -ne 0 ] || { log "slot $tgt is read-only"; rm -f $T.*; set_status error "flash partition $tgt is read-only"; exit 3; }
-  if PATH=$PATH:/usr/sbin flashcp $T.slot /dev/$m; then
+  # flashcp's own read-back compare is trusted only together with ours: the slot just written must read back as a valid
+  # slot of the new seq (header and md5 of the payload). If not, the save failed and the other slot (the previous
+  # settings, untouched) stays the valid one.
+  if PATH=$PATH:/usr/sbin flashcp $T.slot /dev/$m && slot_valid $tgt && [ "$(slot_info $tgt | cut -d' ' -f1)" = "$new" ]; then
     log "settings saved to slot $tgt (seq $new, $sz bytes)"
     set_status ok "saved to $tgt (seq $new, $sz bytes)"
   else

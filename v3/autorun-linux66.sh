@@ -199,7 +199,9 @@ bt step_1f
 #     the history is in /mnt/config/log from the flash, kept in the settings slots), then the safe mode check
 #     (v3/linux66-sd/boot-guard, flash mode only, BOOT_GUARD=0 turns it off): after 3 runs in a row that ended within
 #     5 minutes, this start brings up the network, web interface and ssh only (/tmp/safemode). boot-guard saves the
-#     settings once, history line included, before anything that could crash starts.
+#     count to the flash before anything that could crash starts when the previous run ended unexpectedly or the count
+#     is already >= 1 (synchronous, ~10 s); after a clean restart the save runs in the background (a crash within
+#     those ~10 s of a normal boot is not counted, the price of a fast boot).
 sh /mnt/scripts/reboot-tracker.sh boot </dev/null >/dev/null 2>&1
 sh /mnt/v3/linux66-sd/boot-guard start </dev/null >/dev/null 2>&1
 SAFE=0; if [ -f /tmp/safemode ]; then SAFE=1; fi

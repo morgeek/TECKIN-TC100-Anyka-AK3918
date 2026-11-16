@@ -21,7 +21,7 @@ class UpdateWithoutBackup(unittest.TestCase):
         body = cgi[cgi.index('POST:install)'):cgi.index('POST:discard)')]
         self.assertIn('"error":"nobackup"', body)
         self.assertIn('*"&nobackup=1&"*) _nb=1', body)
-        self.assertLess(body.index('"error":"nobackup"'), body.index(': > /tmp/update66.running'))
+        self.assertLess(body.index('"error":"nobackup"'), body.index('mkdir /tmp/update66.running'))
         self.assertIn('UPDATE66_NOBACKUP=$_nb sh $U apply "$WORK"', body)
 
     def test_update66_checks_before_stopping_anything(self):

@@ -16,7 +16,7 @@
 #     ok       once the run has lasted BG_OK_S (started in the background by "start")
 #     clear    count back to 0 now (saved when it changes)
 #     status   count, switch and mode
-# Test hooks: BG_CFG, BG_BOOTCONF, BG_FLASHMODE, BG_FLAG, BG_MOTD, BG_UPTIME, BG_PERSIST (command that saves),
+# Test hooks: BG_LASTREASON, BG_CFG, BG_BOOTCONF, BG_FLASHMODE, BG_FLAG, BG_MOTD, BG_UPTIME, BG_PERSIST (command that saves),
 # BG_NO_TIMER (no background "ok").
 CFG=${BG_CFG:-/mnt/config}
 CNT=$CFG/.boot-guard
@@ -26,6 +26,7 @@ FLAG=${BG_FLAG:-/tmp/safemode}
 MOTD=${BG_MOTD:-/etc/motd}
 UPTIME=${BG_UPTIME:-/proc/uptime}
 PERSIST=${BG_PERSIST:-sh /mnt/v3/linux66-sd/cfg-persist save}
+LASTREASON=${BG_LASTREASON:-/tmp/last-reboot-reason}
 BG_MAX=${BG_MAX:-3}
 BG_OK_S=${BG_OK_S:-300}
 
@@ -46,7 +47,8 @@ count() {
 
 # write the count and save the settings to the flash, only when it changes. $2 = bg: the flash save runs in the
 # background (boot, 2026-11-14: a save takes ~10 s and sat in front of the video; the safe-mode decision only needs the
-# count in RAM; cfg-persist serialises saves with its lock). A crash within those ~10 s leaves that run uncounted.
+# count in RAM; cfg-persist serialises saves with its lock). A crash within those ~10 s leaves that run uncounted,
+# so "start" passes "sync" instead of "bg" whenever that matters (see unclean_prev / count >= 1 below).
 set_count() {
   [ "$(count)" = "$1" ] && [ -f "$CNT" ] && return 0
   echo "$1" > "$CNT.tmp" && mv -f "$CNT.tmp" "$CNT" || { log "cannot write $CNT"; return 1; }
@@ -57,6 +59,15 @@ set_count() {
   fi
 }
 
+# 0 when the previous run did not end by a request (scripts/reboot-tracker.sh boot, run just before "start", wrote
+# /tmp/last-reboot-reason: "requested at ..." for a deliberate restart, "UNEXPECTED ..." for a watchdog, panic or power
+# loss, "unknown ..." when nothing was recorded). Missing file = unknown = unclean.
+unclean_prev() {
+  _l=; [ -r "$LASTREASON" ] && read -r _l < "$LASTREASON"
+  case "$_l" in "requested at "*) return 1 ;; esac
+  return 0
+}
+
 uptime_s() { _u=0; read -r _u _r < "$UPTIME" 2>/dev/null; _u=${_u%.*}; case "$_u" in ''|*[!0-9]*) _u=0 ;; esac; echo "$_u"; }
 
 case "$1" in
@@ -64,7 +75,12 @@ start)
   rm -f "$FLAG"
   enabled || exit 0
   n=$(count); n=$((n + 1)); [ "$n" -gt $((BG_MAX + 1)) ] && n=$((BG_MAX + 1))
-  set_count "$n" bg
+  # The save is synchronous (~10 s before the video starts) when this start follows a crash or when the count was
+  # already >= 1 (a boot loop is under way): the video starts ~5 s after a background save began, so a crash at video
+  # start would otherwise never be counted and the safe mode never reached. A normal boot after a clean restart stays fast.
+  mode=bg
+  if unclean_prev || [ "$n" -ge 2 ]; then mode=sync; fi
+  set_count "$n" "$mode"
   if [ "$n" -gt "$BG_MAX" ]; then
     echo "$((n - 1)) short runs in a row" > "$FLAG"
     log "SAFE MODE: the last $((n - 1)) runs ended before ${BG_OK_S} s; video, MQTT and optional services are not started (network, web, ssh only). Back to normal at the next restart once this one has lasted ${BG_OK_S} s; BOOT_GUARD=0 in boot.conf turns this off"

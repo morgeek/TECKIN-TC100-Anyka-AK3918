@@ -49,7 +49,14 @@ want=$(md5sum < "$F" | cut -d' ' -f1)
 if [ -n "$BK" ]; then
   mkdir -p "$BK" && b=$BK/$P-$(date +%Y%m%d-%H%M%S).bin && dd if=/dev/${m}ro of="$b" bs=4096 2>/dev/null &&
     [ "$(wc -c < "$b")" -eq "$sz" ] || { echo "flashw: backup of $P into $BK failed"; exit 7; }
-  echo "flashw: backup $b (md5 $(md5sum < "$b" | cut -d' ' -f1))"
+  # the backup is the way back: flushed, then compared with the partition itself (re-read) before anything is erased. A
+  # card that accepted the write but returned other data (or a size-only check that passed a bad copy) stops here, exit 7
+  # like a failed backup, with the flash untouched.
+  sync; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null
+  bm=$(md5sum < "$b" | cut -d' ' -f1)
+  pm=$(dd if=/dev/${m}ro bs=4096 2>/dev/null | md5sum | cut -d' ' -f1)
+  [ -n "$bm" ] && [ "$bm" = "$pm" ] || { echo "flashw: backup $b does not match $P (md5 $bm, flash $pm): nothing erased"; rm -f "$b"; exit 7; }
+  echo "flashw: backup $b (md5 $bm)"
 fi
 echo "flashw: $F ($fs bytes, md5 $want) -> $P (/dev/$m, $sz bytes)"
 flashcp -v "$F" /dev/$m || { echo "flashw: flashcp failed"; exit 5; }

@@ -43,13 +43,21 @@ ver_older() {
 
 # an install under way, or one that failed after touching the flash (update66.sh leaves /tmp/update66.failed): no other
 # upload, discard or install until a restart (review 2026-11-12)
+# a lock whose apply run is dead, or older than 30 min, is removed (scripts/update-locked.sh): a hung or killed run must not
+# block every new install and every restart
+stale_lock() {
+	[ -e /tmp/update66.running ] && [ -f /mnt/scripts/update-locked.sh ] && ! sh /mnt/scripts/update-locked.sh && rm -rf /tmp/update66.running
+	return 0
+}
 busy_or_failed() {
+	stale_lock
 	[ -e /tmp/update66.failed ] && { echo '{"ok":false,"error":"failed","message":"The last install failed half way: start the camera from the 3.0 SD card (tc100test/c66.img), then Settings -> Install to flash."}'; exit 0; }
 	[ -e /tmp/update66.running ] && { echo '{"ok":false,"error":"busy","message":"Already installing."}'; exit 0; }
 }
 
 case "${REQUEST_METHOD:-GET}:$_cmd" in
 GET:status|GET:)
+	stale_lock
 	st=idle; staged=""; msg=$(js "$(cat /tmp/update66.status 2>/dev/null)")
 	if [ -e /tmp/update66.running ]; then st=installing
 	elif staged_ok; then st=staged; staged=$(js "$(cat "$WORK/VERSION")"); fi
@@ -106,8 +114,12 @@ POST:install)
 	if ! grep -q ' /mnt/sd vfat ' /proc/mounts && [ "$_nb" != 1 ]; then
 		echo '{"ok":false,"error":"nobackup","message":"No SD card: the firmware now in the flash cannot be saved before it is overwritten, so the only way back is the 3.0 SD card. Install without a backup? (Or cancel, put a FAT32 card in the camera and install again.)"}'; exit 0
 	fi
-	: > /tmp/update66.running
-	( trap '' HUP; UPDATE66_NOBACKUP=$_nb sh $U apply "$WORK"; rm -f /tmp/update66.running ) </dev/null >/dev/null 2>&1 &
+	# atomic lock: mkdir fails for the second of two simultaneous POSTs (a test-then-create let both start an apply run).
+	# It is a directory, so every "[ -e /tmp/update66.running ]" reader keeps working; the run removes it when it ends (a stale one is cleaned by stale_lock).
+	mkdir /tmp/update66.running 2>/dev/null && read -r _up _r < /proc/uptime && echo "${_up%.*}" > /tmp/update66.running/ts ||
+	{ echo '{"ok":false,"error":"busy","message":"Already installing."}'; exit 0; }
+	( trap '' HUP; UPDATE66_NOBACKUP=$_nb sh $U apply "$WORK"; rm -rf /tmp/update66.running ) </dev/null >/dev/null 2>&1 &
+	echo $! > /tmp/update66.running/pid		# the subshell lives as long as the apply run
 	echo '{"ok":true,"started":"install"}' ;;
 POST:discard)
 	# never during an install: it would delete the package being written, and the restart below would cut a flash erase

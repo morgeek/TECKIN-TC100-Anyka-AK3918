@@ -112,7 +112,7 @@ class UpdateWritePath(unittest.TestCase):
         self.assertEqual(subprocess.run(SHELL + ['-n', str(ROOT / 'v3/install/update66.sh')]).returncode, 0)
 
     def test_safety_checks_kept(self):
-        s = text('v3/install/update66.sh')
+        s = text('v3/install/update66.sh') + text('v3/install/imgcheck.sh')   # the kernel / initrd checks are shared
         for kept in ('md5sum -c MD5SUMS', 'does not fit the', '-eq 2012654', '27 05 19 56', 'hsqs',
                      'FLASHW_ALLOW="stack kernel initrd"', 'is cut short'):
             self.assertIn(kept, s)
@@ -248,7 +248,7 @@ class UpdateReview20261112(unittest.TestCase):
             body = body[:body.index('POST:')]	# up to the next command
             self.assertLess(body.index('busy_or_failed'), body.index('rm -rf "$WORK"'), cmd)
         inst = cgi[cgi.index('POST:install)'):]
-        self.assertLess(inst.index('busy_or_failed'), inst.index(': > /tmp/update66.running'))
+        self.assertLess(inst.index('busy_or_failed'), inst.index('mkdir /tmp/update66.running'))
         self.assertIn('[ -e /tmp/update66.failed ]', cgi[cgi.index('busy_or_failed() {'):])
 
     def test_failure_leaves_a_marker_and_points_to_the_sd_card(self):

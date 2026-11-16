@@ -10,18 +10,9 @@
 # Status: /tmp/update66.status (one line) and, with a card, tc100-3/update66.log.
 ST=/tmp/update66.status
 part_size() { for d in /sys/class/mtd/mtd[0-9]*; do case $d in *ro) continue;; esac; [ "$(cat $d/name)" = "$1" ] && { cat $d/size; return 0; }; done; return 1; }
-# smallest number of bytes of the kernel partition that this camera's U-Boot reads ("sf read 0x82000000 0x39000 SIZE" in
-# its environment, read-only here): 0x200000 for the card install, 0x1ce000 for the hand-made commands of 2026-10-24
-kernel_load_max() {
-	for d in /sys/class/mtd/mtd[0-9]*; do
-		case $d in *ro) continue;; esac
-		[ "$(cat $d/name)" = env ] || continue
-		tr '\000' '\n' < /dev/${d##*/}ro 2>/dev/null | sed -n 's/.*sf read 0x82000000 0x39000 \(0x[0-9a-fA-F]*\).*/\1/p' |
-			while read h; do echo $((h)); done | sort -n | head -n 1 | grep .
-		return
-	done
-	return 1
-}
+# kernel_load_max, kernel_img_check, initrd_img_check: shared with the SD install (install66.sh), so that both refuse the
+# same bad images before anything is erased
+. "${UPDATE66_LIB:-/mnt/v3/install}/imgcheck.sh"
 say() { echo "$*" > $ST; echo "update66: $*" > /dev/console; [ -n "$LOG" ] && echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
 # the md5 published in the package for a file (B3: flashw compares the file with THIS sum, not with itself)
 sum_of() { awk -v f="$2" '$2 == f || $2 == "*" f { print $1; exit }' "$1/MD5SUMS" | grep -E '^[0-9a-fA-F]{32}$'; }
@@ -48,17 +39,8 @@ check() {
 		s=$(part_size ${p%%:*}) || { echo "no ${p%%:*} partition"; return 1; }
 		[ "$(wc -c < "$D/${p#*:}")" -le "$s" ] || { echo "${p#*:} does not fit the ${p%%:*} partition"; return 1; }
 	done
-	[ "$(wc -c < "$D/c66rd.gz")" -eq 2012654 ] || { echo "c66rd.gz has not the size the boot commands load"; return 1; }
-	head -c 6 "$D/c66rd.gz" | od -An -tx1 | grep -q 'fd 37 7a 58 5a 00' || { echo "c66rd.gz is not an xz image"; return 1; }
-	# A kernel that does not start cannot be put right from Linux (U-Boot always loads the kernel partition, the
-	# initramfs never runs): it is checked before anything is written. A uImage (bootm), complete (the data size of its
-	# header), and not larger than what this camera's U-Boot reads from the flash.
-	ks=$(wc -c < "$D/c66.img")
-	head -c 4 "$D/c66.img" | od -An -tx1 | grep -q '27 05 19 56' || { echo "c66.img is not a U-Boot kernel image (uImage)"; return 1; }
-	kd=$(dd if="$D/c66.img" bs=1 skip=12 count=4 2>/dev/null | od -An -tu1 | awk '{ print (($1 * 256 + $2) * 256 + $3) * 256 + $4 }')
-	case "$kd" in ''|*[!0-9]*) echo "c66.img: unreadable uImage header"; return 1 ;; esac
-	[ $((kd + 64)) -le "$ks" ] || { echo "c66.img is cut short ($ks bytes, its header announces $((kd + 64)))"; return 1; }
-	kl=$(kernel_load_max) && [ "$ks" -gt "$kl" ] && { echo "c66.img ($ks bytes) is larger than the $kl bytes this camera's start commands read from the flash: it would not start. Install it from the SD card instead"; return 1; }
+	r=$(initrd_img_check "$D/c66rd.gz") || { echo "$r"; return 1; }
+	r=$(kernel_img_check "$D/c66.img") || { echo "$r (install it from the SD card instead)"; return 1; }
 	[ "$(head -c 4 "$D/stack.sqfs")" = hsqs ] || { echo "stack.sqfs is not a squashfs image"; return 1; }
 	echo ok
 }
@@ -78,6 +60,25 @@ if [ "$1" = apply ]; then
 		say "FAILED: no SD card for the backup of the flash; confirm the install without a backup (web page) or put a FAT32 card in the camera"
 		exit 1
 	fi
+	# room for the backups on the card (flashw -b writes each whole partition, ~7 MB in all, and refuses without room, but
+	# only after the services are stopped): checked now, before anything is stopped. Margin 1 MiB. UPDATE66_SD_FREE_KB
+	# is a test hook.
+	if [ -n "$LOG" ]; then
+		need=1024; for p in stack kernel initrd; do need=$((need + $(part_size $p) / 1024)); done
+		free=${UPDATE66_SD_FREE_KB:-$(df -k /mnt/sd 2>/dev/null | tail -n 1 | awk '{ print $(NF - 2) }')}
+		# the prune below deletes the older backups (all but the newest of each partition) before this run writes its own:
+		# what it will free counts as free; the newest of each stay, so the set a failed run may need is never touched
+		case "$free" in ''|*[!0-9]*) ;; *)
+			for p in stack kernel initrd; do
+				for f in $(ls -1 /mnt/sd/tc100-3/backup/$p-*.bin 2>/dev/null | sort -r | sed 1d); do
+					free=$((free + $(wc -c < "$f") / 1024))
+				done
+			done ;;
+		esac
+		case "$free" in ''|*[!0-9]*) ;; *)
+			[ "$free" -ge "$need" ] || { say "FAILED: the SD card has $((free / 1024)) MiB free, the backup of the flash needs $((need / 1024)) MiB: free some space on the card (tc100-3/backup holds the old backups) and try again"; exit 1; } ;;
+		esac
+	fi
 	# run from RAM: the squashfs under /mnt is about to be rewritten
 	R=/tmp/upd66; rm -rf $R; mkdir -p $R
 	cp "$0" $R/update66.sh && cp /mnt/v3/linux66-sd/flashw $R/flashw || { say "FAILED: copy to RAM"; exit 1; }
@@ -95,6 +96,22 @@ for p in $(ps 2>/dev/null | awk '/web-guard\.sh run/ && !/awk/ { print $1 }'); d
 for s in recording motion-detection auto-night-detection; do sh /mnt/controlscripts/$s halt >/dev/null 2>&1; done
 for s in rtsp-h26x mqtt-bridge onvif; do sh /mnt/controlscripts/$s stop >/dev/null 2>&1; done
 killall tc100_rtsp tc100-onvifd 2>/dev/null
+# the scheduled-reboot entry of crond and the reset button (hold 8 s = reboot) would restart the camera in the middle of
+# a flash write: both stop with the services (the camera restarts at the end of the run; a failed run puts them back
+# (restore_guards, EXIT trap); /tmp/update66.running also refuses a restart from the web page while the run lives)
+CROND_WAS=$(pidof crond)
+GUARDS_OFF=1
+# a failed run (any exit but the final restart) puts them back, best effort: the reset button (rescue Wi-Fi, 8 s restart)
+# is then the way out without a power cut
+restore_guards() {
+	[ -n "$GUARDS_OFF" ] && [ -z "$UPDATE_DONE" ] || return 0
+	[ -n "$CROND_WAS" ] && crond -c /mnt/config/cron/crontabs </dev/null >/dev/null 2>&1
+	sh /mnt/controlscripts/button-actions start >/dev/null 2>&1
+}
+trap restore_guards EXIT
+killall crond 2>/dev/null
+sh /mnt/controlscripts/button-actions stop >/dev/null 2>&1
+for p in $(ps 2>/dev/null | awk '/button-watch\.sh/ && !/awk/ { print $1 }'); do kill "$p" 2>/dev/null; done
 # R18: the reboot at the end is deliberate: the intent goes to /mnt/config/log before the flush below writes it to the
 # flash slots (rc29: the next boot said "unknown (no heartbeat recorded yet)"). KEEP_CARD: the backups below still go
 # to the card, which is remounted read-only right before the reboot.
@@ -121,7 +138,7 @@ fi
 # verified, 1 = failed three times. Test switch (audit B1): a file /tmp/update66.simfail holding "PARTITION [N]" makes the
 # first N attempts (default all) on that partition fail by passing flashw a wrong md5, which it refuses before touching the flash.
 write_part() {
-	wp=$1; wf=$2; wm=$3; try=1; wtouched=0	# wtouched: flashw got as far as flashcp (exit 0, 5, 6) at least once
+	wp=$1; wf=$2; wm=$3; try=1; wtouched=0; wbk=$BK	# wtouched: flashw got as far as flashcp (exit 0, 5, 6) at least once
 	FLASHW=${FLASHW:-/tmp/upd66/flashw}; FWLOG=${FWLOG:-/tmp/upd66/flashw.log}; RETRY_SLEEP=${RETRY_SLEEP:-3}; SIMFAIL=${SIMFAIL:-/tmp/update66.simfail}
 	while [ $try -le 3 ]; do
 		am=$wm
@@ -130,9 +147,13 @@ write_part() {
 			[ "$1" = "$wp" ] && [ "$try" -le "${2:-99}" ] && am=00000000000000000000000000000000
 		fi
 		[ $try -gt 1 ] && say "retrying $wp (attempt $try of 3)"
-		FLASHW_ALLOW="stack kernel initrd" sh $FLASHW -m "$am" $BK $wp "$wf" > $FWLOG 2>&1 && rc=0 || rc=$?
+		FLASHW_ALLOW="stack kernel initrd" sh $FLASHW -m "$am" $wbk $wp "$wf" > $FWLOG 2>&1 && rc=0 || rc=$?
 		[ -n "$LOG" ] && { echo "attempt $try on $wp: flashw exit $rc" >> "$LOG"; cat $FWLOG >> "$LOG"; }
 		case $rc in 0|5|6) wtouched=1 ;; esac	# 1-4, 7: refused or backup failed before any erase
+		# the backup is made once, by the first attempt that got as far as flashcp: a later attempt would "back up" the
+		# half-written partition, and the prune above (newest kept) would then keep that copy instead of the good one.
+		# An attempt refused or failed before the erase (rc 1-4, 7) made no good backup: it keeps -b.
+		[ $wtouched = 1 ] && wbk=
 		[ $rc -eq 0 ] && return 0
 		try=$((try + 1)); [ $try -le 3 ] && sleep $RETRY_SLEEP
 	done
@@ -156,6 +177,7 @@ for p in stack:stack.sqfs kernel:c66.img initrd:c66rd.gz; do
 		say "FAILED writing ${p%%:*} after 3 attempts. Do not cut the power. The web page is no longer usable (it lives in the stack partition being rewritten): start the camera from the 3.0 SD card (tc100test/c66.img), then Settings -> Install to flash. The camera services stay stopped until then"
 		exit 1; }
 done
+UPDATE_DONE=1
 say "DONE: $(cat "$D/VERSION") written, restarting"
 sync; sleep 2
 # the card (video storage, the recorder is stopped above) leaves clean: no "not properly unmounted" at the next boot

@@ -145,7 +145,7 @@ class StaleUpdatePackage(unittest.TestCase):
         self.assertIn('elif staged_ok; then st=staged', cgi)
         install = cgi[cgi.index('POST:install)'):cgi.index('POST:discard)')]
         self.assertTrue(install.lstrip().startswith('POST:install)\n\tstaged_ok ||'))
-        self.assertLess(install.index('"error":"older"'), install.index(': > /tmp/update66.running'))
+        self.assertLess(install.index('"error":"older"'), install.index('mkdir /tmp/update66.running'))
         self.assertIn('*"&older=1&"*)', install)
         html = text('www/settings.html')
         self.assertIn("(d.error === 'older' && extra.indexOf('&older=1') < 0 && '&older=1')", html)

@@ -419,7 +419,7 @@ sync_managed_reboot_cron() {
   {
     echo "# BEGIN TC100 MANAGED REBOOT"
     if [ "$schedule_enable" = "1" ]; then
-      echo "${schedule_minute} ${schedule_hour} * * ${schedule_weekday} /bin/sh /mnt/scripts/reboot-tracker.sh intent 'scheduled reboot (REBOOT_SCHEDULE)'; /sbin/reboot >/dev/null 2>&1"
+      echo "${schedule_minute} ${schedule_hour} * * ${schedule_weekday} { [ -e /tmp/update66.running ] && { [ ! -f /mnt/scripts/update-locked.sh ] || sh /mnt/scripts/update-locked.sh; }; } || { /bin/sh /mnt/scripts/reboot-tracker.sh intent 'scheduled reboot (REBOOT_SCHEDULE)'; /sbin/reboot; } >/dev/null 2>&1"
     else
       echo "# disabled"
     fi

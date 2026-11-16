@@ -59,6 +59,16 @@
 
     reboot)
       csrf_check
+      # a flash write under way (web update, /tmp/update66.running) must never be cut by a restart: refused. A stale lock
+      # (dead pid, older than 30 min: scripts/update-locked.sh) does not count, so a hung update never blocks for ever.
+      if [ -e /tmp/update66.running ] && { [ ! -f /mnt/scripts/update-locked.sh ] || sh /mnt/scripts/update-locked.sh; }; then
+        if wants_json_response; then
+          json_body_err "UPDATE_RUNNING" "A firmware update is being written to the flash: wait until it has finished."
+        else
+          echo "A firmware update is being written to the flash: wait until it has finished."
+        fi
+        exit 0
+      fi
       if wants_json_response; then
         json_body_ok "Rebooting device..."
       else
@@ -73,6 +83,15 @@
 
     shutdown)
       csrf_check
+      # same guard as above
+      if [ -e /tmp/update66.running ] && { [ ! -f /mnt/scripts/update-locked.sh ] || sh /mnt/scripts/update-locked.sh; }; then
+        if wants_json_response; then
+          json_body_err "UPDATE_RUNNING" "A firmware update is being written to the flash: wait until it has finished."
+        else
+          echo "A firmware update is being written to the flash: wait until it has finished."
+        fi
+        exit 0
+      fi
       if wants_json_response; then
         json_body_ok "Shutting down device.."
       else

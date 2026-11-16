@@ -35,6 +35,15 @@ _bw_log() { logger -t tc100-event -p user.err "button: $*" 2>/dev/null; }
 _bw_action()
 {
     held=$1
+    # never during a flash write (web update, install): a restart there can leave a partition half written. The
+    # update scripts also stop this watcher; this is the second guard for a button event already in flight.
+    # (a stale lock, dead pid or older than 30 min, does not count: scripts/update-locked.sh)
+    _bw_lock="${BUTTON_UPDATE_LOCK:-/tmp/update66.running}"
+    if [ -e "$_bw_lock" ] && [ "$held" -ge "$RESCUE_SECONDS" ] &&
+       { [ ! -f "${BUTTON_LOCK_SH:-/mnt/scripts/update-locked.sh}" ] || UPDATE_LOCK="$_bw_lock" sh "${BUTTON_LOCK_SH:-/mnt/scripts/update-locked.sh}"; }; then
+        _bw_log "held ${held}s ignored: a firmware update is being written"
+        return 0
+    fi
     if [ "$held" -ge "$RESTORE_SECONDS" ]; then
         if [ "$(cat "${TC100_STORAGE_FILE:-/tmp/tc100-storage}" 2>/dev/null)" = flash ] && [ -x "$FC" ]; then
             _bw_log "held ${held}s: back to the built-in code, reboot"
