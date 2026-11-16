@@ -60,6 +60,11 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
   moins de débit à netteté égale. **Banc d'abord** (`src/h265enc/fetest.c`, une valeur à la fois, retour à la valeur du
   vendeur au moindre `picture failed`) ; jamais en défaut avant 24 h sur les deux caméras. Gain : le seul qui change
   nettement le rapport image / débit. Incertain.
+  **16/11 : banc écrit** (`[t1-qp]`, rien d'activé, `tc100_rtsp` inchangé) : `src/h265enc/qpbench.c` + `qpctl.h`, procédure
+  et expériences E0-E6 dans [frontier/t1-qp-bench.md](frontier/t1-qp-bench.md), entrée `T1-QP-BENCH` de `test-queue.md`.
+  La forme du tampon colle au code public d'Allegro (`vcu-ctrl-sw` : contrôle QP 48 octets dont 20 utilisés, segments
+  16 octets, puis un octet par bloc : QP 6 bits, intra forcé, saut forcé) ; reste à voir sur la caméra si le cœur lit la
+  carte dans notre configuration. À faire par le propriétaire : E0 puis E1-E5, une expérience par lancement.
 
 ### B. Polissage visible
 - [ ] **Image de nuit (ISP) :** réduction de bruit par niveau de gain (NR1 / NR2, niveaux 512-1024 et au-delà) et netteté
@@ -166,7 +171,7 @@ micro inactif sans DSP, MQTT / présence sans fork). Mesurer avant / après sur 
   5. **L1 + L2** escalade sur échecs répétés (réouverture, puis sortie pour le superviseur) et bascule de `cur` après échec.
   À ne pas faire : SAO, AMP, tranches multiples, plage de recherche (peu ou pas de gain, risque de blocage).
   **15/11 : 1, 2, 3 et 5 codés** (accord du propriétaire ; branche `enc-fixes`, tests hôte seulement) : à vérifier sur
-  une caméra, `test-queue.md` ENC-02 (interrupteurs `RTSP_FE_FPS=0`; tampon sous-flux 128 Ko en option `RTSP_FE_SUBBUF=1`, 57 Ko vendeur par défaut). Reste le 4 (T1, banc).
+  une caméra, `test-queue.md` ENC-02 (interrupteurs `RTSP_FE_FPS=0`; tampon sous-flux 128 Ko en option `RTSP_FE_SUBBUF=1`, 57 Ko vendeur par défaut). Reste le 4 (T1, banc). **16/11 :** banc T1 écrit, à lancer : [frontier/t1-qp-bench.md](frontier/t1-qp-bench.md), `T1-QP-BENCH`.
   **15/11 matin, .24 (fusionné sur main, b2f734a) :** ligne R1 correcte, IDR 71-74 Ko toutes les 2,5 s la nuit, 0 échec
   quand rien ne dérange le test. Le débit d'une scène fixe dépend surtout de la balance des blancs : rc44 400 Ko / 5 s,
   nouveau binaire avec AWB-05 155 Ko / 5 s, sans AWB-05 (`RTSP_AWB_MANUAL=0`) 1 Mo / 5 s (R1 laisse monter au plafond

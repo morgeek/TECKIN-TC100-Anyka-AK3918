@@ -404,6 +404,9 @@ static inline int fe_encode(struct fe_enc *e, uint32_t src_pa, uint8_t **data, u
 	fe_list(e, l, src_pa, src_pa + (uint32_t)e->stride * (uint32_t)e->h, idr, q, poc);
 	e->mem[e->tables_off + 18] = !e->hevc && idr ? 0x1f : 0x19;
 	e->mem[e->tables_off + 19] = idr ? 0x24 : 0x30;
+#ifdef FE_BENCH_HOOK	/* qpbench.c only (T1 bench): the tables buffer and the list of this picture, right before the start */
+	FE_BENCH_HOOK(e, l, idr);
+#endif
 	if (fe_run(e, e->pa + e->list_off) < 0) { e->last_len = 0; e->last_status = 0xffffffffu; fe_failed(e); return -1; }
 	n = l[0x41];
 	if (!n || n > e->stream_alloc - 2 * FE_STREAM_HEAD) {

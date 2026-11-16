@@ -2,7 +2,7 @@
 CROSS ?= arm-linux-gnueabi-
 CFLAGS ?= -O2 -Wall -Wextra -march=armv5te -mtune=arm926ej-s -mfloat-abi=soft
 
-all: h265enc h265live h264live vencreset
+all: h265enc h265live h264live vencreset qpbench
 
 h265enc: h265enc.c ../libakuio/ak39_venc.h
 	$(CROSS)gcc $(CFLAGS) -static -s h265enc.c -o $@
@@ -12,7 +12,7 @@ host: h265enc.c
 	$(CC) -O1 -Wall -Wextra -DH265ENC_NO_DEVICE -o h265enc-host h265enc.c
 
 clean:
-	rm -f h265enc h265enc-host h265live h265live-host h264live h264live-host vencreset fetest
+	rm -f h265enc h265enc-host h265live h265live-host h264live h264live-host vencreset fetest qpbench qpbench-host
 
 h265live: h265live.c slicehdr.h paramsets.h listgen.h worktab.h rc.h ../libakuio/ak39_venc.h
 	$(CROSS)gcc $(CFLAGS) -static -s h265live.c -o $@ -lm
@@ -34,3 +34,11 @@ vencreset: vencreset.c ../libakuio/ak39_venc.h
 # freeenc.h on a simulated core (tests/test_h265cmdlist.py FreeEnc)
 fetest: fetest.c freeenc.h
 	$(CC) -O1 -Wall -Wextra -o $@ fetest.c
+
+# the T1 bench (docs/linux-port/frontier/t1-qp-bench.md): freeenc.h on the camera, one change of the tables buffer per run
+qpbench: qpbench.c qpctl.h freeenc.h ../libakuio/ak39_venc.h
+	$(CROSS)gcc $(CFLAGS) -static -s qpbench.c -o $@
+
+# --dry and --sim (a simulated core): tests/test_h265cmdlist.py QpBench
+qpbench-host: qpbench.c qpctl.h freeenc.h
+	$(CC) -O1 -Wall -Wextra -DQPBENCH_NO_DEVICE -o $@ qpbench.c

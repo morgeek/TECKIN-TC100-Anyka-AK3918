@@ -106,6 +106,14 @@ Found on the way (IPCAM2):
 - `h265-step2.sh free` / `restore`: tc100_rtsp of this build with `RTSP_FREE_ENC=1` and the video service's
   arguments (`H265_NOSUB=1`, `H265_FREE_ENV="NO_PRIME=1 NO_JPEG=1 RTSP_DEBUG=1"` for tests).
 
+## The tables buffer as the QP control buffer: a bench (2026-11-16, T1)
+
+`qpbench.c` + `qpctl.h` (`make qpbench`, host: `make qpbench-host`, tests QpBench): `freeenc.h` at a fixed QP with one
+change of the 0x4040-byte buffer per run, between two baselines with the vendor's values. Its 20 known bytes and its
+size fit the QP control buffer of Allegro's public control software (`QP_CTRL` 48 bytes, `SEG_CTRL` 16, then one byte
+per block: QP, forced intra, forced skip); whether the core reads the per-block part here is what the bench asks.
+Nothing has run on a camera. Procedure and experiments: `docs/linux-port/frontier/t1-qp-bench.md`.
+
 ## Use
 
 ```

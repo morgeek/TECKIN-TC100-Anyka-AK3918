@@ -61,6 +61,9 @@ run_cross() {
 		arm-linux-gnueabi-gcc -Os -Wall -Wextra -Werror -static -march=armv5te -mtune=arm926ej-s -mfloat-abi=soft -o /tmp/aac_arm src/tc100rtsp/test_aacenc.c src/tc100rtsp/aacenc.c -lm
 		/tmp/aac_host sine /tmp/aac.s16 1000 9000 2 && /tmp/aac_host raw /tmp/aac.s16 /tmp/aac_h.bin 24000 2>/dev/null && qemu-arm /tmp/aac_arm raw /tmp/aac.s16 /tmp/aac_a.bin 24000 2>/dev/null
 		cmp /tmp/aac_h.bin /tmp/aac_a.bin && test -s /tmp/aac_a.bin && echo "aacenc: ARM (qemu) = host, $(wc -c < /tmp/aac_a.bin) bytes"
+		# [t1-qp] the T1 bench (docs/linux-port/frontier/t1-qp-bench.md): a bench tool, in the test pack only
+		make -C src/h265enc CROSS=arm-linux-gnueabi- CFLAGS="-O2 -Wall -Wextra -Werror -march=armv5te -mtune=arm926ej-s -mfloat-abi=soft" qpbench >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }
+		qemu-arm src/h265enc/qpbench --dry -x map=+10,top | grep -q "^p tables 0x0040 1020 0x0a" || { echo "qpbench --dry (qemu)"; exit 1; }
 		make -C src/libakuio CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/tc100rtsp CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		sh v3/musl/build-musl.sh	# 2026-11-07: the daemons below are musl programs (src/musl.mk)

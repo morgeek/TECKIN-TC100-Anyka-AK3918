@@ -848,3 +848,169 @@ class FreeEncSmartWiring(unittest.TestCase):
         self.assertIn('idr = fe_next_idr(e);', fe)
         self.assertIn('(!(e->smart && e->still) || e->idr_want || (uint32_t)(e->now_ms - e->idr_ms) >= e->max_ms)', fe)
         self.assertIn('#define FE_SMART_GOP_MAX 300', fe)
+
+
+
+@unittest.skipUnless(shutil.which('gcc'), 'gcc')
+class QpBench(unittest.TestCase):
+    """The T1 bench (src/h265enc/qpbench.c + qpctl.h, docs/linux-port/frontier/t1-qp-bench.md): what an experiment
+    writes into the 0x4040-byte tables buffer and the list (--dry), and a whole run on a simulated core (--sim): the
+    vendor's values in both baseline phases, the experiment in the test phase only, and at the first failed picture
+    the stop, the vendor's values again and the exit status"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp()
+        cls.bin = os.path.join(cls.tmp, 'qpbench')
+        subprocess.run(['gcc', '-O1', '-Wall', '-Wextra', '-Werror', '-DQPBENCH_NO_DEVICE', '-I', os.path.join(ROOT, 'src/h265enc'),
+                        '-o', cls.bin, os.path.join(ROOT, 'src/h265enc/qpbench.c')], check=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def dry(self, *args):
+        r = subprocess.run([self.bin, '--dry'] + list(args), capture_output=True, text=True)
+        return r.returncode, r.stdout.split('\n')[:-1]
+
+    def test_vendor_values_are_freeenc_s(self):
+        """the bench starts from the bytes freeenc.h writes (the program refuses to run otherwise) and 'ctl' changes
+        nothing"""
+        import re
+        def text(rel):
+            with open(os.path.join(ROOT, rel), encoding='utf-8', errors='replace') as f:
+                return f.read()
+        fe, qc = text('src/h265enc/freeenc.h'), text('src/h265enc/qpctl.h')
+
+        def head(s, name):
+            return [int(v, 16) for v in re.findall(r'0x[0-9a-f]{2}', s.split(name)[1].split('}')[0])]
+        self.assertEqual(head(fe, 'FE_TABLES_HEAD[20]'), head(qc, 'QPC_VENDOR_HEAD[20]'))
+        self.assertEqual(struct.unpack('<6H', bytes(head(qc, 'QPC_VENDOR_HEAD[20]')[:12])), (2500, 1000, 256, 5000, 7000, 9000))
+        self.assertEqual(self.dry('-x', 'ctl'), (0, []))
+        # the hook is the bench's alone: tc100_rtsp does not define it
+        self.assertEqual(fe.count('FE_BENCH_HOOK'), 2)
+        rtsp = text('src/tc100rtsp/tc100_rtsp.c')
+        self.assertNotIn('FE_BENCH_HOOK', rtsp)
+        self.assertNotIn('qpctl.h', rtsp)
+
+    def test_head_fields(self):
+        self.assertEqual(self.dry('-x', 'min=30')[1], ['idr tables 0x0012 1 0x1e', 'p tables 0x0012 1 0x1e'])
+        self.assertEqual(self.dry('-x', 'max=40')[1], ['idr tables 0x0013 1 0x28', 'p tables 0x0013 1 0x28'])
+        # the vendor's value for that picture type is not a change (48 = a P picture's highest QP)
+        self.assertEqual(self.dry('-x', 'max=48')[1], ['idr tables 0x0013 1 0x30'])
+        self.assertEqual(self.dry('-x', 'thr2=4660')[1], ['idr tables 0x0004 1 0x34', 'idr tables 0x0005 1 0x12',
+                                                           'p tables 0x0004 1 0x34', 'p tables 0x0005 1 0x12'])
+        self.assertEqual(self.dry('-x', 'dq=0')[1][:1], ['idr tables 0x000c 6 0x00'])
+        self.assertEqual(self.dry('-x', 'dq2=-4')[1][:1], ['idr tables 0x000e 1 0xfc'])
+        self.assertEqual(self.dry('-x', 'byte@48=7')[1][:1], ['idr tables 0x0030 1 0x07'])
+        # H.264: the IDR's lowest QP is 31 at the vendor's
+        self.assertEqual(self.dry('-c', 'avc', '-x', 'min=31')[1], ['p tables 0x0012 1 0x1f'])
+
+    def test_map(self):
+        self.assertEqual(self.dry('-x', 'map=+10')[1], ['idr tables 0x0040 16384 0x0a', 'p tables 0x0040 16384 0x0a'])
+        self.assertEqual(self.dry('-x', 'map=-10,first=1020')[1][:1], ['idr tables 0x0040 1020 0x36'])
+        self.assertEqual(self.dry('-x', 'map=skip,first=1')[1][:1], ['idr tables 0x0040 1 0x80'])
+        self.assertEqual(self.dry('-x', 'map=intra,first=1')[1][:1], ['idr tables 0x0040 1 0x40'])
+        # 1920x1080 in 32x32 blocks: 60 x 34, one byte each; the top half = 17 rows in one run
+        self.assertEqual(self.dry('-x', 'map=+12,top')[1][:1], ['idr tables 0x0040 1020 0x0c'])
+        self.assertEqual(self.dry('-x', 'map=+12,bottom')[1][:1], ['idr tables 0x%04x 1020 0x0c' % (64 + 1020)])
+        left = self.dry('-x', 'map=+12,left')[1]
+        self.assertEqual(len(left), 2 * 34)
+        self.assertEqual(left[:2], ['idr tables 0x0040 30 0x0c', 'idr tables 0x%04x 30 0x0c' % (64 + 60)])
+        # 16x16 blocks (120 x 68), two bytes per block, a rectangle
+        self.assertEqual(self.dry('-x', 'map=5,rect=2:1:4:3,blk=16,unit=2')[1][:2],
+                         ['idr tables 0x%04x 4 0x05' % (64 + (120 + 2) * 2), 'idr tables 0x%04x 4 0x05' % (64 + (240 + 2) * 2)])
+        # H.264: 16x16 macroblocks by default (the right half starts at macroblock 60 of 120)
+        self.assertEqual(self.dry('-c', 'avc', '-x', 'map=1,right')[1][:1], ['idr tables 0x%04x 60 0x01' % (64 + 60)])
+
+    def test_list_bit(self):
+        code, out = self.dry('-x', 'list@2:0x80=0x80')
+        self.assertEqual(code, 0)
+        self.assertEqual(len(out), 2)
+        for line in out:
+            ty, what, word, old, new = line.split()
+            self.assertEqual((what, word), ('list', '0x02'))
+            self.assertEqual(int(new, 16), int(old, 16) | 0x80)
+
+    def test_refused(self):
+        """what is not understood changes nothing: exit 2, and one experiment per run unless --multi"""
+        for spec in ('', 'min', 'min=52', 'max=-1', 'thr6=1', 'dq6=1', 'byte@64=1', 'map', 'map=256', 'map=+32', 'map=1,first=16385',
+                     'map=1,first=0', 'map=1,top,left', 'map=1,rect=0:0:61:1', 'map=1,rect=5:0:5:1', 'map=1,rect=0:0:1',
+                     'map=1,blk=24', 'map=1,top,blk=8', 'map=1,nonsense', 'list@32:1=1', 'list@2:0x80=0x100', 'list@2:0=0',
+                     'ctl=1', 'min=30,max=40', 'qp=3'):
+            self.assertEqual(self.dry('-x', spec)[0], 2, spec)
+        self.assertEqual(self.dry('-x', 'min=30', '-x', 'max=40')[0], 2)
+        self.assertEqual(self.dry('--multi', '-x', 'map=+10', '-x', 'list@2:0x80=0x80')[0], 0)
+        self.assertEqual(subprocess.run([self.bin, '--sim', '-x', 'ctl'], capture_output=True).returncode, 2)   # no output folder
+
+    def sim(self, spec, fail=None, extra=()):
+        d = tempfile.mkdtemp(dir=self.tmp)
+        env = dict(os.environ)
+        env.pop('QPB_SIM_FAIL', None)
+        if fail:
+            env['QPB_SIM_FAIL'] = fail
+        r = subprocess.run([self.bin, '--sim', '-n', '6', '-g', '3', '-q', '30'] + list(extra) + ['-x', spec, d],
+                           capture_output=True, text=True, env=env)
+        core = [ln.split() for ln in r.stderr.split('\n') if ln.startswith('sim ')]
+        with open(os.path.join(d, 'run.csv')) as f:
+            rows = [ln.split(',') for ln in f.read().split('\n')[1:-1]]
+        return r, core, rows, d
+
+    @staticmethod
+    def val(c, key):
+        return c[c.index(key) + 1]
+
+    def test_run_three_phases(self):
+        r, core, rows, d = self.sim('max=40')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual([c[1] for c in core], ['base1'] * 6 + ['test'] * 6 + ['base2'] * 6)
+        # every phase starts with a keyframe, then the GOP; one QP for every picture
+        self.assertEqual(''.join(c[2] for c in core), 'IPPIPP' * 3)
+        self.assertEqual([x[2] for x in rows], list('IPPIPP' * 3))
+        self.assertEqual(set(x[3] for x in rows), {'30'})
+        # the vendor's values around the test, the experiment in it: highest QP 36 (IDR) / 48 (P), 40 in the test
+        self.assertEqual([int(self.val(c, 'max')) for c in core], [36, 48, 48] * 2 + [40] * 6 + [36, 48, 48] * 2)
+        self.assertEqual(set(self.val(c, 'min') for c in core), {'25'})
+        self.assertEqual(len(rows[0]), 6 + 48)
+        self.assertEqual(rows[0][6], '1234')   # status word 0x40 as the core left it
+        for ph in ('base1', 'test', 'base2'):
+            with open(os.path.join(d, ph + '.265'), 'rb') as f:
+                data = f.read()
+            self.assertEqual(len(data), sum(int(x[4]) for x in rows if x[1] == ph))
+            self.assertEqual(data[:5], bytes([0, 0, 0, 1, 0x40]))   # the VPS: each file plays alone
+        self.assertIn('IDR pictures:', r.stdout)
+        self.assertIn('CHANGED', [ln for ln in r.stdout.split('\n') if ln.startswith('P pictures')][0])
+        with open(os.path.join(d, 'summary.txt')) as f:
+            self.assertEqual(f.read(), r.stdout)
+
+    def test_control_run_and_map(self):
+        r, core, rows, d = self.sim('ctl')
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(r.stdout.count('no change beyond'), 2)
+        r, core, rows, d = self.sim('map=skip', extra=('-c', 'avc'))
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual([(c[1], self.val(c, 'map0'), self.val(c, 'maplast')) for c in core],
+                         [('base1', '00', '00')] * 6 + [('test', '80', '80')] * 6 + [('base2', '00', '00')] * 6)
+        self.assertTrue(os.path.getsize(os.path.join(d, 'test.264')) > 0)
+        # the list bit: in the test phase only (the list is built again for every picture)
+        r, core, rows, d = self.sim('list@2:0x80=0x80')
+        self.assertEqual([(c[1], int(self.val(c, 'w2'), 16) & 0x80) for c in core],
+                         [('base1', 0)] * 6 + [('test', 0x80)] * 6 + [('base2', 0)] * 6)
+
+    def test_first_failure_stops_and_restores(self):
+        r, core, rows, d = self.sim('min=45', fail='test')
+        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+        # 6 baseline pictures, ONE failed test picture, then the vendor's values and one good picture: nothing more
+        self.assertEqual([c[1] for c in core], ['base1'] * 6 + ['test', 'recover'])
+        self.assertEqual((self.val(core[6], 'min'), self.val(core[7], 'min')), ('45', '25'))
+        self.assertEqual(core[7][2], 'I')
+        self.assertEqual([x[2] for x in rows], list('IPPIPP') + ['F'])
+        self.assertIn('FAILED', r.stdout)
+        self.assertIn('the core codes again', r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(d, 'base2.265')))
+        # a core that does not come back: three tries with the vendor's values, then "reboot"
+        r, core, rows, d = self.sim('min=45', fail='dead')
+        self.assertEqual(r.returncode, 5)
+        self.assertEqual([c[1] for c in core], ['base1'] * 6 + ['test'] + ['recover'] * 3)
+        self.assertEqual(set(self.val(c, 'min') for c in core[7:]), {'25'})
+        self.assertIn('reboot the camera', r.stdout)

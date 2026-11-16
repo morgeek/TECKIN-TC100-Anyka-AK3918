@@ -469,6 +469,23 @@ per flash write.
   automatic white balance moves the colour every picture, and R1 now lets that rise to the 1600 kbit/s ceiling at
   10 fps); new binary with AWB-05 (default) 155 KB / 5 s (P 170 bytes, IDR 73 KB every 25).
 
+### T1-QP-BENCH Is the encoder's 0x4040 "tables" buffer its QP control buffer? Bench only (`[t1-qp]`) — `to test` (owner, test camera)
+- **What:** a bench program, `src/h265enc/qpbench.c` + `qpctl.h` (CI test pack `tc100test/qpbench`): `freeenc.h` at a
+  fixed QP from the ISP, three phases per run (vendor's values / one change / vendor's values), raw `.265` / `.264` files
+  and `run.csv` (size, QP and the core's status words per picture). `freeenc.h` gets a hook that only the bench defines
+  (`FE_BENCH_HOOK`). **Nothing is on by default and `tc100_rtsp` does not change** (same code without the hook).
+  Procedure, experiments E0-E6 and how to read them: [frontier/t1-qp-bench.md](frontier/t1-qp-bench.md).
+- **Switch / revert:** nothing to turn off: the bench only runs when started by hand, with `tc100_rtsp` stopped
+  (`controlscripts/rtsp-h26x stop`, then `start`). It stops at the first failed picture and writes the vendor's values back.
+- **Test:** E0 (`-x ctl`) first, then E1a `min=45`, E1b `max=28 -q 40`, E1c (`ctl` at QP 51 / 48 / 20 / 25), E2 `dq=0`,
+  E3 `map=+10`, E4 `map=intra` / `map=skip`, E5 `map=+15,top`; E6 (list bits) only if E3-E4 show nothing, one bit per run.
+  One experiment per run; note the exit status and `summary.txt` of each under this entry.
+- **Pass criteria (of the bench, not of the hypothesis):** E0 ends with exit 0 and `no change` on a still scene, its
+  three files decode without error (`ffmpeg -v error -i base1.265 -f null -`), and the video comes back after
+  `rtsp-h26x start`. The result wanted is the answer per experiment (`CHANGED` or not, the PNG pair for E5): a visible
+  top / bottom split in E5 confirms the per-block map; "no change" from E1 to E4 refutes it as things are (E6 or stop).
+- **Risk:** a hung core needs a reboot (exit 5); nothing touches the flash or the settings.
+
 ### NATIVE-02 httpfront answers daynight, hw_state and health.cgi (`src/httpfront/poll.h`) — `to test`
 - **What:** with `HTTPFRONT_NATIVE=1` (the default since rc28), `httpfront` now also answers by itself, without httpd and `sh`, the polled reads: `GET /cgi-bin/state.cgi?cmd=daynight&format=json` (Settings -> Day/night, every 5 s), `GET /cgi-bin/action.cgi?cmd=hw_state&format=json` (Hardware page, every 2 s), and `GET /cgi-bin/health.cgi` (when `/tmp/health_snapshot.cache` is fresh within TTL). Same JSON as the CGI byte for byte, same Basic login (no or wrong login: httpd answers as before). Anything it cannot print exactly as the shell does goes to httpd and the CGI: no `format=json` in the query, a `%XX` / `+` in `cmd` or `format`, a number with a leading zero or too long in `/tmp/cam_ae`, a value ending in `=`; for `hw_state` also a missing `/tmp/csrf_token`, no `/tmp/log`, `/tmp/log/audit.log` over 64 KB (the CGI rotates it), a pid file that is not one number; for `health.cgi` also a missing, expired, or > 1536-byte `/tmp/health_snapshot.cache`. `daynight` reads the files at each request and writes nothing (the CGI keeps its answer 1 s in `/tmp/state-response-daynight-json.cache`). `hw_state` appends the same line as `audit_log` of `action.cgi` to `/tmp/log/audit.log` (`<epoch> cmd=hw_state ip=<client>`). Host tests: `tests/test_httpfront_poll.py` (CGI under busybox ash against the native route on twin trees).
 - **Switch / revert:** `HTTPFRONT_NATIVE=0` in `/mnt/config/boot.conf` (`TC100_NATIVE_STATUS=0` for `httpfront`), then restart the web server or reboot: every request goes to httpd and the CGIs again.
