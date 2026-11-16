@@ -22,7 +22,7 @@
  * (OKFILE), so the 1000-round crypt runs once, not at every request, and a new password forgets it. Only the header
  * part of the request is searched, and a token cut by the end of the peeked bytes is neither checked nor counted.
  *
- * Native status line (item 55; TC100_NATIVE_STATUS=1, boot.conf HTTPFRONT_NATIVE=1, off by default): "GET
+ * Native status line (item 55; TC100_NATIVE_STATUS=1, boot.conf HTTPFRONT_NATIVE=1, on in boot.conf.dist, off when unset): "GET
  * /cgi-bin/statusline.cgi" with a right Basic login is answered by httpfront itself (status.h), the same JSON as the CGI,
  * without httpd and sh; anything it cannot answer exactly goes to httpd as before. Same for "GET /cgi-bin/dash.cgi" (the
  * dashboard poll, dash.h).

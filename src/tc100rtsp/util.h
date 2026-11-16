@@ -33,7 +33,7 @@ static inline int url_is_sub(const char *url)
 
 /* ---- microphone level ----------------------------------------------------------------------------------------
  * RMS and peak are measured around the window's mean: without the vendor noise processing the ADC output carries a
- * DC offset (~ -1450 of 32768 on 2.x), which must not count as sound. Same numbers as libtc100fix (2.x). */
+ * DC offset (~ -1450 of 32768 on 2.x), which must not count as sound. Same numbers as libtc100fix (2.x branch). */
 struct lvl {
 	uint32_t n;
 	int64_t sum;
@@ -101,7 +101,7 @@ static inline int lvl_peak_db(const struct lvl *l)
 
 /* ---- motion zones ---------------------------------------------------------------------------------------------
  * config/motion_zones.conf (written by the web UI, action.d/detection.sh): up to 4 lines MDZ<k>="x1,y1,x2,y2" in
- * percent of the picture, areas the motion detection ignores. Same rules as src/tc100fix/md.c on 2.x: a grid cell is
+ * percent of the picture, areas the motion detection ignores. Same rules as tc100fix md.c on the 2.x branch: a grid cell is
  * ignored when its centre lies in a zone. */
 #define MDZ_MAX 4
 

@@ -83,8 +83,8 @@ Contents: [Full feature list](#full-feature-list) - [How the SD install works, a
 
 **What 3.0 does not do**: HTTPS on the camera (it serves plain HTTP with a login; put a
 [reverse proxy](#https-with-a-reverse-proxy) in front of it), a VPN, arbitrary custom resolutions beyond 1080p/720p main and
-640x360 sub, Smart mode in normal operation (mode 1 needs the experimental 12 MiB encoder pool; mode 2 stops the
-encoder on this camera). Not yet qualified on camera: push-to-talk and two-way audio through the speaker (speaker playback itself
+640x360 sub, and the vendor library's variable GOP: `smart=2` runs as `smart=1` (the free smart mode, which needs `vbr=1`
+and keeps GOP up to 250 frames on a still scene; `RTSP_FE_SMART_GOP`, `RTSP_FE_SMART_QP`). Not yet qualified on camera: push-to-talk and two-way audio through the speaker (speaker playback itself
 works since 3.0.1), the stock day / night method as a source (the picture luminance is the default). What is known
 not to be perfect yet: [known issues](../known-issues.md).
 
@@ -284,8 +284,9 @@ Settings → **Recording**:
 
 ## HTTPS with a reverse proxy
 
-The camera serves its web interface in plain HTTP on port 80 only. TLS on it would cost seconds of its 480 MHz CPU
-per connection, part of its 20 MB of free memory, and give a self-signed certificate that browsers warn about.
+The camera serves its web interface in plain HTTP on port 80 only. TLS on it would cost seconds of its 400 MHz CPU (core PLL 480 MHz)
+per connection, part of its free memory (about 17 MB `MemAvailable` while one client streams, 2026-11-14, see
+[known-issues](../known-issues.md)), and give a self-signed certificate that browsers warn about.
 HTTPS is done better by a reverse proxy on your network (a NAS, the Home Assistant machine, a Raspberry Pi): it
 holds a real certificate and forwards to the camera in HTTP over your LAN.
 
@@ -356,7 +357,7 @@ Remake them with `python3 src/webui/screenshots/shots.py docs/screenshots` (Play
 
 | | |
 |---|---|
-| SoC | Anyka **AK3918EV300** (ARM926EJ-S, 64 MB of RAM, about 45 MB for Linux after the video buffers) |
+| SoC | Anyka **AK3918EV300** (ARM926EJ-S, 64 MB of RAM; `MemTotal` 59436 kB on 6.6 with the encoder pool inside, IPCAM2 2026-10-30; `MemAvailable` while streaming: see [known-issues](../known-issues.md)) |
 | Image sensor | Silicon Optronics **JX-F23** (1080p, MIPI) |
 | Wi-Fi | Realtek **RTL8188FU** (USB; mainline `rtl8xxxu` on 3.0) |
 | Flash | 8 MB SPI NOR, 4 KB erase blocks |
@@ -452,10 +453,12 @@ patches/kernel-6.6/ Linux 6.6 patch series (series/), kernel config
 v3/                 3.0 system: boot script (autorun-linux66.sh), initramfs and user space builders, Buildroot base
   install/          SD card install hook, flash install and update, way back to the stock firmware
   linux66-sd/       Glue between the web interface and the free stack, flash writer (flashw), settings slots
+  dev/              Bench helpers for a test camera (try-rtsp.sh, h265-step2.sh, aec-measure.sh, aec-probe.py), not called by the boot or the web UI
 src/tc100rtsp/      tc100_rtsp: RTSP server, recorder, pictures, motion, sound level, two-way audio, live MP4
 src/libakuio/       Free replacement for the vendor encoder-memory library
 src/jpegenc/        Hardware JPEG encoder
 src/h265enc/        Free hardware H.265 / H.264 encoder (freeenc.h, listgen.h, worktab.h) built into tc100_rtsp
+src/h265enc/venctrace/  venctrace.so: records the vendor encoder's hardware accesses (LD_PRELOAD, research only)
 src/httpfront/      Front for busybox httpd (redirects /, one connection per request, local-network filter)
 src/ispflip/        isp_flip: picture flip / mirror through the ISP (called by bin/setconf)
 src/ispfps/         isp_fps: read or set the sensor frame rate through the ISP
@@ -466,7 +469,7 @@ src/netacl/         libnetacl: local-network-only filter for musl programs (busy
 src/onvifd/         tc100-onvifd: free ONVIF daemon (discovery, Device / Media / Media2, backchannel)
 src/rwconf/         rwconf: reads and writes keys of the INI-like config files (free replacement of the 2.x binary; built in CI)
 src/supervisord/    tc100-supervisord: day/night, reset button and sound detection loops in one process (SUPERVISOR_IMPL=c)
-src/webui/          Web UI sources: index/ (main script, built by build-index.sh), i18n check, CSS and minify build, screenshots
+src/webui/          Web UI sources: index/ (main script, built by src/webui/build-index.sh), i18n check, CSS and minify build, screenshots
 src/whep/           tc100-whep: WebRTC (WHEP) gateway behind whep.cgi
 www/                Web interface (Pico CSS); www/cgi-bin/ are shell CGIs
 scripts/            Daemons and tools (wifi-txt.sh, wifi-rescue.sh, mqtt-bridge.sh…)
@@ -483,3 +486,36 @@ docs/               API, known issues, screenshots; docs/linux-port: the Linux 6
 
 Live configuration with secrets (`config/mqtt.conf`, `config/user.pwd`, `wpa_supplicant.conf`) is never in git; only
 the `*.dist` templates are.
+
+### Scripts index
+
+One line per script, from its header comment (the full list is `ls scripts controlscripts`).
+
+Daemons and services (`scripts/`):
+- `supervisor.sh`: day/night, reset button and sound detection loops (sourced by `controlscripts/auto-night-detection`, `button-actions`, `sound-detection`; `SUPERVISOR_IMPL=c` runs them in `tc100-supervisord`).
+- `service-watchdog.sh`: one check of one service per call (the body of the former loop).
+- `service-switch.sh`: one switch per service (sourced, no fork): the settings key that turns the service on.
+- `presence-mode.sh`: presence profiles, explicit presets over the existing settings.
+- `detection-monitor.sh`: polls the motion state every 3 s (tc100_rtsp holds `/tmp/rec_control` for 8 s after motion).
+- `detectionOn.sh` / `detectionOff.sh`: user hooks run when motion starts / stops (source the custom motion configuration, persist the event).
+- `tamper-detect.sh`: lightweight camera tampering and occlusion detector (lens covered, sprayed, sudden total occlusion).
+- `telegram-bot-daemon.sh`: Telegram bot (long polling; JSON answers read with `jsonflat.awk`).
+- `event-logger.sh`: JSON event logging framework (sourced: `log_event <level> <category> <message>`).
+- `update-check.sh`: secure HTTPS check for new releases on GitHub (only with `UPDATE_CHECK=1`).
+- `update_timezone.sh`: sourced; sets and exports `TZ` from `/mnt/config/timezone.conf`.
+- `capability-check.sh`: boot-time probe of the shell tools the firmware depends on (behaviour, not presence).
+- `boot-milestones.sh`: records startup timings from `/proc/uptime` (`boot-milestones.sh <name> [details]`).
+- `perf-baseline.sh [seconds]`: one reference profile (CPU split, interrupts per second, Wi-Fi bytes, memory, last STAT lines), same for every build.
+
+Wi-Fi and network:
+- `wifi-diag.sh`: finds where Wi-Fi ping losses come from; read only, writes to `/tmp`, never touches wlan0 or the driver.
+- `wifi-signal.sh`: the one reader of the Wi-Fi signal (sourced: `wifi_signal_read` sets `WIFI_DBM`).
+- `wifi-aim.sh`: aims the camera without a screen (blue front LED, for `WIFI_AIM_SECONDS` after boot, `WIFI_AIM=1`).
+
+Controlscripts (`controlscripts/`, started and stopped from the web Services page; each has `start`, `stop`, `status`, `restart`):
+- `front-led`: the front LED (`FRONT_LED` in `boot.conf`).
+- `red-led`: the red LED (`RED_LED` in `boot.conf`).
+- `ir-led`: the infrared LEDs.
+- `ir-cut`: the IR-cut filter (`ir_cut on` / `off`).
+- `black-white`: black and white (night) picture; also switches the automatic night mode off.
+- `button-actions`: reset button, held 3 to 7 s = Wi-Fi access point for rescue, 8 s = reboot, 20 s = back to the built-in code and reboot.

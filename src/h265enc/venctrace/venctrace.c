@@ -1,6 +1,6 @@
 /*
  * venctrace.so: records what the vendor encoder library does to the hardware, for the free encoder (2026-11-07: the
- * H.264 sub stream, whose lists alone do not run on the core). The 3.0 port of the 2.x libtc100fix tracer: preloaded
+ * H.264 sub stream, whose lists alone do not run on the core). The 3.0 port of the 2.x branch's libtc100fix tracer: preloaded
  * into tc100_rtsp (LD_PRELOAD), it catches AKV_Encoder_Init (libakv_encode.so, called by libmpi_venc_ex.so with the
  * table of 22 hardware callbacks of libplat_venc_cb.so), wraps the register read / write, DMA alloc / free, reset and
  * interrupt wait entries, and keeps every call in RAM. Off unless VENC_TRACE is set; it changes nothing in the encoding.

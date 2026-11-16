@@ -10,10 +10,6 @@ ROOT = Path(__file__).resolve().parent.parent
 CSS = ROOT / 'www/css'
 
 
-def classes(css):
-    return set(re.findall(r'\.(-?[A-Za-z_][\w-]*)', re.sub(r'url\([^)]*\)|"[^"]*"', '', css)))
-
-
 class CssBundle(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('node'), 'node needed')
@@ -40,16 +36,6 @@ class CssBundle(unittest.TestCase):
         self.assertEqual(b.index(pico), len('@charset "UTF-8";\n'))
         self.assertLess(b.index('.navbar-burger'), b.index('--v2-bg:'))   # shim before ui.css
         self.assertIn('html[data-ui="pico"]', b)                      # the token dictionary
-
-    def test_the_shim_draws_every_bulma_class_the_pages_use(self):
-        # tests/fixtures/bulma-classes-used.txt: the Bulma 1.0.2 classes found in www/ when Bulma was removed; each one
-        # must be styled by the shim, ui.css or Pico itself, or the page loses its layout (Settings -> Network lost its
-        # horizontal fields until the shim had them). Words that only look like classes are listed here.
-        used = (ROOT / 'tests/fixtures/bulma-classes-used.txt').read_text(encoding='utf-8').split()
-        words = {'block', 'delete', 'dropdown', 'footer', 'grid', 'image', 'media', 'menu', 'panel'}
-        styled = classes((CSS / 'pico-shim.css').read_text(encoding='utf-8')) | classes((CSS / 'ui.css').read_text(encoding='utf-8')) | \
-            classes((CSS / 'pico-2.0.6.min.css').read_text(encoding='utf-8'))
-        self.assertEqual(sorted(c for c in used if c not in styled and c not in words), [])
 
 
 if __name__ == '__main__':

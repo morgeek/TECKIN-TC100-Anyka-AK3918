@@ -12,7 +12,7 @@
 #define ATS		MP4_ATS
 #define PS_MAX		MP4_PS_MAX
 
-/* ---- bit stream (from src/tc100fix/rec.c) ---- */
+/* ---- bit stream (from the 2.x branch, tc100fix rec.c) ---- */
 
 int mp4_split_nals(const unsigned char *b, uint32_t len, struct nal *out, int max)
 {
@@ -141,7 +141,7 @@ int mp4_parse_sps265(const struct nal *u, struct vinfo *vi)
 	return vi->w > 0 && vi->h > 0 ? 0 : -1;
 }
 
-/* ---- growable buffer and MP4 boxes (src/tc100fix/rec.c) -------------------------------------------------------- */
+/* ---- growable buffer and MP4 boxes (2.x branch, tc100fix rec.c) -------------------------------------------------------- */
 
 void mp4_b_need(struct buf *b, size_t k)
 {

@@ -5529,3 +5529,33 @@ Status: `failed on the .11 2026-11-14`: still oscillates on a static scene (resu
 - **Minor, noted:** 20 s after a restart of the video server the .24 switched to day in the dark (00:31, AWB count 334 748
   right after the ISP restart, luma 39) and back to night 35 s later. An AWB-count transient at an ISP restart; a hold of
   ~30 s on the AWB counts after the video starts would avoid it (supervisord, `vendor` source).
+
+
+## Moved from test-queue.md on 2026-11-16 (passed or superseded)
+
+### WEBUI-CACHE-01 CGI fork reduction, HTML fragment caching & flash size optimization (`3.0.1-rc43`) — `passed on both cameras, CGI side (2026-11-14, rc43); browser tab check left to the owner`
+- **What:**
+  - `www/cgi-bin/func.cgi`: pure-shell fast path in `json_escape()` skipping `awk` on safe strings `[A-Za-z0-9._:/@=?&+*,~ -]*` (unchanged escaping for quotes/backslashes/control chars/UTF-8).
+  - `www/cgi-bin/state.cgi`: fork-free timestamp and header/body handling in `state_response_cache()`, batch `load_conf_file` in `integrationmanifest` and `fullconfig` (~75 fewer subshells per `/cgi-bin/state.cgi?fullconfig=1`), and parameter expansion in `list_presets`.
+  - `www/cgi-bin/action.cgi`, `disk.cgi`, `devinfo.cgi`, `scripts/config-transaction.sh`: 2 s GET RAM cache (format-keyed, cleared on POST) for heavy polled read-only commands (`sd_card_info`, `local_rec_status`, `rtsp_server_info`, `mem_budget`, `presence_info`, `ha_discovery_info`, `wifi_country_info`, `md_zones_info`); pure-shell fast paths for `csrf_check`/`audit_log`, `/proc` readers, and MTD partition size/percentage formatting (removing ~45 `awk`/`cat`/`sed` forks on Storage page load).
+  - `src/webui/index/20-pages.js`: in-memory `pageHtmlCache` for static subpage `.html` fragments when `!forceReload`, avoiding repeated HTTP fetches and BusyBox `httpd` forks when switching tabs in the Pico UI.
+  - `src/webui/minify.mjs` & `v3/build-stack.sh`: strip HTML comments and leading indentation outside `<script|style|pre|textarea>` (~32.8 KB raw / ~1.06 KB `.gz` saved on `www/*.html`), and exclude install-only `v3/install/anyka-wifi.awk` + `v3/install/known-stock.txt` from runtime `stack.squashfs`.
+  - `scripts/boot-milestones.sh` & `v3/autorun-linux66.sh`: added `web_ready` milestone, reset `/tmp/boot-milestones.txt` per boot, and capped `/mnt/config/log/boot-milestones.log` at 40 lines on `boot_complete`.
+- **Switch / revert:** Browser hard reload / reload page bypasses `pageHtmlCache`; CI / `v3/build-stack.sh` artifacts unaffected at runtime except missing unused install helpers in `/mnt/ext/`.
+- **Test:** Open Web UI on a camera, navigate repeatedly across Status / Video / Wi-Fi / Settings tabs (`settings.html` load, `fullconfig=1`, `integrationmanifest=1`, `list_presets`), verify Network tab makes only one GET per HTML fragment per session and Settings loads cleanly with special characters (SSID quotes/UTF-8) intact.
+- **Pass criteria:** Zero JSON syntax errors in browser console, faster tab switches and `settings.html` initial render, `v3/build-stack.sh` image well under flash budget.
+
+### WIFI-TXATTEN rtl8188f runtime `tx_atten` parameter (`[wifi]`) — `passed 2026-11-14 as a switch (.11 rc43, tx_atten=12 = -6 dB, 8.4 min): no effect on the stalls (1.7 / min against 1.8 / 2.2); kept at 0`
+
+- **What:** Kernel patch `0019-wifi-rtl8xxxu-8188f-tx_atten-parameter.patch` adds `rtl8xxxu.tx_atten` (`0644`, `0..30`, default `0`) in `rtl8188f_set_tx_power()` to reduce CCK/OFDM/MCS TX power indices in ~0.5 dB steps (e.g. `12` = `-6 dB`, `20` = `-10 dB`) on cameras sitting very close to the AP (like `.11` at `-25 dBm`).
+- **Test (`.11`, after booting the CI kernel):**
+  1. `echo 12 > /sys/module/rtl8xxxu/parameters/tx_atten && wpa_cli -i wlan0 reassociate` (or `rtl8xxxu.tx_atten=12` in `EXTRA`).
+  2. Check RSSI / link stability / temperature and `ping -i 0.5 192.168.1.11`; revert with `echo 0 > /sys/module/rtl8xxxu/parameters/tx_atten && wpa_cli -i wlan0 reassociate`.
+
+### WIFI-RXAGG rtl8xxxu runtime `ampdu_rx` switch (`[wifi]`) — `passed 2026-11-14 (.11 rc43): ampdu_rx=0 cuts the stalls by about 60 % (0.8 and 0.6 / min against 2.2, 1.8, 1.7), not a cure; default unchanged (owner's decision)`
+
+- **What:** Kernel patch `0018-wifi-rtl8xxxu-runtime-ampdu_rx-parameter.patch` adds `rtl8xxxu.ampdu_rx` (`0644`, default `Y`). When `0`/`N`, `rtl8xxxu_ampdu_action(IEEE80211_AMPDU_RX_START)` returns `-EOPNOTSUPP`, so `mac80211` declines BlockAck RX sessions from the AP and receives frames individually without RX reorder buffering.
+- **Test (`.11`, no reboot needed once kernel is booted):**
+  1. `echo 0 > /sys/module/rtl8xxxu/parameters/ampdu_rx && wpa_cli -i wlan0 reassociate`
+  2. Run a continuous ping from the Mac (`ping -i 0.5 192.168.1.11`) over 1–2 hours (or overnight) and compare 8–9 s RX stalls against `ampdu_rx=1`.
+- **Pass criteria:** If stalls disappear or drop sharply with `ampdu_rx=0`, consider defaulting `ampdu_rx=0` (in `boot.conf` or driver); revert to `ampdu_rx=1` with `echo 1 > /sys/module/rtl8xxxu/parameters/ampdu_rx && wpa_cli -i wlan0 reassociate`.

@@ -7,6 +7,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-11-15
+
 ### Fixed
 - **RTSP encoder settings**: made `[0].vbr` and `[0].smart` the explicit, documented source of truth; aligned settings readback and JSON import/export, and stopped routine saves/presets from writing the ignored legacy `brmode` / `smartmode` fields.
 

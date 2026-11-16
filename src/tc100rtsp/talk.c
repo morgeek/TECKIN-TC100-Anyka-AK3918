@@ -1,6 +1,6 @@
 /* talk.c: the sound a client sends back over RTSP (the ONVIF backchannel: go2rtc, Frigate, Home Assistant) to the speaker.
  *
- * The same job as the 2.x lite server (src/tc100fix/rtsp.c), on ALSA: G.711 A-law RTP packets are decoded to S16_LE 8 kHz
+ * The same job as the 2.x lite server (tc100fix rtsp.c, 2.x branch), on ALSA: G.711 A-law RTP packets are decoded to S16_LE 8 kHz
  * mono and written to the standard input of `sh scripts/speaker-play.sh -`, started when the first packet arrives and
  * closed 2 s after the last one (the player finishes what it has and exits). speaker-play.sh does what the web push-to-talk
  * does: volume from /mnt/config/pttvolume.conf, the amplifier GPIO when the device tree leaves it free, and the lock

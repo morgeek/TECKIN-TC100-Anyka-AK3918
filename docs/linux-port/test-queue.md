@@ -179,39 +179,11 @@ older `to test` entries below.
   2. Verify bitrate drops noticeably on a calm / covered-lens scene while staying crisp on motion under the configured ceiling.
 - **Pass criteria:** Calm scene bitrate drops below ceiling (~20-40%+ reduction) with acceptable visual quality at `33`.
 
-### WIFI-AMPDU-TX rtl8xxxu runtime `ampdu_tx` switch and BlockAck counters (`[wifi]`, kernel patch 0023) — `PASSED 2026-11-14 (.11, build of branch overclock 4f43f3e): ampdu_tx=0 -> 0 stalls in 8 min (max 0.2 s); back to Y -> stalls again. Root cause of WIFI-STALL-01 found; default change = owner's decision`
-- **What:** `0023-wifi-rtl8xxxu-runtime-ampdu_tx-parameter-and-BlockAc.patch` adds `rtl8xxxu.ampdu_tx` (`0644`, default `Y` = unchanged). With `N` the driver no longer opens TX BlockAck sessions (the `ieee80211_start_tx_ba_session()` call is skipped; TX_START itself is not refused), so the AP keeps no reorder buffer for the camera (WIFI-STALL-01, mechanisms 1 and 2 of `frontier/wifi-stall-2026-11-14-reponse.md`). New sessions only: a reassociation is needed after a change. Read-only counters `ba_tx_start`, `ba_tx_oper`, `ba_tx_stop`, `tx_qos_data`, `tx_other`, shown by `scripts/wifi-stall-watch.sh`. `scripts/wifi-try.sh` accepts `ampdu_tx=0|1` and reassociates by itself (`wpa_cli -i wlan0 reassociate`, no interface down/up) after applying and after every revert.
-- **Switch / revert:** `wifi-try.sh revert`, or the end of the window; by hand `echo 1 > /sys/module/rtl8xxxu/parameters/ampdu_tx && wpa_cli -i wlan0 reassociate`. Nothing is stored: a reboot gives `Y` again.
-- **Test (`.11`, kernel with 0023 from the SD card first, RTSP stream running, Mac `ping -i 0.5 192.168.1.11` with timestamps):**
-  1. Reference, `ampdu_tx=1`: `sh wifi-stall-watch.sh 600 > /tmp/stall-on.txt`. Expected `ba_tx_oper` >= 1; note the stall windows (ping) and whether `ba_tx_start` / `ba_tx_stop` move in the stall seconds, and whether `tx_qos_data` keeps rising during a stall.
-  2. `sh wifi-stall-watch.sh 600 > /tmp/stall-off.txt &` then `wifi-try.sh ampdu_tx=0 600` (no confirm: back to `Y` after 600 s). Expected: one short ping gap at the reassociation, `ba_tx_start` flat afterwards.
-  3. Compare the stall windows of the two runs (number, length); repeat once in the other order.
-- **Pass criteria:** stalls gone or much rarer with `ampdu_tx=0`, video still smooth (single MPDUs: lower peak rate, more airtime). Then the owner decides on a default. Unchanged stalls: the hold is not per TID (chip or air), see the answer file for `tx_atten` / CFO.
-
 ### KRN-02 Anyka OTG host: URB read after the giveback in `finish_request_epx` (`[kernel]`, kernel patch 0022) — `running 2026-11-14 on the .11 (build 4f43f3e): no oops / hang since boot; no specific trigger to test`
 - **What:** `0022-usb-host-anyka-do-not-read-the-URB-after-giveback.patch`: the pipe type is taken before `usb_hcd_giveback_urb()` (the completion runs inline and may free the URB), and the periodic deschedule is left when `ep->period` is 0 (the loop could spin with interrupts off). No other behaviour change; fixes the defect of patch 0003 listed in a-faire-implementeur.md (13/11, point 2).
 - **Switch / revert:** none at run time; revert = previous kernel (test from the SD card in RAM first, nothing in flash).
 - **Test:** boot the kernel from the SD card on one camera; Wi-Fi associates, RTSP stream for 30 min, `wifi-stall-watch.sh 60` shows the HCD counters moving as before (`bulk_out_nak`, `bulk_in_oldest_ms`), one `wpa_cli -i wlan0 reassociate` and one reboot test; `dmesg` without USB error, oops or soft lockup.
 - **Pass criteria:** same behaviour as rc43 (the fault itself is not reproducible on demand: review plus no regression).
-
-### WEBUI-CACHE-01 CGI fork reduction, HTML fragment caching & flash size optimization (`3.0.1-rc43`) — `passed on both cameras, CGI side (2026-11-14, rc43); browser tab check left to the owner`
-- **What:**
-  - `www/cgi-bin/func.cgi`: pure-shell fast path in `json_escape()` skipping `awk` on safe strings `[A-Za-z0-9._:/@=?&+*,~ -]*` (unchanged escaping for quotes/backslashes/control chars/UTF-8).
-  - `www/cgi-bin/state.cgi`: fork-free timestamp and header/body handling in `state_response_cache()`, batch `load_conf_file` in `integrationmanifest` and `fullconfig` (~75 fewer subshells per `/cgi-bin/state.cgi?fullconfig=1`), and parameter expansion in `list_presets`.
-  - `www/cgi-bin/action.cgi`, `disk.cgi`, `devinfo.cgi`, `scripts/config-transaction.sh`: 2 s GET RAM cache (format-keyed, cleared on POST) for heavy polled read-only commands (`sd_card_info`, `local_rec_status`, `rtsp_server_info`, `mem_budget`, `presence_info`, `ha_discovery_info`, `wifi_country_info`, `md_zones_info`); pure-shell fast paths for `csrf_check`/`audit_log`, `/proc` readers, and MTD partition size/percentage formatting (removing ~45 `awk`/`cat`/`sed` forks on Storage page load).
-  - `src/webui/index/20-pages.js`: in-memory `pageHtmlCache` for static subpage `.html` fragments when `!forceReload`, avoiding repeated HTTP fetches and BusyBox `httpd` forks when switching tabs in the Pico UI.
-  - `src/webui/minify.mjs` & `v3/build-stack.sh`: strip HTML comments and leading indentation outside `<script|style|pre|textarea>` (~32.8 KB raw / ~1.06 KB `.gz` saved on `www/*.html`), and exclude install-only `v3/install/anyka-wifi.awk` + `v3/install/known-stock.txt` from runtime `stack.squashfs`.
-  - `scripts/boot-milestones.sh` & `v3/autorun-linux66.sh`: added `web_ready` milestone, reset `/tmp/boot-milestones.txt` per boot, and capped `/mnt/config/log/boot-milestones.log` at 40 lines on `boot_complete`.
-- **Switch / revert:** Browser hard reload / reload page bypasses `pageHtmlCache`; CI / `v3/build-stack.sh` artifacts unaffected at runtime except missing unused install helpers in `/mnt/ext/`.
-- **Test:** Open Web UI on a camera, navigate repeatedly across Status / Video / Wi-Fi / Settings tabs (`settings.html` load, `fullconfig=1`, `integrationmanifest=1`, `list_presets`), verify Network tab makes only one GET per HTML fragment per session and Settings loads cleanly with special characters (SSID quotes/UTF-8) intact.
-- **Pass criteria:** Zero JSON syntax errors in browser console, faster tab switches and `settings.html` initial render, `v3/build-stack.sh` image well under flash budget.
-
-### WIFI-TXATTEN rtl8188f runtime `tx_atten` parameter (`[wifi]`) — `passed 2026-11-14 as a switch (.11 rc43, tx_atten=12 = -6 dB, 8.4 min): no effect on the stalls (1.7 / min against 1.8 / 2.2); kept at 0`
-
-- **What:** Kernel patch `0019-wifi-rtl8xxxu-8188f-tx_atten-parameter.patch` adds `rtl8xxxu.tx_atten` (`0644`, `0..30`, default `0`) in `rtl8188f_set_tx_power()` to reduce CCK/OFDM/MCS TX power indices in ~0.5 dB steps (e.g. `12` = `-6 dB`, `20` = `-10 dB`) on cameras sitting very close to the AP (like `.11` at `-25 dBm`).
-- **Test (`.11`, after booting the CI kernel):**
-  1. `echo 12 > /sys/module/rtl8xxxu/parameters/tx_atten && wpa_cli -i wlan0 reassociate` (or `rtl8xxxu.tx_atten=12` in `EXTRA`).
-  2. Check RSSI / link stability / temperature and `ping -i 0.5 192.168.1.11`; revert with `echo 0 > /sys/module/rtl8xxxu/parameters/tx_atten && wpa_cli -i wlan0 reassociate`.
 
 ### HRTIMER-01 High-resolution timers and NO_HZ_IDLE (`[kernel]`) — `to test (venc_soft_reset fixed 2026-11-14)`
 
@@ -396,14 +368,6 @@ older `to test` entries below.
   does it); an authenticated connection may send wrong credentials without being locked (its holder knows the
   password). `RTSP_PERIP` that is not a plain number 1-9 (typo, `-1`, leading space) is ignored with a log line and
   keeps the default 3 (fixed after the re-check; it became 1 before).
-
-### WIFI-RXAGG rtl8xxxu runtime `ampdu_rx` switch (`[wifi]`) — `passed 2026-11-14 (.11 rc43): ampdu_rx=0 cuts the stalls by about 60 % (0.8 and 0.6 / min against 2.2, 1.8, 1.7), not a cure; default unchanged (owner's decision)`
-
-- **What:** Kernel patch `0018-wifi-rtl8xxxu-runtime-ampdu_rx-parameter.patch` adds `rtl8xxxu.ampdu_rx` (`0644`, default `Y`). When `0`/`N`, `rtl8xxxu_ampdu_action(IEEE80211_AMPDU_RX_START)` returns `-EOPNOTSUPP`, so `mac80211` declines BlockAck RX sessions from the AP and receives frames individually without RX reorder buffering.
-- **Test (`.11`, no reboot needed once kernel is booted):**
-  1. `echo 0 > /sys/module/rtl8xxxu/parameters/ampdu_rx && wpa_cli -i wlan0 reassociate`
-  2. Run a continuous ping from the Mac (`ping -i 0.5 192.168.1.11`) over 1–2 hours (or overnight) and compare 8–9 s RX stalls against `ampdu_rx=1`.
-- **Pass criteria:** If stalls disappear or drop sharply with `ampdu_rx=0`, consider defaulting `ampdu_rx=0` (in `boot.conf` or driver); revert to `ampdu_rx=1` with `echo 1 > /sys/module/rtl8xxxu/parameters/ampdu_rx && wpa_cli -i wlan0 reassociate`.
 
 ### RTSP-UDP-NB non-blocking UDP RTP send (`[rtsp]`) — `to test`
 

@@ -1,6 +1,7 @@
 # libakuio: free replacement for the vendor library (see libakuio.c)
 #
-# It is loaded by the uClibc programs of the camera (vendor libs), so it is built to be loadable there:
+# It is loaded by the uClibc programs of the 2.x firmware (vendor libs); the 3.0 system loads libakuio-musl.so (below).
+# The uClibc build is kept built and tested by CI, so it is built to be loadable there:
 # no fortify / stack protector / time64, and NEEDED = libc.so.0 and libpthread.so.0 (empty-looking stand-ins that
 # define the imported names, made at link time) instead of the glibc libc.so.6. Imports resolve by name at run time.
 # --hash-style=sysv: the uClibc dynamic loader does not know DT_GNU_HASH.

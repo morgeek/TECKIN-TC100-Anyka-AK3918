@@ -98,7 +98,8 @@ LOW_CPU_DISABLE_JPEG=1
 # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 MEM_GUARD_ENABLE=0
 MEM_GUARD_INTERVAL_SECONDS=60
-# Thresholds on MemAvailable (the 64 MB camera sits near 10.8 MB in normal use): warn stops the light services of
+# Thresholds on MemAvailable (measured: 10.1-10.8 MB on 2026-10-30 with the 6.6 kernel, IPCAM2; about 17 MB with one client
+# streaming, 2026-11-14, see docs/known-issues.md): warn stops the light services of
 # MEM_GUARD_SOFT_SERVICES; critical also stops those of MEM_GUARD_CRITICAL_SERVICES (motion detection among them) and
 # drops the caches. Before 3.0.2 the defaults were 8192 / 4096, too close to the normal value; a camera holding
 # exactly those is moved to the new ones when the service starts.

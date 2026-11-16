@@ -28,7 +28,7 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
   débit). Attendu : moins de fourmillement, visages un peu plus lisibles ; pas de miracle.
 - [x] **Couleurs justes dès l'allumage (AWB-05) :** démarrer le mode manuel depuis les gains sauvegardés (`white balance:
   starting from saved gains rex / bex`) quand ils sont récents et du même mode jour / nuit, au lieu de 10 s d'automatique
-  de l'ISP (`AWB_MANUAL_AFTER`, `awb_manual_start` dans `tc100_rtsp.c`) ; garder les 10 s si aucun gain valable (`AWB-05-SAVED`).
+  de l'ISP (`AWB_MANUAL_AFTER`, `awb_manual_start` dans `tc100_rtsp.c`) ; garder les 10 s si aucun gain valable. **Fait, en test** (`AWB-05-SAVED` dans test-queue.md : attend la caméra).
 - [x] **Fausse bascule en jour après un redémarrage vidéo :** ignorer les compteurs AWB ~30 s après le départ de la vidéo
   (pic des compteurs au redémarrage de l'ISP ; supervisord C et `auto-night-daemon.sh`, `AWB_RESTART_IGNORE=30`, POLISH-01). Doublon de l'entrée de la
   nuit du 15/11 plus bas : une seule correction.
@@ -142,10 +142,9 @@ micro inactif sans DSP, MQTT / présence sans fork). Mesurer avant / après sur 
   bruitée ?). **Gain :** bande passante et place des enregistrements Frigate.
 
 ### 4. Fiabilité Wi-Fi : `ampdu_tx=0` pour toutes les caméras — FAIT (décision du 14/11 16:28, défaut `WIFI_AMPDU_TX=0`, b653072)
-- `ampdu_tx=0` a supprimé les blocages de la .11 (0 en 8 min contre 1-2 / min). Le réglage `WIFI_AMPDU_TX` existe
-  (défaut 1). **À décider par le propriétaire** après quelques jours sur la .11 : défaut 0 pour toutes (le flux n'a pas
-  besoin de l'agrégation), avec migration. La .11 doit recevoir une build qui lit `WIFI_AMPDU_TX` au démarrage
-  (aujourd'hui appliqué à chaud seulement).
+- `ampdu_tx=0` a supprimé les blocages de la .11 (0 en 8 min contre 1-2 / min). Le défaut `WIFI_AMPDU_TX=0` est décidé et
+  en place : `config/boot.conf.dist` (lignes 173-177), lu au démarrage par `v3/autorun-linux66.sh` (lignes 31-41) avant
+  l'association Wi-Fi, pour toutes les caméras. `WIFI_AMPDU_TX=1` garde l'agrégation. Rien de plus à décider (vérifié 2026-11-16).
 
 ### 5. Temps de démarrage
 - **15/11 nuit :** nouveau `cfg-persist` essayé sur la .24 : sauvegarde 10,4 s → 5,4 s. Les 5 s restantes = la boucle par
@@ -203,10 +202,9 @@ contredise.
   conservées.
 
 ### Trouvailles du 14/11 après-midi sur la .11 (build `overclock` 4f43f3e ; détail dans test-queue.md)
-- [x] **WIFI-STALL-01 : cause trouvée — `ampdu_tx=0` décidé pour la .11 (14/11 14:42), appliqué à chaud + `WIFI_AMPDU_TX=0` dans son boot.conf ; le réglage de démarrage est sur `main` (défaut 1 pour les autres).** `ampdu_tx=0` (patch 0023) → **0 blocage en 8 min** (max 0,2 s) ; retour à `Y` → 6
+- [x] **WIFI-STALL-01 : cause trouvée — `ampdu_tx=0` décidé pour la .11 (14/11 14:42), appliqué à chaud + `WIFI_AMPDU_TX=0` dans son boot.conf ; le réglage de démarrage est sur `main` (défaut 0 pour toutes les caméras, voir la section 4).** `ampdu_tx=0` (patch 0023) → **0 blocage en 8 min** (max 0,2 s) ; retour à `Y` → 6
   blocages en 5,7 min (jusqu'à 4,8 s). Les sessions BlockAck d'émission de la caméra sont la cause. **À décider par le
-  propriétaire :** `ampdu_tx=0` par défaut (réglage boot.conf appliqué avant l'association Wi-Fi) ; ensuite seulement,
-  l'implémenteur l'écrit, avec migration.
+  propriétaire :** `ampdu_tx=0` par défaut : décidé et écrit (section 4, `config/boot.conf.dist`).
 - [x] **OVERCLOCK-01 : abandonné (décision du propriétaire du 14/11 14:52, « aucun gain réel = inutile ») ; campagne arrêtée sur la .11 (480 MHz, `OVERCLOCK_AUTO=0`). Ne pas reprendre sans un gain mesuré.** Constat : le cœur ARM n'est pas accéléré. SYSCTRL 0x08 règle le domaine vclk / ASIC (120 → 127,5 MHz) ; la
   PLL CPU (0x04 = 0x410013C8 = 400 MHz) ne bouge pas : boucle CPU identique à la .24, encodeur -1 %. La campagne augmente
   le risque côté périphériques sans gain mesuré, et `bogomips_now` ne peut rien voir (étalonné avant l'initcall). À revoir
@@ -232,13 +230,11 @@ contredise.
 ### Corrigé dans la nuit du 15/11
 - [x] **Clés supprimées de daynight.conf qui gardaient leur valeur** jusqu'au redémarrage du processus (supervisord C et
   script shell) : chaque lecture repart des valeurs par défaut. Vu en vrai : `IR_LED_MAX_ON=120` d'un test restait actif.
-- [ ] **Petit :** bascule en jour dans le noir 20 s après un redémarrage du serveur vidéo (pic des compteurs AWB au
-  redémarrage de l'ISP) ; ignorer les compteurs AWB ~30 s après le départ de la vidéo.
+- [x] **Petit :** bascule en jour dans le noir 20 s après un redémarrage du serveur vidéo. Doublon de l'entrée « Fausse
+  bascule en jour » ci-dessus (`AWB_RESTART_IGNORE=30`, POLISH-01) : fait, à ne pas rouvrir.
 
-- [ ] **Petit (vu le 15/11 en test RAM) :** un deuxième `tc100_rtsp` qui démarre pendant qu'un autre tourne remet le cœur
-  de l'encodeur à zéro (`fe_hw_init` dans `fe_init`) avant de trouver la capture occupée (`REQBUFS: Resource busy`) :
-  l'autre perd une image (AKUIO_WAIT_IRQ). Ouvrir la capture (ou un verrou) avant `fe_hw_init`. Sans effet en usage
-  normal (une seule instance), mais le watchdog de service peut en lancer une.
+- [x] **Petit (vu le 15/11 en test RAM) : deuxième `tc100_rtsp` et cœur de l'encodeur.** Fait : `fe_hw_init` est appelé
+  après `VIDIOC_REQBUFS` (`src/tc100rtsp/tc100_rtsp.c`, POLISH-01, section C ci-dessus). Doublon fermé, à ne pas rouvrir.
 
 
 ---

@@ -2364,7 +2364,7 @@ static struct adsp aud_dsp;
  * NULL: nothing of it runs. Needs the direct microphone (RTSP_ALSA_DIRECT=1). */
 static struct aec *aud_aec;
 
-/* ---- sound level for the sound detection (the 2.x libtc100fix meter, same file format) ----
+/* ---- sound level for the sound detection (the meter of the 2.x branch, libtc100fix, same file format) ----
  * When config/sound_detection.conf has ENABLE=1, the level file (-S, default /var/run/sound_level) is rewritten every
  * 0.25 s: "<epoch> <rms_dbfs> <peak_dbfs> <events> <last_event_epoch> <last_event_dbfs>", RMS and peak of the last
  * 0.25 s around the mean (no DC offset). An event is a second whose RMS reaches the threshold (dBFS, read every 10 s

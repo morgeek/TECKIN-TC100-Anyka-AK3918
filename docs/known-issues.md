@@ -4,7 +4,7 @@ Moved out of the README in 2.0.0. History of every fix: [CHANGELOG.md](../CHANGE
 
 ## 3.0 (Linux 6.6)
 
-State as of 2026-11-13 (development head: `3.0.1-rc43` on `main`; last multi-hour baseline snapshot: 2026-11-09 on rc36 IPCAM2 / rc35 IPCAM1): two cameras of the same variant;
+State as of 2026-11-13 (development head then: `3.0.1-rc43` on `main`; released as `3.0.1` on 2026-11-15, see [CHANGELOG.md](../CHANGELOG.md); last multi-hour baseline snapshot: 2026-11-09 on rc36 IPCAM2 / rc35 IPCAM1): two cameras of the same variant;
 details and results are in [linux-port/test-queue.md](linux-port/test-queue.md):
 - **Qualification status:** many core areas have passed real-camera checks on both devices, including flash boot,
   V3 services, the free encoder, and short RTSP decoding checks. After the latest installs, the report records
@@ -36,7 +36,8 @@ details and results are in [linux-port/test-queue.md](linux-port/test-queue.md):
   can drop resolution at night for higher SNR and lower bitrate.
 - **Storage:** in-camera FAT32 format action available in Settings (`scripts/sd-format.sh`) with 32 KB clusters for smooth
   long-term video recording without card exhaustion.
-- **Memory:** about 23 MB available in the latest short field report with the 9600K encoder pool.
+- **Memory:** `MemAvailable` about 17 MB while one client streams at 25 fps (measured 2026-11-14, 9600K encoder pool). The
+  2026-11-11 background capture (3.0.0, one RTSP client per camera) read about 23 MB. `MemTotal` is 59436 kB (IPCAM2, 2026-10-30).
 - **Logs with no SD card:** the web page (Logs) or ssh; the saved logs need a card.
 - **Picture right after a boot:** once (rc20) the picture stayed almost white for several minutes after a reboot,
   then the exposure settled by itself. Not seen again since (owner, 2026-11-04): treated as an isolated case.

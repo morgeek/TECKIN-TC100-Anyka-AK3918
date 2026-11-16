@@ -1,5 +1,6 @@
-# libnetacl.so: a shared object preloaded (LD_PRELOAD) into the uClibc programs of the camera (busybox telnetd/ftpd),
+# libnetacl.so: a shared object preloaded (LD_PRELOAD) into the programs of the 2.x firmware (uClibc, busybox telnetd/ftpd),
 # built with the glibc cross compiler like the programs of src/mqttd and src/tc100rtsp: same stand-in libc made at link
+# (the uClibc build is kept built and tested by CI; the 3.0 system preloads the musl build, `make musl`, see below)
 # time. The library has DT_NEEDED libdl.so.0 and libc.so.0 (the sonames uClibc has), so every import resolves by name
 # against the real uClibc at run time. The stand-ins are never installed; they only exist for the link.
 #   - It defines accept, accept4 and bind itself: they are left out of the stand-ins (defined.txt), and the loader finds

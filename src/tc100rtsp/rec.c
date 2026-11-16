@@ -1,11 +1,11 @@
-/* rec.c: local recording for tc100_rtsp (Linux 6.6), the 3.0 successor of src/tc100fix/rec.c (2.x).
+/* rec.c: local recording for tc100_rtsp (Linux 6.6), the 3.0 successor of the rec.c of the 2.x branch (tc100fix).
  *
  * The H.264 / H.265 frames the encoder already makes for RTSP are copied, with no decoding or re-encoding, into
  * fragmented MP4 files on the SD card, where the web UI's Recordings page (viewrecords.cgi) lists them:
  * <dir>/YYYY-MM-DD_HH-MM-SS.mp4 (local time of the first frame), with a JPEG of the first keyframe's picture next to
  * it: <dir>/YYYY-MM-DD_HH-MM-SS.jpg (made by the hardware JPEG engine in tc100_rtsp, no ffmpeg).
  *
- * The MP4 writer is the one of src/tc100fix/rec.c (2.x, checked on the camera): an initialisation segment (ftyp,
+ * The MP4 writer is the one of the 2.x branch (tc100fix rec.c, checked on the camera): an initialisation segment (ftyp,
  * moov with avcC / hvcC and mvex), then one fragment (moof + mdat) per second at most, each one written whole: a file
  * cut by a power loss or a card removal stays playable up to its last fragment, and browsers play the files as they
  * are (H.264 everywhere, H.265 where the browser decodes it).
