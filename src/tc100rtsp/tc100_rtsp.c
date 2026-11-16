@@ -163,13 +163,13 @@ static int jpeg_init(void)
 	struct ak39_venc_pool_info info;
 	int fd = open(dv, O_RDWR | O_SYNC);
 
-	if (fd < 0 || ioctl(fd, AK39_VENC_POOL_INFO, &info) < 0) return -1;
+	if (fd < 0 || ioctl(fd, AK39_VENC_POOL_INFO, &info) < 0) { if (fd >= 0) close(fd); return -1; }	/* failure paths close it: a retry must not leak one fd each time (success keeps it, as before) */
 	regs = mmap(NULL, info.regs_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, AK39_VENC_MMAP_REGS);
-	if (regs == MAP_FAILED) { regs = NULL; return -1; }
+	if (regs == MAP_FAILED) { regs = NULL; close(fd); return -1; }
 	p_v2p = dlsym(RTLD_DEFAULT, "akuio_vaddr2paddr");
 	p_wait = dlsym(RTLD_DEFAULT, "akuio_wait_irq");
 	jbuf = (uint8_t *)p_alloc(JSTREAM + AUX_SIZE);
-	if (!p_v2p || !p_wait || !jbuf) return -1;
+	if (!p_v2p || !p_wait || !jbuf) { close(fd); return -1; }
 	jpaddr = (uint32_t)p_v2p((unsigned long)jbuf);
 	return jpaddr ? 0 : -1;
 }
@@ -264,13 +264,13 @@ static int fe_setup(void)
 	int fd = open(dv, O_RDWR | O_SYNC);
 	void *r;
 
-	if (fd < 0 || ioctl(fd, AK39_VENC_POOL_INFO, &info) < 0) return -1;
+	if (fd < 0 || ioctl(fd, AK39_VENC_POOL_INFO, &info) < 0) { if (fd >= 0) close(fd); return -1; }
 	{	/* through libakuio, so that its interrupt wait clears the end status as it does for the vendor library */
 		unsigned long (*mr)(unsigned long, size_t) = (unsigned long (*)(unsigned long, size_t))dlsym(RTLD_DEFAULT, "akuio_map_regs");
 
 		r = mr ? (void *)mr(info.regs_paddr, info.regs_size) : NULL;
 		if (!r) r = mmap(NULL, info.regs_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, AK39_VENC_MMAP_REGS);
-		if (!r || r == MAP_FAILED) return -1;
+		if (!r || r == MAP_FAILED) { close(fd); return -1; }
 	}
 	p_v2p = dlsym(RTLD_DEFAULT, "akuio_vaddr2paddr");
 	p_wait = dlsym(RTLD_DEFAULT, "akuio_wait_irq");
@@ -280,7 +280,7 @@ static int fe_setup(void)
 	fe_env.v2p = p_v2p;
 	fe_env.wait = p_wait;
 	fe_env.reset = (void (*)(void))dlsym(RTLD_DEFAULT, "akuio_reset_video");
-	if (!p_v2p || !p_wait || !fe_env.alloc || !fe_env.release) return -1;
+	if (!p_v2p || !p_wait || !fe_env.alloc || !fe_env.release) { close(fd); return -1; }
 	p_open = fe_p_open; p_send = fe_p_send; p_release = fe_p_release; p_close = fe_p_close; p_set_br = fe_p_set_br;
 	{	/* ENC-02: the 640x360 stream buffer stays the vendor's 57 KB until 128 KB (a list value the core has never
 		 * been given) is bench-tested; RTSP_FE_SUBBUF=1 = 128 KB */
@@ -381,6 +381,20 @@ static double now_s(void)
 
 	clock_gettime(CLOCK_MONOTONIC, &t);
 	return t.tv_sec + t.tv_nsec * 1e-9;	/* soft-float: a multiply, not a divide */
+}
+
+/* Whole seconds of the monotonic clock, for every interval and timeout (client idle/auth/queue expiries, microphone
+ * retry, Digest nonce age, failed-login window). The server starts at boot step 4a, long before ntpd steps the clock from
+ * 1970: with time(NULL) a forward jump dropped every UDP client at once and a backward one kept stalled TCP clients
+ * forever. time() stays only where a wall-clock value is wanted (nonce material, saved AWB state, OSD, file times). */
+static int cap_stall_s = 30;	/* RTSP_CAPTURE_STALL_S: seconds without a captured frame before the server exits (0 = off) */
+
+static time_t mono_t(void)
+{
+	struct timespec t;
+
+	clock_gettime(CLOCK_MONOTONIC, &t);
+	return t.tv_sec;
 }
 
 static int atoi_(const char *s)	/* no atoi/strtol: they pull C2x symbols the camera's uClibc does not have */
@@ -1924,6 +1938,8 @@ static int field(const char *h, const char *key, char *o, int osz)
 	const char *p = strstr(h, key);
 	int n = 0;
 
+	/* the name must start a token: "nonce=" is also inside "cnonce=", and "uri=" can sit inside another value */
+	while (p && p > h && p[-1] != ',' && p[-1] != ' ' && p[-1] != '\t' && p[-1] != '\r' && p[-1] != '\n') p = strstr(p + 1, key);
 	if (!p) return 0;
 	p += strlen(key);
 	if (*p == '"') { p++; while (*p && *p != '"' && n < osz - 1) o[n++] = *p++; }
@@ -2282,10 +2298,10 @@ static int qflush(struct cli *c)
 			return -1;
 		}
 		c->qpos += r;
-		c->qprog = time(NULL);
+		c->qprog = mono_t();
 	}
 	c->qpos = c->qlen = 0;
-	c->qprog = time(NULL);
+	c->qprog = mono_t();
 	return 0;
 }
 
@@ -2346,11 +2362,14 @@ static int rtp_out(struct cli *c, const unsigned char *hdr12, const unsigned cha
 /* ---- audio: microphone (ALSA, via arecord) -> G.711 A-law -> RTP PT 8, 8 kHz mono, 20 ms per packet ----
  * arecord runs only while it is needed: an audio client plays, or the sound detection is on (level meter below). */
 static int audio_on;
-static pid_t aud_pid = -1, aud_dead = -1;	/* arecord, and the one stopped but not yet reaped */
-static time_t aud_dead_t, aud_unneeded;
+static pid_t aud_pid = -1, aud_dead = -1, aud_dead2 = -1;	/* arecord, and the ones stopped but not yet reaped (two close calls within a second) */
+static time_t aud_dead_t, aud_dead2_t, aud_unneeded;
 static int aud_fd = -1, aud_odd = -1, aud_tx, aud_gap;
 static time_t aud_retry;
 static uint32_t aud_ts = 0x1234;
+static uint64_t aud_last_us;	/* monotonic time of the last audio packet sent */
+static int aud_resume;		/* the microphone was reopened after a gap: the next packet's timestamp skips it */
+static uint64_t now_us64(void);
 static unsigned char aud_buf[160 * 2];
 static int aud_n;
 /* item 11: RTSP_ALSA_DIRECT=1 reads the microphone with the kernel's PCM ioctls (acap.c) instead of an arecord child;
@@ -2380,14 +2399,14 @@ static time_t snd_thr_read;
 static void snd_window(void)
 {
 	char line[96], tf[128];
-	time_t now = time(NULL);
+	time_t now = time(NULL), mono = mono_t();	/* now: the logged event time; mono: the threshold re-read interval */
 	int n;
 
 	lvl_merge(&snd_s, &snd_w);
 	if (snd_s.n >= 8000) {			/* one second */
 		int db = lvl_rms_db(&snd_s);
 
-		if (now - snd_thr_read >= 10) {
+		if (mono - snd_thr_read >= 10) {
 			FILE *f;
 
 			snprintf(tf, sizeof tf, "%s.threshold", snd_file);
@@ -2397,7 +2416,7 @@ static void snd_window(void)
 				if (fgets(b, sizeof b, f)) { int t = atoi_(b); if (t <= 0 && t >= -90) snd_thr = t; }
 				fclose(f);
 			}
-			snd_thr_read = now;
+			snd_thr_read = mono;
 		}
 		if (db >= snd_thr) { snd_events++; snd_last_ev = (long)now; snd_last_db = db; }
 		lvl_reset(&snd_s);
@@ -2440,7 +2459,7 @@ static void aud_open(void)
 	int p[2];
 	pid_t pid;
 
-	aud_retry = time(NULL) + 5;
+	aud_retry = mono_t() + 5;
 	aud_direct = 0;
 	if (aud_direct_cfg) {
 		int fd = acap_open(aud_dev);
@@ -2449,7 +2468,7 @@ static void aud_open(void)
 		if (fd >= 0) {
 			aud_fd = fd; aud_direct = 1;
 			if (!said) { LOG("audio: microphone read directly (%s, no arecord)\n", aud_dev); said = 1; }
-			aud_n = 0; aud_odd = -1; aud_gap = 1;
+			aud_n = 0; aud_odd = -1; aud_gap = 1; aud_resume = 1;
 			lvl_reset(&snd_w); lvl_reset(&snd_s);
 			return;
 		}
@@ -2470,7 +2489,7 @@ static void aud_open(void)
 	if (pid < 0) { close(p[0]); LOG("audio: arecord failed: %s\n", strerror(errno)); return; }
 	aud_pid = pid; aud_fd = p[0];
 	fcntl(aud_fd, F_SETFL, fcntl(aud_fd, F_GETFL) | O_NONBLOCK);
-	aud_n = 0; aud_odd = -1; aud_gap = 1;
+	aud_n = 0; aud_odd = -1; aud_gap = 1; aud_resume = 1;
 	lvl_reset(&snd_w); lvl_reset(&snd_s);
 }
 
@@ -2481,8 +2500,13 @@ static void aud_close(void)
 	aud_fd = -1;
 	if (aud_pid > 0) {
 		kill(aud_pid, SIGTERM);
-		if (aud_dead > 0) waitpid(aud_dead, NULL, WNOHANG);
-		aud_dead = aud_pid; aud_dead_t = time(NULL);
+		if (aud_dead2 > 0 && waitpid(aud_dead2, NULL, WNOHANG) != 0) aud_dead2 = -1;
+		if (aud_dead > 0) {	/* still not reaped: keep it in the second slot, not overwritten (a zombie, then a leaked pid) */
+			if (waitpid(aud_dead, NULL, WNOHANG) != 0) aud_dead = -1;
+			else if (aud_dead2 < 0) { aud_dead2 = aud_dead; aud_dead2_t = aud_dead_t; }
+			else { kill(aud_dead, SIGKILL); waitpid(aud_dead, NULL, WNOHANG); aud_dead = -1; }	/* a third: SIGKILL, never a blocking wait (an arecord stuck in ALSA would hang the main loop); at worst a short-lived zombie */
+		}
+		aud_dead = aud_pid; aud_dead_t = mono_t();
 	}
 	aud_pid = -1;
 }
@@ -2491,7 +2515,11 @@ static void aud_reap(void)
 {
 	if (aud_dead > 0) {
 		if (waitpid(aud_dead, NULL, WNOHANG) != 0) aud_dead = -1;
-		else if (time(NULL) - aud_dead_t > 3) kill(aud_dead, SIGKILL);
+		else if (mono_t() - aud_dead_t > 3) kill(aud_dead, SIGKILL);
+	}
+	if (aud_dead2 > 0) {
+		if (waitpid(aud_dead2, NULL, WNOHANG) != 0) aud_dead2 = -1;
+		else if (mono_t() - aud_dead2_t > 3) kill(aud_dead2, SIGKILL);
 	}
 	if (aud_pid > 0 && waitpid(aud_pid, NULL, WNOHANG) == aud_pid) {	/* arecord died by itself */
 		aud_pid = -1;
@@ -2501,6 +2529,19 @@ static void aud_reap(void)
 
 static void aud_send(const unsigned char *pl, int n)
 {
+	uint64_t nu = now_us64();
+
+	/* the RTP clock is the samples sent: after a gap (arecord died, aud_retry) it would lag the video by the whole gap for
+	 * clients that stayed connected. Skip the real time that passed (8 samples per ms) beyond the previous 20 ms packet. */
+	if (aud_resume) {
+		if (aud_last_us && nu > aud_last_us) {
+			uint64_t smp = (nu - aud_last_us) * 8 / 1000;
+
+			if (smp > 160) aud_ts += (uint32_t)(smp - 160);
+		}
+		aud_resume = 0;
+	}
+	aud_last_us = nu;
 	for (int i = 0; i < MAXCLI; i++) {
 		struct cli *c = &cl[i];
 		unsigned char pk[4 + 12 + 160];
@@ -2929,11 +2970,11 @@ static void play_burst(struct cli *c)
 	int cok = s->cache_ok && !(s->smart && s->ncache > (int)s->pa.gop);
 
 	if (cok && s->ncache && (!c->tcp || qfree(c) > need)) {
+		c->wait_idr = 0;	/* before the burst: an unpaced UDP GOP that hits backpressure sets it again (udp_err_ok) and must stay set */
 		if (HAVE_PS(s) && send_ps(c, s->cache[0].ts)) { cli_close(c); return; }
 		for (int i = 0; i < s->ncache; i++)
 			if (send_frame(c, s->cache[i].d, s->cache[i].len, s->cache[i].ts, NULL)) { cli_close(c); return; }
 		if (c->tcp && qflush(c)) { cli_close(c); return; }
-		c->wait_idr = 0;
 	} else if (qburst_on && c->tcp && cok && s->ncache && qfree(c) > 400 + frame_need(s->cache[0].len)) {
 		/* the whole GOP does not fit the (smaller) queue: send the IDR and the P frames that fit, then wait for the next
 		 * IDR: the client has a picture at once instead of after up to a GOP */
@@ -2975,7 +3016,7 @@ static void handle(struct cli *c, char *req, int cseq_default)
 	if (!getsockname(c->fd, (struct sockaddr *)&me, &ml)) inet_ntop(AF_INET, &me.sin_addr, host, sizeof host);
 
 	if (au_on && strcmp(m, "OPTIONS")) {
-		time_t tn = time(NULL);
+		time_t tn = mono_t();
 		int locked = !c->authed && fail_locked(c->peer, tn);	/* a connection that already passed is not cut off by another one's failures */
 
 		if (locked || !auth_ok(req, m, url, c->nonce)) {
@@ -2993,7 +3034,7 @@ static void handle(struct cli *c, char *req, int cseq_default)
 		}
 	}
 	if (!au_on || strcmp(m, "OPTIONS")) c->authed = 1;
-	if (c->authed) c->last = time(NULL);
+	if (c->authed) c->last = mono_t();
 	if (!strcmp(m, "OPTIONS")) {
 		reply(c, 200, "OK", cseq, "Public: OPTIONS, DESCRIBE, SETUP, PLAY, PAUSE, TEARDOWN, GET_PARAMETER\r\n", NULL);
 	} else if (!strcmp(m, "DESCRIBE")) {
@@ -3019,6 +3060,11 @@ static void handle(struct cli *c, char *req, int cseq_default)
 		char tr[300];
 
 		if (!hdr(req, "Transport", tr, sizeof tr)) { reply(c, 461, "Unsupported Transport", cseq, NULL, NULL); return; }
+		/* a track that is not offered (talk off, audio off) must not fall through to the video branch and overwrite its transport */
+		if ((strstr(url, "track3") && !talk_enabled()) || (strstr(url, "track2") && !audio_on)) {
+			reply(c, 404, "Not Found", cseq, NULL, NULL);
+			return;
+		}
 		/* video and audio share c->tcp: a second track over the other transport would send the first one wrong (R3) */
 		if ((c->v_set || c->a_ok) && !strstr(url, "track3") && !!strstr(tr, "TCP") != !!c->tcp) {
 			reply(c, 461, "Unsupported Transport", cseq, NULL, NULL);
@@ -3425,7 +3471,7 @@ static void rec_reload(void)
  * data flows (a recorder that lost the network keeps its TCP connection open for a while; its queue gives it away) */
 static int rec_watched(void)
 {
-	time_t now = time(NULL);
+	time_t now = mono_t();
 
 	for (int i = 0; i < MAXCLI; i++) {
 		const struct cli *c = &cl[i];
@@ -3558,6 +3604,7 @@ static void dclean(void *a, unsigned long n) { (void)a; (void)n; }
 static int abr_on, abr_cur, abr_base, abr_min, abr_calm;
 static unsigned long abr_last_dr;
 static void *abr_enc;
+static unsigned enc_gen, abr_gen;	/* bumped at every main-encoder (re)open: after strm_reopen calloc may return the same address */
 
 static void abr_tick(unsigned long dropped)
 {
@@ -3566,7 +3613,7 @@ static void abr_tick(unsigned long dropped)
 
 	abr_last_dr = dropped;
 	if (!abr_on || !S[0].enc || !p_set_br) return;
-	if (S[0].enc != abr_enc) { abr_enc = S[0].enc; abr_cur = abr_base; abr_calm = 0; }	/* (re)opened at the setting */
+	if (S[0].enc != abr_enc || enc_gen != abr_gen) { abr_enc = S[0].enc; abr_gen = enc_gen; abr_cur = abr_base; abr_calm = 0; }	/* (re)opened at the setting */
 	want = abr_cur;
 	if (d >= 3) { want = abr_cur * 7 / 10; if (want < abr_min) want = abr_min; abr_calm = 0; }
 	else if (abr_cur < abr_base && ++abr_calm >= 6) { want = abr_cur + abr_base / 10; if (want > abr_base) want = abr_base; abr_calm = 0; }
@@ -3639,6 +3686,7 @@ static int strm_reopen(struct strm *s)
 {
 	if (s->enc) p_close(s->enc);
 	s->enc = p_open(&s->pa);
+	if (s == &S[0]) enc_gen++;
 	smart_setup(s);
 	s->nsent = 0; s->fails = 0;
 	if (!s->enc) pool_log(s);
@@ -4200,6 +4248,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 		} else if (e && *e) LOG("rtsp: RTSP_PERIP=\"%s\" ignored, %d per address\n", e, perip_max);
 	}
 	{ const char *e = getenv("RTSP_TALK_NAT"); talk_nat = e && e[0] == '1'; }
+	{ const char *e = getenv("RTSP_CAPTURE_STALL_S"); if (e && *e) { cap_stall_s = num(e); if (cap_stall_s < 0) cap_stall_s = 0; } }
 #ifdef TC100_HOST_TEST
 	{ const char *e = getenv("TC100_TEST_NO_EXEMPT"); no_exempt = e && e[0] == '1'; }
 #endif
@@ -4224,19 +4273,42 @@ unsigned char *fpb[2] = { NULL, NULL };
 	unsigned long ncap = 0, ntot = 0;
 	struct timespec tl = t0;
 	double t_frame = 0;	/* last frame dequeued */
+#ifndef TC100_HOST_TEST
+	double t_cap = now_s();	/* same, but starts at the loop start: the capture stall check below */
+	double t_iter = t_cap;	/* start of the previous loop iteration */
+	int dq_fail = 0;	/* VIDIOC_DQBUF failures in a row */
+#endif
 	long enc_us = 0, snd_us = 0, pp_us = 0, sub_us = 0;	/* per 5 s: picture post-processing (main copy + tuning + clock), sub picture */
 	int np[2] = { 0, 0 }, na = 0, lossy[2] = { 0, 0 };
 	time_t sec_last = 0;
 
 	while (run) {
 		fd_set fs, ws;
+#ifndef TC100_HOST_TEST
+		/* the capture stopped (sensor or ISP wedged, driver stuck): nothing else notices, the RTSP health check only
+		 * answers DESCRIBE. Leave with status 3 like a dead free encoder: the service watchdog starts the server again with
+		 * the same arguments. The capture never pauses on purpose (day/night, ISP restarts and the eco frame rate keep the
+		 * sensor streaming: the idle rate drops frames after DQBUF), so 30 s without one is a real fault. */
+		{	/* an iteration blocked for seconds (encoder IRQ wait, a flash write) is not a capture stall: the time the loop
+			 * itself was not waiting for frames does not count */
+			double tn_ = now_s();
+
+			if (tn_ - t_iter > 3.0) t_cap += tn_ - t_iter - 1.0;
+			t_iter = tn_;
+		}
+		if (cap_stall_s > 0 && now_s() - t_cap > cap_stall_s) {
+			LOG("capture: no frame for %d s: the video server stops (status 3), the watchdog starts it again\n", cap_stall_s);
+			exit_code = 3; run = 0;
+			break;
+		}
+#endif
 #ifdef TC100_HOST_TEST
 		struct timeval tv = { 0, 100000 };
 #else
 		struct timeval tv = { 1, 0 };
 #endif
 		int mx = fd > ls ? fd : ls, i;
-		time_t nowt = time(NULL);
+		time_t nowt = mono_t();
 
 		/* microphone: while an audio client plays or the sound detection needs it; stopped 10 s after that */
 		lis_scan(now_us64() / 1000);
@@ -4277,7 +4349,8 @@ unsigned char *fpb[2] = { NULL, NULL };
 			clock_gettime(CLOCK_MONOTONIC, &tn);
 			if (tn.tv_sec - tl.tv_sec >= 5) {
 				log_rotate(logfile, logmax);
-				{ unsigned long dr = 0; for (int k = 0; k < MAXCLI; k++) dr += cl[k].dropped;
+				{ unsigned long dr = 0, drm = 0;	/* drm: main-stream clients only (the sub stream's drops must not lower the main bit rate) */
+				  for (int k = 0; k < MAXCLI; k++) { dr += cl[k].dropped; if (cl[k].fd >= 0 && cl[k].si == 0) drm += cl[k].dropped; }
 				  int sq_max = 0, sq_now = 0;
 				  unsigned long sq_drop = 0;
 				  static long thr_last;
@@ -4288,7 +4361,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 				      ncap, S[0].nfr, S[0].nbytes, enc_us / 1000, snd_us / 1000, np[0] + np[1], dr, S[1].nfr, S[1].nbytes,
 				      rec_active(), pp_us / 1000, sub_us / 1000, sq_max, sq_drop, thr_us / 1000, snd_wait_us / 1000);
 				  thr_last += thr_us; snd_wait_us = 0;
-				  abr_tick(dr);
+				  abr_tick(drm);
 				  {	/* the same numbers for www/cgi-bin/metrics.cgi (Prometheus): counts over the last interval */
 					char sb[192];
 					int sn = snprintf(sb, sizeof sb, "interval_s %ld\ncaptured %lu\nmain_bytes %lu\nsub_bytes %lu\nclients %d\ndropped %lu\n",
@@ -4335,7 +4408,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 				if (i < 0) { close(s); }
 				else {
 					memset(&cl[i], 0, sizeof cl[i]);
-					cl[i].fd = s; cl[i].last = cl[i].t_acc = time(NULL); cl[i].qprog = time(NULL);
+					cl[i].fd = s; cl[i].last = cl[i].t_acc = mono_t(); cl[i].qprog = mono_t();
 					cl[i].peer = pa.sin_addr.s_addr;
 					fcntl(s, F_SETFL, fcntl(s, F_GETFL) | O_NONBLOCK);
 					setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
@@ -4350,20 +4423,20 @@ unsigned char *fpb[2] = { NULL, NULL };
 		for (i = 0; i < MAXCLI; i++) {
 			if (cl[i].fd >= 0 && cl[i].kill) cli_close(&cl[i]);	/* the sender thread saw it fail */
 			if (cl[i].fd >= 0 && FD_ISSET(cl[i].fd, &ws) && qflush(&cl[i])) cli_close(&cl[i]);
-			if (cl[i].fd >= 0 && cl[i].qpos < cl[i].qlen && time(NULL) - cl[i].qprog > 20) cli_close(&cl[i]);
+			if (cl[i].fd >= 0 && cl[i].qpos < cl[i].qlen && mono_t() - cl[i].qprog > 20) cli_close(&cl[i]);
 			if (cl[i].fd >= 0) qtrim(&cl[i], nowt);
 			if (cl[i].fd >= 0 && FD_ISSET(cl[i].fd, &fs)) cli_read(&cl[i]);
-			if (cl[i].fd >= 0 && !cl[i].tcp && time(NULL) - cl[i].last > 90) cli_close(&cl[i]);
+			if (cl[i].fd >= 0 && !cl[i].tcp && mono_t() - cl[i].last > 90) cli_close(&cl[i]);
 			/* OPTIONS alone does not authenticate a client: that path expires at 30 s.
 			 * Authenticated, non-playing clients use the separate 60 s idle deadline. */
-			if (cl[i].fd >= 0 && !cl[i].authed && time(NULL) - cl[i].t_acc > CLI_AUTH_S) {
+			if (cl[i].fd >= 0 && !cl[i].authed && mono_t() - cl[i].t_acc > CLI_AUTH_S) {
 				LOG("rtsp: client slot %d expired unauthenticated after %ld s (CLI_AUTH_S=%d)\n",
-				    i, (long)(time(NULL) - cl[i].t_acc), CLI_AUTH_S);
+				    i, (long)(mono_t() - cl[i].t_acc), CLI_AUTH_S);
 				cli_close(&cl[i]);
 			}
-			if (cl[i].fd >= 0 && !cl[i].playing && time(NULL) - cl[i].last > CLI_IDLE_S) {
+			if (cl[i].fd >= 0 && !cl[i].playing && mono_t() - cl[i].last > CLI_IDLE_S) {
 				LOG("rtsp: client slot %d expired idle after %ld s (CLI_IDLE_S=%d)\n",
-				    i, (long)(time(NULL) - cl[i].last), CLI_IDLE_S);
+				    i, (long)(mono_t() - cl[i].last), CLI_IDLE_S);
 				cli_close(&cl[i]);
 			}
 			if (cl[i].fd >= 0 && cl[i].playing && !(cl[i].b_ok && !cl[i].v_set)) {
@@ -4408,8 +4481,17 @@ unsigned char *fpb[2] = { NULL, NULL };
 
 			memset(&b, 0, sizeof b);
 			b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; b.memory = zc ? V4L2_MEMORY_USERPTR : V4L2_MEMORY_MMAP;
-			{ int _dr; PROF(1, _dr = ioctl(fd, VIDIOC_DQBUF, &b)); if (_dr < 0) continue; }
-			t_frame = now_s();
+			{ int _dr; PROF(1, _dr = ioctl(fd, VIDIOC_DQBUF, &b));
+			  if (_dr < 0) {
+				if (errno == EAGAIN || errno == EINTR) continue;
+				if (++dq_fail >= 100) {	/* a real error every time: not a busy loop forever, the watchdog restarts us */
+					LOG("capture: VIDIOC_DQBUF failed %d times in a row (%s): the video server stops (status 3)\n", dq_fail, strerror(errno));
+					exit_code = 3; run = 0;
+				} else usleep(10000);
+				continue;
+			  }
+			  dq_fail = 0; }
+			t_frame = t_cap = now_s();
 			unsigned char *cur = zc || dm ? (unsigned char *)vb[b.index] : pf;	/* the main picture the encoder reads */
 			unsigned char *sp = dm && hwsub ? (unsigned char *)vb[b.index] + flen : psub;	/* and the sub picture */
 			/* frame rate: the sensor gives 25 fps; keep the configured rate (frames come back to the driver at once) */
@@ -4452,6 +4534,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 				else if (dm) ioctl(fd, VIDIOC_QBUF, &b);	/* direct: back to the driver once encoded */
 				p_close(S[0].enc);
 				S[0].enc = p_open(&S[0].pa);
+				enc_gen++;
 				pool_log(&S[0]);
 				if (!S[0].enc) { LOG("ak_venc_open failed\n"); break; }
 				smart_setup(&S[0]);

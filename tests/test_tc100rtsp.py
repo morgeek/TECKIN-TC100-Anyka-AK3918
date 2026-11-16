@@ -915,7 +915,7 @@ class IdleClients(Server):
         accept = src[src.index('static int cli_victim'):]
         self.assertIn('cl[k].authed || cl[k].playing', accept[:600])                # unauthenticated first, never a playing one
         self.assertIn('!cl[k].playing && nowt - cl[k].last >= 2', accept[:1400])
-        self.assertIn('if (c->authed) c->last = time(NULL);', src)          # a 401 does not count as activity
+        self.assertIn('if (c->authed) c->last = mono_t();', src)          # a 401 does not count as activity
 
 
 BASIC = 'Authorization: Basic ' + base64.b64encode(b'root:pw').decode()
@@ -1013,6 +1013,14 @@ class DigestAuth(Server):
         self.assertEqual(rtsp_raw(s2, self.req('DESCRIBE', self.URL, digest_hdr('DESCRIBE', self.URL, n2)))[0], 200)
         s.close()
         s2.close()
+
+    def test_cnonce_before_nonce_does_not_shadow_the_nonce(self):
+        # audit 2026-11-16: the parser searched "nonce=" as a plain substring, which also matches inside "cnonce="
+        s = conn_from(self.PORT)
+        n = nonce_of(rtsp_raw(s, self.req('DESCRIBE', self.URL))[1])
+        h = digest_hdr('DESCRIBE', self.URL, n).replace('username=', 'cnonce="abcdef", username=')
+        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL, h, cseq=2))[0], 200)
+        s.close()
 
     def test_vlc_form_uri_of_the_base_url_accepted_siblings_refused(self):
         s = conn_from(self.PORT)
@@ -1372,6 +1380,13 @@ class BackchannelOff(Server):
 
     def test_switched_off_in_boot_conf(self):
         self.assertNotIn('a=sendonly', self.describe(self.client(), require=True))
+
+    def test_setup_of_the_speaker_track_is_404_and_keeps_the_video_transport(self):
+        # audit 2026-11-16: a track that is not offered fell through to the video branch and overwrote its transport
+        c = self.client()
+        self.describe(c)
+        _, hd, _ = c.request('SETUP', self.URL + '/track1', 'Transport: RTP/AVP/TCP;unicast;interleaved=0-1')
+        c.request('SETUP', self.URL + '/track3', 'Transport: RTP/AVP/TCP;unicast;interleaved=4-5', 'Session: ' + hd['session'].split(';')[0], expect=404)
 
 
 class AudioTrack(Server):

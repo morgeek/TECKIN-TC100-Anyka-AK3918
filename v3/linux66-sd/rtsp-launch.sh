@@ -122,6 +122,9 @@ export RTSP_SENDER_THREAD="${RTSP_SENDER_THREAD:-0}"
 # RTSP_PERIP (single key: /mnt/config/rtsp.env, read by tc100_rtsp itself, default 3, clamped 1..4): concurrent RTSP connections
 # from one client address (127/8 exempt). A new one over the limit replaces that address's unauthenticated connection, else
 # is refused. Lower it (2) against a flooding host; raise it (4) for many players behind one address (NAT).
+# RTSP_CAPTURE_STALL_S (single key: /mnt/config/rtsp.env, read by tc100_rtsp itself, default 30, 0 = off): seconds without a
+# captured frame (or 100 VIDIOC_DQBUF errors in a row) after which the server exits with status 3 and the service watchdog
+# starts it again with the same arguments. Read once at start.
 ( cd /tmp && {
   set -a; [ -f /mnt/config/rtsp.env ] && . /mnt/config/rtsp.env; set +a
   _rtsp_env_global_modes="${RTSP_VBR:-}${RTSP_SMART:-}"

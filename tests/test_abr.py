@@ -64,7 +64,7 @@ class Abr(unittest.TestCase):
         # the regulation runs once per STAT line (every 5 s), right after it (the STAT line grew with the sender thread)
         stat = src.index('LOG("STAT cap %lu')
         self.assertIn('rec_active(), pp_us / 1000, sub_us / 1000', src[stat:stat + 600])
-        self.assertLess(src.index('abr_tick(dr);', stat) - stat, 900)
+        self.assertLess(src.index('abr_tick(drm);', stat) - stat, 900)
 
 
 if __name__ == '__main__':
