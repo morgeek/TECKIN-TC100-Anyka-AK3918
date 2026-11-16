@@ -1,0 +1,171 @@
+From 32dfa18f32a2adf8c7cb77dbea79af86013e9238 Mon Sep 17 00:00:00 2001
+From: test <test@localhost>
+Date: Mon, 16 Nov 2026 14:23:52 +0100
+Subject: [PATCH] usb: host: anyka: give an unlinked active URB back at once,
+ lock endpoint_disable
+
+Three defects of the unlink and teardown paths, found by the audit of 2026-11-16. The transfer paths (enqueue, interrupt handler, done) are not changed.
+
+urb_dequeue: for the transfer in progress the driver kept the rule of the SL811 driver it derives from: during the first MIN_JIFFIES (20 ms at HZ=100) of a packet the URB was left to the next interrupt of its endpoint. That chip ends every transaction within a frame; this one repeats a bulk IN request for as long as the device answers NAK (no NAK limit is programmed), so the interrupt never comes when the device has nothing to send and usb_kill_urb() sleeps for good (interface down, driver unbind, disconnect). The channel is now stopped and the URB given back whatever the age of the packet, with the register writes the driver already used after MIN_JIFFIES, as musb and dwc2 do. otg_hs.unlink_wait_irq=1 (0644, read at each unlink) restores the old rule.
+
+urb_dequeue: the choice between finish_request_ep0() and finish_request_epx() tested active_ep0 == ep, which the lines above had just cleared for an aborted transfer and which an idle ep0 never matched. Almost every ep0 unlink therefore went through finish_request_epx() and next_async_epx[ep->epfifo - 1] with epfifo 0. Index -1 happens to be next_async_ep0, the member before the array, so the result was right by layout only. The choice is now made on the endpoint number, as done() does.
+
+endpoint_disable: it followed hep->hcpriv, freed the ep and cleared the pointer without the controller lock, while enqueue (also called from completion handlers, in the interrupt handler) follows the same pointer under it. It now runs under the lock, clears hep->hcpriv and every schedule or active pointer to the ep before it is freed, and frees it after the unlock. It also masked the interrupt of the endpoint, which enqueue only enables when it creates the FIFO mapping, and the mapping lasts until the disconnect: an endpoint disabled without a disconnect (driver unbind, usb_reset_device) could never complete a transfer again. The interrupt of the mapped direction is enabled again after the flush (not with unlink_wait_irq=1).
+---
+ drivers/usb/host/anyka/usb-hc.c | 85 ++++++++++++++++++++++++++++-----
+ 1 file changed, 74 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/usb/host/anyka/usb-hc.c b/drivers/usb/host/anyka/usb-hc.c
+index 3ac115a..f173548 100644
+--- a/drivers/usb/host/anyka/usb-hc.c
++++ b/drivers/usb/host/anyka/usb-hc.c
+@@ -135,6 +135,20 @@ MODULE_PARM_DESC(bulk_out_oldest_ms, "age in ms of the head pending bulk OUT tra
+ module_param_cb(bulk_in_oldest_ms, &akotg_dbg_ops_bulk_in_oldest_ms, NULL, 0444);
+ MODULE_PARM_DESC(bulk_in_oldest_ms, "age in ms of the head pending bulk IN transfer, 0 if none; large when idle (read-only)");
+ 
++/*
++ * Unlink of the transfer in progress. 0 (default): stop the channel and give
++ * the URB back at once, as musb and dwc2 do. 1: the behaviour before this
++ * switch existed: during the first MIN_JIFFIES of a packet the URB is left to
++ * the next interrupt of its endpoint, which never comes for a bulk IN packet
++ * the device has nothing to answer (usb_kill_urb() then sleeps for good), and
++ * an endpoint that is disabled keeps its interrupt masked until the next
++ * disconnect. Read at each unlink and each endpoint disable:
++ * echo 1 > /sys/module/otg_hs/parameters/unlink_wait_irq
++ */
++static bool unlink_wait_irq;
++module_param(unlink_wait_irq, bool, 0644);
++MODULE_PARM_DESC(unlink_wait_irq, "leave the unlink of a just started packet to the next interrupt (default: 0, give back at once)");
++
+ static void fifo_write(int epfifo, const unsigned char *buf, int len)
+ {
+ 	u8 reg = ep_fifos[epfifo];
+@@ -1273,6 +1287,8 @@ int akotg_usbhc_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
+ 	struct akotghc_ep	*ep;
+ 	int			retval, i;
+ 	int			is_out = usb_pipeout(urb->pipe);
++	/* 0: an active transfer is stopped here, whatever its age */
++	bool			wait_irq = READ_ONCE(unlink_wait_irq);
+ 	
+ 	HDBG("Dequeue: Direction=%s, Type=%s, EP Num=%d, urb=%p\n",
+ 		is_out ? "OUT" : "IN", trans_desc[usb_pipetype(urb->pipe)], 
+@@ -1295,9 +1311,10 @@ int akotg_usbhc_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
+ 		if (ep->hep->urb_list.next != &urb->urb_list) {
+ 			/* not front of queue?  never active */
+ 
+-		/* for active transfers, we expect an IRQ */
++		/* active transfer: stop the channel (unlink_wait_irq=1: only
++		 * after MIN_JIFFIES, a younger packet is left to its IRQ) */
+ 		} else if (akotghc->active_ep0 == ep) {
+-			if (time_before_eq(akotghc->jiffies_ep0, jiffies)) {
++			if (!wait_irq || time_before_eq(akotghc->jiffies_ep0, jiffies)) {
+ 				hc_index_writeb(0, 0, USB_REG_TXCSR1);
+ 				hc_index_writeb(0, 1 << 0, USB_REG_TXCSR2);
+ 				akotghc->active_ep0 = NULL;
+@@ -1307,7 +1324,7 @@ int akotg_usbhc_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
+ 		} else {
+ 			for(i=0; i<MAX_EP_NUM; i++) {
+ 				if(akotghc->active_epx[i] == ep) {
+-					if(time_before_eq(akotghc->jiffies_epx[i], jiffies)) {
++					if (!wait_irq || time_before_eq(akotghc->jiffies_epx[i], jiffies)) {
+ 						//if(!epnum_to_epfifo(&akotg_epfifo_mapping, ep->epnum, is_out, &epfifo))
+ 						//	BUG();
+ 						if (is_out) {
+@@ -1325,7 +1342,11 @@ int akotg_usbhc_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
+ 		}
+ 
+ 		if (urb) {
+-			if (akotghc->active_ep0 == ep)
++			/* by endpoint number, as done() does: active_ep0 was
++			 * cleared just above for an aborted transfer, and an
++			 * idle ep0 never matched it, so ep0 went through
++			 * finish_request_epx() and next_async_epx[0 - 1] */
++			if (ep->epnum == 0)
+ 				finish_request_ep0(akotghc, ep, urb, 0);
+ 			else
+ 				finish_request_epx(akotghc, ep, urb, 0);
+@@ -1576,15 +1597,29 @@ akotg_usbhc_endpoint_reset(struct usb_hcd *hcd, struct usb_host_endpoint *hep)
+ void
+ akotg_usbhc_endpoint_disable(struct usb_hcd *hcd, struct usb_host_endpoint *hep)
+ {
+-	struct akotghc_ep	*ep = hep->hcpriv;
++	struct akotg_usbhc	*akotghc = hcd_to_akotg_usbhc(hcd);
++	struct akotghc_ep	*ep;
++	unsigned long		flags;
+ 
+ 	int			epnum = usb_endpoint_num(&hep->desc);
+ 	int			is_out = usb_endpoint_dir_out(&hep->desc);
+ 
+ 	int			epfifo = 0;
++	int			i;
+ 
++	/* usbcore has unlinked and waited for every URB of this endpoint
++	 * before it calls this; kept from the old code for one that would
++	 * still be on its way (sleeps: before the lock) */
++	if (!list_empty(&hep->urb_list))
++		msleep(3);
++
++	/* under the controller lock, like enqueue, dequeue and the interrupt
++	 * handler: they all follow hep->hcpriv and the schedule to this ep */
++	spin_lock_irqsave(&akotghc->lock, flags);
+ 
++	ep = hep->hcpriv;
+ 	if (!ep) {
++		spin_unlock_irqrestore(&akotghc->lock, flags);
+ 		return;
+ 	}
+ 
+@@ -1594,16 +1629,44 @@ akotg_usbhc_endpoint_disable(struct usb_hcd *hcd, struct usb_host_endpoint *hep)
+ 	if (epnum_to_epfifo(&akotg_epfifo_mapping, epnum, is_out, &epfifo)) {
+ 		disable_ep_interrupt(epfifo);
+ 		flush_ep_fifo(epfifo);
++		/* The mapping outlives this ep (it is dropped at disconnect)
++		 * and enqueue enables the interrupt only when it creates the
++		 * mapping: left masked, the endpoint would never complete a
++		 * transfer again after an unbind or a reset of the device
++		 * without a disconnect. EP0 gets it back in endpoint_reset. */
++		if (epfifo != 0 && !READ_ONCE(unlink_wait_irq)) {
++			if (is_out)
++				enable_epx_tx_interrupt(epfifo);
++			else
++				enable_epx_rx_interrupt(epfifo);
++		}
++	}
++
++	WARN_ONCE(!list_empty(&hep->urb_list),
++			"otg-hs: ep%d%s disabled with URBs queued\n",
++			epnum, is_out ? "out" : "in");
++
++	/* nothing may point to the ep once it is freed. With an empty queue
++	 * finish_request_*() has already taken it out of the schedules: this
++	 * only matters if the queue was not empty */
++	if (!list_empty(&ep->schedule))
++		list_del_init(&ep->schedule);
++	if (akotghc->next_async_ep0 == ep)
++		akotghc->next_async_ep0 = NULL;
++	if (akotghc->active_ep0 == ep)
++		akotghc->active_ep0 = NULL;
++	for (i = 0; i < MAX_EP_NUM; i++) {
++		if (akotghc->next_async_epx[i] == ep)
++			akotghc->next_async_epx[i] = NULL;
++		if (akotghc->active_epx[i] == ep)
++			akotghc->active_epx[i] = NULL;
+ 	}
+-	/* assume we'd just wait for the irq */
+-	if (!list_empty(&hep->urb_list))
+-		msleep(3);
+-	if (!list_empty(&hep->urb_list))
+-		HDBG("ep %p not empty?\n", ep);
+ 
+-	kfree(ep);
+ 	hep->hcpriv = NULL;
+ 
++	spin_unlock_irqrestore(&akotghc->lock, flags);
++
++	kfree(ep);
+ }
+ 
+ int
+-- 
+2.56.1.windows.1
+

@@ -80,6 +80,49 @@ per flash write.
 - **Pass:** no oops or kernel error, the 3 h run is stable, the encoder IRQ is alive after every kill, and every reboot
   comes back.
 
+### AUDIT-1116-USB Anyka USB host: unlink of the active URB, locked `endpoint_disable`, ep0 dispatch (`[usb0003]`, kernel patch 0024) — `to test`
+- **What:** `0024-usb-host-anyka-give-an-unlinked-active-URB-back-at-o.patch`, on top of 0003/0013/0021/0022. The
+  transfer paths (enqueue, interrupt handler, `done`) are not changed. Built by the local kernel CI only, never run on
+  a camera.
+  1. `urb_dequeue`: the transfer in progress is stopped and its URB given back at once, whatever its age. Before, a
+     packet started less than 20 ms earlier was left to the next interrupt of its endpoint. For a bulk IN packet that
+     interrupt never comes when the adapter has nothing to send, and `usb_kill_urb()` slept for good. `rtl8xxxu_stop`
+     (interface down) kills the receive URBs right after it has closed the receive filters, so this is the path of a
+     hung `ifconfig wlan0 down`.
+  2. `urb_dequeue`: ep0 is finished by `finish_request_ep0()` (chosen on the endpoint number). Before, it almost always
+     went through `finish_request_epx()` and `next_async_epx[-1]`, which is `next_async_ep0` by the layout of the
+     structure: the same result, by luck.
+  3. `endpoint_disable` runs under the controller lock, clears every pointer to the endpoint before it frees it, and
+     enables the endpoint interrupt again after the flush. Before, the interrupt stayed masked until the next
+     disconnect (the driver only enables it when it maps the FIFO), so the endpoint was dead after a driver unbind or a
+     `usb_reset_device` without a disconnect.
+- **Switch:** `echo 1 > /sys/module/otg_hs/parameters/unlink_wait_irq` (0644, read at each unlink and each endpoint
+  disable; `otg_hs.unlink_wait_irq=1` on a test command line) restores the 20 ms rule of point 1 and leaves the
+  interrupt masked in point 3. The lock of point 3 and the dispatch of point 2 have no switch. Revert = the previous CI
+  kernel from the SD card.
+- **Test** (SD kernel in RAM first, nothing in flash; **from the serial console**, the Wi-Fi is the only network):
+  1. Boot, check `/proc/cmdline` (full initrd size). Wi-Fi associates as before, `dmesg` has no USB error, no
+     `WARNING` (`otg-hs: ep... disabled with URBs queued` must never show).
+     `cat /sys/module/otg_hs/parameters/unlink_wait_irq` prints `N`.
+  2. 20 times, while an RTSP client is streaming (traffic makes the receive URB young): `ifconfig wlan0 down`, wait
+     2 s, `ifconfig wlan0 up`, wait for the association. Each `down` must return within 1 s. Note the time of each.
+  3. 5 times `wpa_cli -i wlan0 reassociate` and 3 Wi-Fi restarts by the web UI (settings save).
+  4. Endpoint disable (the Wi-Fi driver is built in, there is no `modprobe -r`): `ls /sys/bus/usb/drivers/rtl8xxxu/`
+     gives the interface name (`1-1:1.0`); `echo -n 1-1:1.0 > /sys/bus/usb/drivers/rtl8xxxu/unbind`, then the same to
+     `bind`, restart the Wi-Fi service, wait for the association. 5 times. For comparison only, once with
+     `unlink_wait_irq=1`: by the reading of the code the Wi-Fi does not come back until a reboot (report what happens).
+  5. 5 reboots (`reboot` and the web UI): each one ends (a hung unlink would block the shutdown) and comes back.
+  6. 12 h soak: 1080p H.265 RTSP stream with audio, `wifi-stall-watch.sh 60` running. Compare `bulk_out_nak`,
+     `bulk_in_oldest_ms`, `rx_urb_lost` / `rx_urb_alive` and the stall count with a night of the previous kernel.
+- **Pass:** every `down` of step 2 returns (no process stuck in `usb_kill_urb`, no `task ... blocked for more than`
+  in `dmesg`), the Wi-Fi comes back every time in steps 2 to 5, no oops, `WARNING` or soft lockup, and the 12 h soak
+  shows no more stalls or lost receive URBs than the previous kernel. If the Wi-Fi does not come back: power cycle
+  (flash firmware), write `unlink_wait_irq=1` at boot and repeat the failed step to tell point 1 or 3 from the rest.
+- **Known and left as is:** after the unlink of the head URB the next URB of the same endpoint is started by the next
+  enqueue or interrupt, not by the unlink (same as before for a packet older than 20 ms; the Wi-Fi driver and usbcore
+  unlink from the tail). An interrupt of the stopped packet that was already pending is ignored, as before. The
+  `BUG()` of the resume timer and the dead DMA code of patch 0003 are not touched.
+
 ### AUDIT-1116-BOOT Boot counter saved at once after an unclean end — `to test`
 - **What:** `boot-guard start` saves the counter synchronously when the previous run did not end with a requested
   restart, or when the count is already >= 1. A crash at video start is now counted, and safe mode is reached on the

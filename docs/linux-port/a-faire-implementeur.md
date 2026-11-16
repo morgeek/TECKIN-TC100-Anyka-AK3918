@@ -16,7 +16,9 @@ les tests caméra `AUDIT-1116-*` de `test-queue.md`. Ce qui reste ouvert, par or
 - [ ] Ajouter une récupération dans l'initramfs quand `stack` est abîmé (Wi-Fi minimal + telnet ou point d'accès de
   secours). La section « Unattended recovery » d'AGENTS.md décrit un retour à la user space précédente qui n'existe pas.
 - [ ] Patch 0003 (hôte USB) : un unlink d'URB actif attend une IRQ, `endpoint_disable` n'a pas de verrou, l'ep0 passe par
-  l'index -1. À faire en un seul changement, testé sur caméra (le Wi-Fi en dépend).
+  l'index -1. **Corrigé par le patch 0024** (`[usb0003]`, interrupteur `otg_hs.unlink_wait_irq=1` pour revenir à
+  l'ancien unlink), compilé mais jamais exécuté : reste le test caméra **AUDIT-1116-USB** de `test-queue.md` (le Wi-Fi
+  en dépend, noyau SD d'abord). Non traités : le `BUG()` du timer de reprise et le code DMA mort.
 - [ ] Encodeur (patch 0008, `ak39_venc_wait_irq`) : après un délai dépassé de 2 s, une IRQ tardive est mémorisée
   (masquage paresseux, contrôleur sans `IRQ_LEVEL`) et rejouée au prochain `enable_irq` : `AKUIO_WAIT_IRQ` peut
   rendre 0 sans image encodée. Défaut ancien (relecture Fable du 2026-11-16). Piste : effacer l'état IRQ de
