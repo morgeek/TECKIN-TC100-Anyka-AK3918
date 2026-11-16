@@ -47,7 +47,7 @@ new file mode 100644
 index 000000000..4078d4db5
 --- /dev/null
 +++ b/drivers/misc/ak39_venc.c
-@@ -0,0 +1,443 @@
+@@ -0,0 +1,447 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Anyka AK3918EV300 video encoder access (Allegro DVT core, H.264/H.265/JPEG)
@@ -178,10 +178,16 @@ index 000000000..4078d4db5
 +{
 +	struct ak39_venc *v = data;
 +
-+	/* the line is level triggered and cleared by the user-space driver */
-+	disable_irq_nosync(irq);
++	/*
++	 * The line is level triggered and cleared by the user-space driver.
++	 * Mask it only while armed, under the lock: the timeout and release
++	 * paths disarm it the same way, so disable and enable stay balanced.
++	 */
 +	spin_lock(&v->lock);
-+	v->irq_armed = false;
++	if (v->irq_armed) {
++		v->irq_armed = false;
++		disable_irq_nosync(irq);
++	}
 +	spin_unlock(&v->lock);
 +	complete(&v->irq_done);
 +	return IRQ_HANDLED;
@@ -218,11 +224,10 @@ index 000000000..4078d4db5
 +		spin_lock_irqsave(&v->lock, flags);
 +		if (v->irq_armed) {
 +			v->irq_armed = false;
-+			spin_unlock_irqrestore(&v->lock, flags);
-+			disable_irq(v->irq);
-+		} else {
-+			spin_unlock_irqrestore(&v->lock, flags);
++			disable_irq_nosync(v->irq);
 +		}
++		spin_unlock_irqrestore(&v->lock, flags);
++		synchronize_irq(v->irq);
 +		/* stop the core and gate its clock */
 +		venc_soft_reset();
 +		sysctrl_update(SYSCTRL_CLKGATE, VENC_BIT, VENC_BIT);
@@ -240,11 +245,9 @@ index 000000000..4078d4db5
 +	if (!v->irq_armed) {
 +		v->irq_armed = true;
 +		reinit_completion(&v->irq_done);
-+		spin_unlock_irqrestore(&v->lock, flags);
 +		enable_irq(v->irq);
-+	} else {
-+		spin_unlock_irqrestore(&v->lock, flags);
 +	}
++	spin_unlock_irqrestore(&v->lock, flags);
 +	left = wait_for_completion_interruptible_timeout(&v->irq_done,
 +							 msecs_to_jiffies(2000));
 +	if (left > 0)
@@ -253,11 +256,10 @@ index 000000000..4078d4db5
 +	spin_lock_irqsave(&v->lock, flags);
 +	if (v->irq_armed) {
 +		v->irq_armed = false;
-+		spin_unlock_irqrestore(&v->lock, flags);
-+		disable_irq(v->irq);
-+	} else {
-+		spin_unlock_irqrestore(&v->lock, flags);
++		disable_irq_nosync(v->irq);
 +	}
++	spin_unlock_irqrestore(&v->lock, flags);
++	synchronize_irq(v->irq);
 +	return left ? -ERESTARTSYS : -ETIMEDOUT;
 +}
 +
@@ -314,7 +316,8 @@ index 000000000..4078d4db5
 +
 +	if (off >= AK39_VENC_MMAP_POOL) {
 +		off -= AK39_VENC_MMAP_POOL;
-+		if (!v->pool_virt || off + len > v->pool_size)
++		if (!v->pool_virt || len > v->pool_size ||
++		    off > v->pool_size - len)
 +			return -EINVAL;
 +		/* the pool is write-combined: the core and the CPU agree */
 +		if (v->pool_reserved) {
@@ -328,7 +331,8 @@ index 000000000..4078d4db5
 +				   v->pool_size);
 +	}
 +
-+	if (off + len > PAGE_ALIGN(v->regs_size))
++	if (len > PAGE_ALIGN(v->regs_size) ||
++	    off > PAGE_ALIGN(v->regs_size) - len)
 +		return -EINVAL;
 +	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 +	return io_remap_pfn_range(vma, vma->vm_start,

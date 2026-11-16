@@ -37,7 +37,7 @@ index 2e2360c..5c22064 100644
  };
  
  static struct akisp_char_pirv *priv = NULL;
-@@ -1278,6 +1283,68 @@ static int printk_hue_para(AK_ISP_HUE_ATTR *hue_para)
+@@ -1278,6 +1283,78 @@ static int printk_hue_para(AK_ISP_HUE_ATTR *hue_para)
  }
  
  
@@ -50,6 +50,7 @@ index 2e2360c..5c22064 100644
 +	AK_ISP_OSD_MEM_ATTR mem;
 +	AK_ISP_OSD_CONTEXT_ATTR ctx;
 +	size_t half, len;
++	size_t px;
 +	void *bits;
 +	int c;
 +
@@ -59,10 +60,19 @@ index 2e2360c..5c22064 100644
 +		return -EINVAL;
 +	c = u.channel;
 +	half = c ? AK_ISP_OSD_SUB_BYTES : AK_ISP_OSD_MAIN_BYTES;
-+	len = u.enable ? (size_t)u.width * u.height / 2 : 0;
-+	if (u.enable && (!u.width || !u.height || (u.width & 1) || len > half ||
-+			 u.alpha > 15 || u.x + u.width > 8191 || u.y + u.height > 8191))
-+		return -EINVAL;
++	len = 0;
++	if (u.enable) {
++		/* each field alone first: the sums and the product below must not wrap */
++		if (!u.width || !u.height || (u.width & 1) || u.alpha > 15 ||
++		    u.width > 8191 || u.height > 8191 || u.x > 8191 || u.y > 8191 ||
++		    u.x + u.width > 8191 || u.y + u.height > 8191)
++			return -EINVAL;
++		if (check_mul_overflow((size_t)u.width, (size_t)u.height, &px))
++			return -EINVAL;
++		len = px / 2;
++		if (len > half)
++			return -EINVAL;
++	}
 +	if (!priv->osd_virt[c]) {
 +		priv->osd_virt[c] = dma_alloc_coherent(ak_isp_dma_dev, 2 * half,
 +						       &priv->osd_dma[c], GFP_KERNEL);

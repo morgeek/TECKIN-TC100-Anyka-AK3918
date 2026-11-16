@@ -120,7 +120,7 @@ new file mode 100644
 index 000000000..97f00ee92
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_isp2.c
-@@ -0,0 +1,4958 @@
+@@ -0,0 +1,4962 @@
 +#include <linux/kernel.h>
 +#include <linux/errno.h>
 +#include <linux/string.h>
@@ -3976,8 +3976,10 @@ index 000000000..97f00ee92
 +	p_area_osd = isp->area_main_osd[chn];
 +	handle_osd = isp->handle_main_osd[chn];
 +	bytes_osd = isp->bytes_main_osd[chn] >> 1;
++	/* an oversized or wrapped bitmap is refused, not clamped to half the buffer */
++	if ((u64)p_context->osd_width * p_context->osd_height / 2 > bytes_osd)
++		return -EINVAL;
 +	osd_len = p_context->osd_width * p_context->osd_height / 2;
-+	osd_len = (osd_len < bytes_osd) ? osd_len:bytes_osd;
 +
 +	memcpy(p_osd_buffer, p_context, sizeof(AK_ISP_OSD_CONTEXT_ATTR));
 +	if (OSD_DMA_ADDR(handle_osd) == isp_main_osd_curr_paddr(chn)) {
@@ -4309,8 +4311,10 @@ index 000000000..97f00ee92
 +	p_area_osd = isp->area_sub_osd[chn];
 +	handle_osd = isp->handle_sub_osd[chn];
 +	bytes_osd = isp->bytes_sub_osd[chn] >> 1;
++	/* an oversized or wrapped bitmap is refused, not clamped to half the buffer */
++	if ((u64)p_context->osd_width * p_context->osd_height / 2 > bytes_osd)
++		return -EINVAL;
 +	osd_len = p_context->osd_width * p_context->osd_height / 2;
-+	osd_len = (osd_len < bytes_osd) ? osd_len:bytes_osd;
 +
 +	memcpy(p_osd_buffer, p_context, sizeof(AK_ISP_OSD_CONTEXT_ATTR));
 +	if (OSD_DMA_ADDR(handle_osd) == isp_sub_osd_curr_paddr(chn)) {

@@ -87,7 +87,7 @@ new file mode 100644
 index 000000000..de68cce9f
 --- /dev/null
 +++ b/arch/arm/mach-anyka/anyka.c
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,161 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * Anyka AK3918EV300 device tree board support.
@@ -105,13 +105,29 @@ index 000000000..de68cce9f
 +#define AK39_WDT_CFG2		0xe8
 +
 +/*
++ * Mapped once at early_initcall time: the restart handler runs in atomic
++ * context (panic, reboot with interrupts off), where ioremap() must not be
++ * called. Only a restart before the initcall maps it itself, as a last resort.
++ */
++static void __iomem *anyka_restart_sys;
++
++static int __init anyka_restart_map(void)
++{
++	anyka_restart_sys = ioremap(AK39_SYSCTRL, 0x100);
++	return 0;
++}
++early_initcall(anyka_restart_map);
++
++/*
 + * Restart through the "top" watchdog, as the vendor kernel does: a very
 + * short timeout (2 ticks), enable, then start/feed.
 + */
 +static void anyka_restart(enum reboot_mode mode, const char *cmd)
 +{
-+	void __iomem *sys = ioremap(AK39_SYSCTRL, 0x100);
++	void __iomem *sys = anyka_restart_sys;
 +
++	if (!sys)
++		sys = ioremap(AK39_SYSCTRL, 0x100);
 +	if (!sys)
 +		return;
 +	writel((0x55 << 24) | 2, sys + AK39_WDT_CFG1);

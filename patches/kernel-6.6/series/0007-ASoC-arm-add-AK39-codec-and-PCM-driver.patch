@@ -2513,7 +2513,7 @@ new file mode 100644
 index 000000000..7a9cdec59
 --- /dev/null
 +++ b/sound/arm/ak_pcm.c
-@@ -0,0 +1,1545 @@
+@@ -0,0 +1,1567 @@
 +/*
 + *  akpcm soundcard
 + *  Copyright (c) by Anyka, Inc.
@@ -2586,6 +2586,7 @@ index 000000000..7a9cdec59
 +	snd_pcm_uframes_t CaptureCurrPos;
 +	unsigned long   playbackStrmDMARunning;//bit[0]:strm state(running or not). bit[1]:DMA state(running or finished). bit[2]:strm state(suspend in frequest changed).
 +	unsigned long   captureStrmDMARunning;//bit[0]:strm state(running or not). bit[1]:DMA state(running or finished)
++	bool		captureStartPending;	/* START scheduled the delayed start, STOP/close clear it; under the stream lock */
 +
 +	struct tasklet_struct	fetch_tasklet;
 +	void *	pp_buf_addr[2];	//Pingpong Buffer address
@@ -2995,14 +2996,21 @@ index 000000000..7a9cdec59
 +void akpcm_capture_interrupt(unsigned long data)
 +{
 +	struct snd_akpcm *akpcm = (struct snd_akpcm *)data;
-+	struct snd_pcm_substream *substream = akpcm->capturesubstrm;
-+	struct snd_pcm_runtime *runtime = substream->runtime;
-+	dma_addr_t paddr = runtime->dma_addr;
++	struct snd_pcm_substream *substream = READ_ONCE(akpcm->capturesubstrm);
++	struct snd_pcm_runtime *runtime = substream ? READ_ONCE(substream->runtime) : NULL;
++	dma_addr_t paddr;
 +	u8 id = akpcm->L2BufID_For_ADC23;
 +	
 +	unsigned long period_bytes = 0;
 +	unsigned long buffer_bytes = 0;
 +
++	/* the stream was closed while the last DMA was running */
++	if (!runtime) {
++		clear_bit(1,&akpcm->captureStrmDMARunning);
++		complete(&(akpcm->captureHWDMA_completion));
++		return;
++	}
++	paddr = runtime->dma_addr;
 +	period_bytes = frames_to_bytes(runtime,runtime->period_size);
 +	buffer_bytes = frames_to_bytes(runtime,runtime->buffer_size);
 +	ak_gettimeofday(&capSync.tv);
@@ -3143,12 +3151,16 @@ index 000000000..7a9cdec59
 +	case SNDRV_PCM_TRIGGER_START:
 +	case SNDRV_PCM_TRIGGER_RESUME:
 +	{
++		/* the trigger runs under the stream lock */
++		akpcm->captureStartPending = true;
 +		schedule_delayed_work(&akpcm->ds_work, msecs_to_jiffies(300));
 +		return 0;	
 +	}
 +	case SNDRV_PCM_TRIGGER_STOP:
 +	case SNDRV_PCM_TRIGGER_SUSPEND:
-+		cancel_delayed_work(&akpcm->ds_work);	/* a start still pending must not run after the stop */
++		/* a start still pending, or a work already past its checks, must not start the DMA after the stop */
++		akpcm->captureStartPending = false;
++		cancel_delayed_work(&akpcm->ds_work);
 +		clear_bit(0,&akpcm->captureStrmDMARunning); //stop capture stream
 +		return 0;		
 +	}
@@ -3159,13 +3171,22 @@ index 000000000..7a9cdec59
 +{
 +	struct snd_akpcm *akpcm = container_of(work, struct snd_akpcm, ds_work.work);
 +	struct snd_pcm_substream *substream = READ_ONCE(akpcm->capturesubstrm);
-+	struct snd_pcm_runtime *runtime = substream ? substream->runtime : NULL;
++	struct snd_pcm_runtime *runtime;
++	unsigned long flags;
 +	dma_addr_t paddr;
 +	u8 id = akpcm->L2BufID_For_ADC23;
 +
 +	/* the stream can be stopped or closed within the 300 ms start delay */
-+	if (!runtime)
++	if (!substream)
 +		return;
++	/* same lock as the trigger: STOP clears captureStartPending before or after this block, never in the middle */
++	snd_pcm_stream_lock_irqsave(substream, flags);
++	runtime = substream->runtime;
++	if (!runtime || !akpcm->captureStartPending) {
++		snd_pcm_stream_unlock_irqrestore(substream, flags);
++		return;
++	}
++	akpcm->captureStartPending = false;
 +	paddr = runtime->dma_addr;
 +	set_bit(0,&akpcm->captureStrmDMARunning);  //set bit to inform that capture stream is running
 +	set_bit(1,&akpcm->captureStrmDMARunning);  //set bit to inform that DMA is working
@@ -3173,7 +3194,7 @@ index 000000000..7a9cdec59
 +	l2_clr_status(id);		
 +	l2_combuf_dma(paddr, id, akpcm_capture_period_bytes_min, 
 +			(l2_dma_transfer_direction_t)BUF2MEM,1); //start dma
-+
++	snd_pcm_stream_unlock_irqrestore(substream, flags);
 +}
 +
 +/**
@@ -3538,6 +3559,7 @@ index 000000000..7a9cdec59
 +	struct snd_akpcm *akpcm = snd_pcm_substream_chip(substream);
 +	capSync.adcCapture_bytes = 0;
 +	cancel_delayed_work_sync(&akpcm->ds_work);
++	akpcm->captureStartPending = false;
 +	akpcm->capturesubstrm=NULL;
 +	return 0;
 +}
