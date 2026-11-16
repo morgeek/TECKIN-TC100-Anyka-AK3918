@@ -12,6 +12,28 @@ profiles** in `v3/board/*.conf` before anything is written.
 
 Your camera is not in the table, or you do not know? Send its inventory (below): it changes nothing in the camera.
 
+## FCC filings (photos of the inside)
+
+The TC100 has two FCC IDs. The photos are public on the FCC site and its mirrors (fccid.io, fcc.report); they are
+not copied into this repository.
+
+| FCC ID | Date | Applicant | Content |
+|---|---|---|---|
+| [2AQNX-TC100](https://fccid.io/2AQNX-TC100) | 2020-07-30 (original grant) | ShenZhen Longtour Photology Co., Ltd (test lab Shenzhen Toby Technology, report TB-FCC174100) | internal photos (document 4832870), external photos (4832866), label (4832871), test setup (4832876), radio test report (4832874), user manual (4832848) |
+| [2AWNK-TC100](https://fccid.io/2AWNK-TC100) | 2021-03-24 (change of FCC ID) | Shenzhen Apeman Innovations Technology Co., Ltd | same product, models TC100 to TC500; external photos (5173677), label (5173679), user manual (5173682); no internal photos found |
+
+What the internal photos show (sample of the FCC test, board printed **YZ01-V1.0.0 2020-5-15**; the README also
+gives YZ01-V1.0.0 for our cameras, next to the marking WVC3310S2_V5.0: to confirm on an opened camera):
+- **Wi-Fi:** soldered B-Link module **BL-M8188FU** (RTL8188FU, matches `WIFI_USB=0bda:f179`), chip antenna
+  "UANT 20B00008B" at the board edge.
+- **Serial console:** TX / RX / GND pads next to the IRCUT connector.
+- **Main board:** SoC under a small heatsink, microSD slot, connectors for the speaker (SPK) and the microphone (MIC),
+  one push button, IR-cut connector.
+- **LED ring PC420-R06-V2.0** (around the lens): 6 IR LEDs, one white LED (LED7), a **photoresistor (CDS)**, 5-pin
+  connector R+ / 5V / R- / IR / GND. The white LED and the CDS are not in the board profile: if the CDS reaches an ADC
+  or GPIO of the SoC on our cameras, it could be a day / night source next to the picture luminance and the AWB
+  counts (to look for on an opened camera and in the stock firmware: `/sys/class/leds`, the vendor's GPIO / ADC use).
+
 ## The inventory
 
 `v3/install/inventory.sh` reads, without writing anything:
