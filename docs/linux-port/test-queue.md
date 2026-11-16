@@ -88,7 +88,9 @@ per flash write.
      packet started less than 20 ms earlier was left to the next interrupt of its endpoint. For a bulk IN packet that
      interrupt never comes when the adapter has nothing to send, and `usb_kill_urb()` slept for good. `rtl8xxxu_stop`
      (interface down) kills the receive URBs right after it has closed the receive filters, so this is the path of a
-     hung `ifconfig wlan0 down`.
+     hung `ifconfig wlan0 down`. For an IN transfer the request is withdrawn by a plain write of RXCSR1 and the FIFO
+     is flushed only when it holds a packet (`flush_epx_rx_fifo`): a flush of an empty FIFO can corrupt its pointer,
+     and this path now runs at every interface down (review of 2026-11-16).
   2. `urb_dequeue`: ep0 is finished by `finish_request_ep0()` (chosen on the endpoint number). Before, it almost always
      went through `finish_request_epx()` and `next_async_epx[-1]`, which is `next_async_ep0` by the layout of the
      structure: the same result, by luck.
@@ -96,9 +98,14 @@ per flash write.
      enables the endpoint interrupt again after the flush. Before, the interrupt stayed masked until the next
      disconnect (the driver only enables it when it maps the FIFO), so the endpoint was dead after a driver unbind or a
      `usb_reset_device` without a disconnect.
-- **Switch:** `echo 1 > /sys/module/otg_hs/parameters/unlink_wait_irq` (0644, read at each unlink and each endpoint
-  disable; `otg_hs.unlink_wait_irq=1` on a test command line) restores the 20 ms rule of point 1 and leaves the
-  interrupt masked in point 3. The lock of point 3 and the dispatch of point 2 have no switch. Revert = the previous CI
+  4. `endpoint_reset` (empty until now for these endpoints) clears the data toggle of a mapped, idle endpoint. usbcore
+     calls it when the device starts again at DATA0 (`usb_reset_device`, set interface, clear halt); without it the
+     first packet could be taken for a repeat and dropped. It is not done in `endpoint_disable`: an unbind keeps the
+     toggles of the device (`usb_unbind_interface` re-enables the interface "without affecting the endpoint toggles").
+     Nothing changes before the first transfer of an endpoint (not mapped yet).
+- **Switch:** `echo 1 > /sys/module/otg_hs/parameters/unlink_wait_irq` (0644, read at each unlink, endpoint disable
+  and endpoint reset; `otg_hs.unlink_wait_irq=1` on a test command line) restores the 20 ms rule and the unconditional
+  FLUSHFIFO of point 1, leaves the interrupt masked in point 3 and the toggle alone in point 4. The lock of point 3 and the dispatch of point 2 have no switch. Revert = the previous CI
   kernel from the SD card.
 - **Test** (SD kernel in RAM first, nothing in flash; **from the serial console**, the Wi-Fi is the only network):
   1. Boot, check `/proc/cmdline` (full initrd size). Wi-Fi associates as before, `dmesg` has no USB error, no
@@ -106,6 +113,9 @@ per flash write.
      `cat /sys/module/otg_hs/parameters/unlink_wait_irq` prints `N`.
   2. 20 times, while an RTSP client is streaming (traffic makes the receive URB young): `ifconfig wlan0 down`, wait
      2 s, `ifconfig wlan0 up`, wait for the association. Each `down` must return within 1 s. Note the time of each.
+     Then 10 cycles of `ip link set wlan0 down`, 2 s, `ip link set wlan0 up`, each followed, once associated, by a
+     30 s ping of the camera from the LAN (no loss after the first second) and by opening the RTSP stream (picture
+     within the usual delay): this is the check of the receive FIFO after the abort of point 1.
   3. 5 times `wpa_cli -i wlan0 reassociate` and 3 Wi-Fi restarts by the web UI (settings save).
   4. Endpoint disable (the Wi-Fi driver is built in, there is no `modprobe -r`): `ls /sys/bus/usb/drivers/rtl8xxxu/`
      gives the interface name (`1-1:1.0`); `echo -n 1-1:1.0 > /sys/bus/usb/drivers/rtl8xxxu/unbind`, then the same to
@@ -117,7 +127,8 @@ per flash write.
 - **Pass:** every `down` of step 2 returns (no process stuck in `usb_kill_urb`, no `task ... blocked for more than`
   in `dmesg`), the Wi-Fi comes back every time in steps 2 to 5, no oops, `WARNING` or soft lockup, and the 12 h soak
   shows no more stalls or lost receive URBs than the previous kernel. If the Wi-Fi does not come back: power cycle
-  (flash firmware), write `unlink_wait_irq=1` at boot and repeat the failed step to tell point 1 or 3 from the rest.
+  (flash firmware), write `unlink_wait_irq=1` at boot and repeat the failed step to tell points 1, 3 and 4 from the
+  rest. Every ping and RTSP view of step 2 works.
 - **Known and left as is:** after the unlink of the head URB the next URB of the same endpoint is started by the next
   enqueue or interrupt, not by the unlink (same as before for a packet older than 20 ms; the Wi-Fi driver and usbcore
   unlink from the tail). An interrupt of the stopped packet that was already pending is ignored, as before. The

@@ -1,4 +1,4 @@
-From 32dfa18f32a2adf8c7cb77dbea79af86013e9238 Mon Sep 17 00:00:00 2001
+From 328341b8bc92ac870344012f1b42c7e916b7014c Mon Sep 17 00:00:00 2001
 From: test <test@localhost>
 Date: Mon, 16 Nov 2026 14:23:52 +0100
 Subject: [PATCH] usb: host: anyka: give an unlinked active URB back at once,
@@ -6,17 +6,17 @@ Subject: [PATCH] usb: host: anyka: give an unlinked active URB back at once,
 
 Three defects of the unlink and teardown paths, found by the audit of 2026-11-16. The transfer paths (enqueue, interrupt handler, done) are not changed.
 
-urb_dequeue: for the transfer in progress the driver kept the rule of the SL811 driver it derives from: during the first MIN_JIFFIES (20 ms at HZ=100) of a packet the URB was left to the next interrupt of its endpoint. That chip ends every transaction within a frame; this one repeats a bulk IN request for as long as the device answers NAK (no NAK limit is programmed), so the interrupt never comes when the device has nothing to send and usb_kill_urb() sleeps for good (interface down, driver unbind, disconnect). The channel is now stopped and the URB given back whatever the age of the packet, with the register writes the driver already used after MIN_JIFFIES, as musb and dwc2 do. otg_hs.unlink_wait_irq=1 (0644, read at each unlink) restores the old rule.
+urb_dequeue: for the transfer in progress the driver kept the rule of the SL811 driver it derives from: during the first MIN_JIFFIES (20 ms at HZ=100) of a packet the URB was left to the next interrupt of its endpoint. That chip ends every transaction within a frame; this one repeats a bulk IN request for as long as the device answers NAK (no NAK limit is programmed), so the interrupt never comes when the device has nothing to send and usb_kill_urb() sleeps for good (interface down, driver unbind, disconnect). The channel is now stopped and the URB given back whatever the age of the packet, as musb and dwc2 do. For a bulk or interrupt IN transfer the request is withdrawn with a plain write of RXCSR1 and the FIFO is flushed only when it holds a packet (flush_epx_rx_fifo): a flush of an empty FIFO can corrupt its pointer on this kind of core, and the path now runs at every interface down. OUT and ep0 use the writes the driver already used after MIN_JIFFIES. otg_hs.unlink_wait_irq=1 (0644, read at each unlink) restores the old rule.
 
 urb_dequeue: the choice between finish_request_ep0() and finish_request_epx() tested active_ep0 == ep, which the lines above had just cleared for an aborted transfer and which an idle ep0 never matched. Almost every ep0 unlink therefore went through finish_request_epx() and next_async_epx[ep->epfifo - 1] with epfifo 0. Index -1 happens to be next_async_ep0, the member before the array, so the result was right by layout only. The choice is now made on the endpoint number, as done() does.
 
-endpoint_disable: it followed hep->hcpriv, freed the ep and cleared the pointer without the controller lock, while enqueue (also called from completion handlers, in the interrupt handler) follows the same pointer under it. It now runs under the lock, clears hep->hcpriv and every schedule or active pointer to the ep before it is freed, and frees it after the unlock. It also masked the interrupt of the endpoint, which enqueue only enables when it creates the FIFO mapping, and the mapping lasts until the disconnect: an endpoint disabled without a disconnect (driver unbind, usb_reset_device) could never complete a transfer again. The interrupt of the mapped direction is enabled again after the flush (not with unlink_wait_irq=1).
+endpoint_disable: it followed hep->hcpriv, freed the ep and cleared the pointer without the controller lock, while enqueue (also called from completion handlers, in the interrupt handler) follows the same pointer under it. It now runs under the lock, clears hep->hcpriv and every schedule or active pointer to the ep before it is freed, and frees it after the unlock. It also masked the interrupt of the endpoint, which enqueue only enables when it creates the FIFO mapping, and the mapping lasts until the disconnect: an endpoint disabled without a disconnect (driver unbind, usb_reset_device) could never complete a transfer again. The interrupt of the mapped direction is enabled again after the flush (not with unlink_wait_irq=1). endpoint_reset, which did nothing for these endpoints, now clears the data toggle of a mapped, idle endpoint (same switch): usbcore calls it when the device restarts at DATA0 (usb_reset_device, set interface, clear halt), and the first packet was otherwise taken for a repeat. It is not done in endpoint_disable, because an unbind keeps the toggles of the device.
 ---
- drivers/usb/host/anyka/usb-hc.c | 85 ++++++++++++++++++++++++++++-----
- 1 file changed, 74 insertions(+), 11 deletions(-)
+ drivers/usb/host/anyka/usb-hc.c | 120 ++++++++++++++++++++++++++++----
+ 1 file changed, 106 insertions(+), 14 deletions(-)
 
 diff --git a/drivers/usb/host/anyka/usb-hc.c b/drivers/usb/host/anyka/usb-hc.c
-index 3ac115a..f173548 100644
+index 3ac115a..b1eafca 100644
 --- a/drivers/usb/host/anyka/usb-hc.c
 +++ b/drivers/usb/host/anyka/usb-hc.c
 @@ -135,6 +135,20 @@ MODULE_PARM_DESC(bulk_out_oldest_ms, "age in ms of the head pending bulk OUT tra
@@ -62,7 +62,7 @@ index 3ac115a..f173548 100644
  				hc_index_writeb(0, 0, USB_REG_TXCSR1);
  				hc_index_writeb(0, 1 << 0, USB_REG_TXCSR2);
  				akotghc->active_ep0 = NULL;
-@@ -1307,7 +1324,7 @@ int akotg_usbhc_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
+@@ -1307,13 +1324,28 @@ int akotg_usbhc_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
  		} else {
  			for(i=0; i<MAX_EP_NUM; i++) {
  				if(akotghc->active_epx[i] == ep) {
@@ -71,7 +71,29 @@ index 3ac115a..f173548 100644
  						//if(!epnum_to_epfifo(&akotg_epfifo_mapping, ep->epnum, is_out, &epfifo))
  						//	BUG();
  						if (is_out) {
-@@ -1325,7 +1342,11 @@ int akotg_usbhc_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
+ 							hc_index_writeb(ep->epfifo, USB_TXCSR1_FLUSHFIFO, USB_REG_TXCSR1);
+-						} else {
++						} else if (wait_irq) {
+ 							hc_index_writeb(ep->epfifo, USB_RXCSR1_FLUSHFIFO, USB_REG_RXCSR1);
++						} else {
++							/* Withdraw the request with a plain
++							 * write (RXPKTRDY written as 1: no
++							 * effect, a 0 would acknowledge a
++							 * packet that has just arrived), then
++							 * flush only a FIFO that holds a
++							 * packet: FLUSHFIFO on an empty FIFO
++							 * can corrupt its pointer, and this
++							 * runs at every interface down. */
++							u8 csr = hc_index_readb(ep->epfifo, USB_REG_RXCSR1);
++
++							csr &= ~USB_RXCSR1_H_REQPKT;
++							csr |= USB_RXCSR1_RXPKTRDY;
++							hc_index_writeb(ep->epfifo, csr, USB_REG_RXCSR1);
++							flush_epx_rx_fifo(ep->epfifo);
+ 						}
+ 						akotghc->active_epx[i] = NULL;
+ 					} else
+@@ -1325,7 +1357,11 @@ int akotg_usbhc_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
  		}
  
  		if (urb) {
@@ -84,7 +106,39 @@ index 3ac115a..f173548 100644
  				finish_request_ep0(akotghc, ep, urb, 0);
  			else
  				finish_request_epx(akotghc, ep, urb, 0);
-@@ -1576,15 +1597,29 @@ akotg_usbhc_endpoint_reset(struct usb_hcd *hcd, struct usb_host_endpoint *hep)
+@@ -1554,6 +1590,8 @@ akotg_usbhc_endpoint_reset(struct usb_hcd *hcd, struct usb_host_endpoint *hep)
+ {
+ 	struct akotg_usbhc *akotghc = hcd_to_akotg_usbhc(hcd);
+ 	int			epnum = usb_endpoint_num(&hep->desc);
++	int			is_out = usb_endpoint_dir_out(&hep->desc);
++	int			epfifo = 0;
+ 	unsigned long		flags;
+ 
+ 	spin_lock_irqsave(&akotghc->lock, flags);
+@@ -1566,8 +1604,20 @@ akotg_usbhc_endpoint_reset(struct usb_hcd *hcd, struct usb_host_endpoint *hep)
+ 		hc_index_writew(0, 0, USB_REG_TXCSR1);
+ 		flush_ep0_fifo();
+ 		enable_ep0_interrupt();
+-	} else {
+-
++	} else if (!READ_ONCE(unlink_wait_irq)
++			&& epnum_to_epfifo(&akotg_epfifo_mapping, epnum, is_out, &epfifo)
++			&& epfifo != 0 && !akotghc->active_epx[epfifo - 1]) {
++		/* usbcore calls this when the device side of the endpoint
++		 * starts again at DATA0 (usb_reset_device, set interface,
++		 * clear halt): an endpoint that keeps its FIFO mapping must
++		 * follow, or its first packet is taken for a repeat and
++		 * dropped. Not in endpoint_disable: an unbind keeps the
++		 * toggles of the device. Nothing to do before the first
++		 * enqueue, which clears the toggle when it maps the FIFO. */
++		if (is_out)
++			clear_epx_tx_data_toggle(epfifo);
++		else
++			clear_epx_rx_data_toggle(epfifo);
+ 	}
+ 
+ 	spin_unlock_irqrestore(&akotghc->lock, flags);
+@@ -1576,15 +1626,29 @@ akotg_usbhc_endpoint_reset(struct usb_hcd *hcd, struct usb_host_endpoint *hep)
  void
  akotg_usbhc_endpoint_disable(struct usb_hcd *hcd, struct usb_host_endpoint *hep)
  {
@@ -115,7 +169,7 @@ index 3ac115a..f173548 100644
  		return;
  	}
  
-@@ -1594,16 +1629,44 @@ akotg_usbhc_endpoint_disable(struct usb_hcd *hcd, struct usb_host_endpoint *hep)
+@@ -1594,16 +1658,44 @@ akotg_usbhc_endpoint_disable(struct usb_hcd *hcd, struct usb_host_endpoint *hep)
  	if (epnum_to_epfifo(&akotg_epfifo_mapping, epnum, is_out, &epfifo)) {
  		disable_ep_interrupt(epfifo);
  		flush_ep_fifo(epfifo);

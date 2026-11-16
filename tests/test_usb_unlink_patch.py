@@ -39,7 +39,7 @@ class UsbUnlinkPatch(unittest.TestCase):
                     cur[2] += 1
                 if line.startswith('+') or line.startswith(' ') or line == '':
                     cur[3] += 1
-        self.assertGreaterEqual(len(hunks), 4)
+        self.assertGreaterEqual(len(hunks), 6)
         for old, new, got_old, got_new in hunks:
             self.assertEqual((old, new), (got_old, got_new))
 
@@ -52,6 +52,35 @@ class UsbUnlinkPatch(unittest.TestCase):
         self.assertIn('-\t\t\tif (time_before_eq(akotghc->jiffies_ep0, jiffies)) {', self.p)
         self.assertIn('+\t\t\tif (!wait_irq || time_before_eq(akotghc->jiffies_ep0, jiffies)) {', self.p)
         self.assertIn('+\t\t\t\t\tif (!wait_irq || time_before_eq(akotghc->jiffies_epx[i], jiffies)) {', self.p)
+
+    def test_rx_abort_does_not_flush_an_empty_fifo(self):
+        # the old single FLUSHFIFO write stays only under the switch; by default REQPKT is withdrawn by a plain
+        # write that cannot acknowledge a packet (RXPKTRDY written as 1), then the checked flush helper
+        self.assertIn('+\t\t\t\t\t\t} else if (wait_irq) {\n'
+                      ' \t\t\t\t\t\t\thc_index_writeb(ep->epfifo, USB_RXCSR1_FLUSHFIFO, USB_REG_RXCSR1);\n'
+                      '+\t\t\t\t\t\t} else {\n', self.p)
+        new = self.p[self.p.index('+\t\t\t\t\t\t} else {\n'):]
+        new = new[:new.index('akotghc->active_epx[i] = NULL;')]
+        order = ['u8 csr = hc_index_readb(ep->epfifo, USB_REG_RXCSR1);', 'csr &= ~USB_RXCSR1_H_REQPKT;',
+                 'csr |= USB_RXCSR1_RXPKTRDY;', 'hc_index_writeb(ep->epfifo, csr, USB_REG_RXCSR1);',
+                 'flush_epx_rx_fifo(ep->epfifo);']
+        pos = [new.index(x) for x in order]
+        self.assertEqual(pos, sorted(pos))
+        self.assertNotIn('FLUSHFIFO,', new)
+
+    def test_endpoint_reset_clears_the_toggle_of_a_mapped_idle_endpoint(self):
+        both = '\n'.join(l[1:] for l in self.p.split('\n') if l[:1] in ('+', ' ') and not l.startswith('+++'))
+        # the two functions by their first changed lines (their names are only in the hunk headers)
+        disable = both.index('akotghc_ep\t*ep;\n\tunsigned long\t\tflags;')
+        fn = both[both.index('is_out = usb_endpoint_dir_out(&hep->desc);\n\tint\t\t\tepfifo = 0;\n\tunsigned long'):disable]
+        cond = fn[fn.index('} else if (!READ_ONCE(unlink_wait_irq)'):]
+        for x in ('epnum_to_epfifo(&akotg_epfifo_mapping, epnum, is_out, &epfifo)',
+                  'epfifo != 0 && !akotghc->active_epx[epfifo - 1]',
+                  'clear_epx_tx_data_toggle(epfifo);', 'clear_epx_rx_data_toggle(epfifo);'):
+            self.assertIn(x, cond)
+        self.assertLess(fn.index('spin_lock_irqsave(&akotghc->lock, flags);'), fn.index('clear_epx_tx_data_toggle'))
+        # an unbind keeps the device toggles: endpoint_disable must not clear them
+        self.assertNotIn('data_toggle', both[disable:])
 
     def test_ep0_is_not_finished_as_epx(self):
         self.assertIn('-\t\t\tif (akotghc->active_ep0 == ep)\n', self.p)
