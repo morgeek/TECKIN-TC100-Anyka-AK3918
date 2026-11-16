@@ -159,14 +159,17 @@ per flash write.
      writes a user space back: `FLASHW_ALLOW=stack flashw -m <md5> stack <file>` (`flashw` is now in the initramfs).
 
   Nothing is written to the flash by the initramfs; the write is the owner's. The same telnet opens when a user space
-  was started but neither the web interface (80), ssh nor telnet listens 5 minutes later (`rescue watch`).
+  was started but neither the web interface (80), ssh nor telnet listens 5 minutes later (`rescue watch`); that one
+  writes no `/tmp/rescue-mode` and no login banner, and `web-guard.sh` closes it once the web interface is back.
   Not done, and why: the backups of the web update (`tc100-3/backup/stack-*.bin`) cannot be started from the card
   (the kernel has no loop device), they are images to write back by hand; no rescue access point (`hostapd` lives in
   the `stack`, and `wpa_supplicant` is built without AP mode): with wrong saved Wi-Fi settings the way in is a
   `wpa_supplicant.conf` on the SD card. No boot counter in the initramfs either (it would have to write the flash):
   the watcher works within one boot, and a dead user space does not restart the camera.
-- **Switch:** `INITRD_RESCUE=0` in `boot.conf` (read from the settings slot when the stack is bad): no rescue mode
-  and no watcher; the way back is then the 3.0 SD card.
+- **Switch:** `INITRD_RESCUE=0` in `boot.conf` (read from the settings slot when a check fails; a comment after the
+  value, quotes and leading blanks are accepted): the behaviour before this change. No rescue mode, no watcher, and
+  the two new checks do not count: a stack that mounts and whose `flashmode-prep.sh` succeeds is started. The way
+  back is then the 3.0 SD card.
 - **Needs:** the new initramfs (`c66rd.gz`). Its size limit (2,012,654 bytes) is checked by the build; two shell
   scripts are added (15 KB of text, under 6 KB of xz), the headroom of the CI image is not measured yet.
 - **Test (nothing on the flash is damaged or written):** boot the SD kernel in RAM (`pack66/boot66b.sh`,

@@ -42,7 +42,9 @@ mountpoint -q /mnt/sd && log "SD card mounted" || log "no SD card"
 #     partition, no mount, start files unreadable, flashmode-prep failed) is never repaired from here, nothing is
 #     written. In order: the user space of an SD card that carries one (the 3.0 package: SD mode, as before), else
 #     the RESCUE MODE of the initramfs: Wi-Fi and password from the settings slots (read-only), a telnet for the
-#     private networks, and the owner writes a user space back by hand (flashw). boot.conf INITRD_RESCUE=0 = off.
+#     private networks, and the owner writes a user space back by hand (flashw). boot.conf INITRD_RESCUE=0 = off:
+#     the switch is in the settings slot, read only when a check fails (rs_on); with 0 the two new checks do not
+#     count and the stack is mounted and started as before them.
 #     Test, nothing damaged: tc100test/stackbad on the card pretends the partition is bad ("rescue" in the file:
 #     the user space of the card is not taken either).
 RS=/etc/tc100/rescue
@@ -51,6 +53,15 @@ grep -q 'flashroot=1' /proc/cmdline && FM=1
 [ -f /mnt/sd/tc100test/flashmode ] && FM=1
 CFGD=/mnt/sd/config
 RESCUE=
+RSON=
+rs_on() {
+  if [ -z "$RSON" ]; then
+    RSON=1
+    $RS settings /tmp/rescue 2>/dev/null
+    $RS enabled /tmp/rescue/config/boot.conf || { RSON=0; rm -rf /tmp/rescue; }
+  fi
+  [ $RSON = 1 ]
+}
 if [ $FM = 1 ]; then
   SM=; BAD=; SDUS=1
   for d in /sys/class/mtd/mtd[0-9]*; do
@@ -62,10 +73,10 @@ if [ $FM = 1 ]; then
     BAD="test file tc100test/stackbad on the card"
     grep -q rescue /mnt/sd/tc100test/stackbad 2>/dev/null && SDUS=0
   elif [ -z "$SM" ]; then BAD="no stack partition"
-  elif [ -x $RS ] && ! r=$($RS check stack 2>/dev/null); then BAD=${r:-check failed}
+  elif [ -x $RS ] && ! r=$($RS check stack 2>/dev/null) && rs_on; then BAD=${r:-check failed}
   elif ! mount -t squashfs -o ro /dev/mtdblock${SM#mtd} /rom 2>/dev/null; then BAD="the stack partition does not mount"
   elif [ ! -f /rom/v3/linux66-sd/flashmode-prep.sh ]; then BAD="no flashmode-prep.sh in the stack"; umount /rom 2>/dev/null
-  elif [ -x $RS ] && ! r=$($RS files /rom 2>/dev/null); then BAD=${r:-files check failed}; umount /rom 2>/dev/null
+  elif [ -x $RS ] && ! r=$($RS files /rom 2>/dev/null) && rs_on; then BAD=${r:-files check failed}; umount /rom 2>/dev/null
   elif /bin/sh /rom/v3/linux66-sd/flashmode-prep.sh; then CFGD=/mnt/config
   else
     BAD="flashmode-prep.sh failed"
@@ -83,9 +94,8 @@ if [ $FM = 1 ]; then
       log "the user space of the SD card is started instead"
     elif [ -x $RS ]; then
       # the settings of the flash slots, read-only: Wi-Fi, password, boot.conf (the switch)
-      $RS settings /tmp/rescue 2>/dev/null && CFGD=/tmp/rescue/config
-      if $RS enabled $CFGD/boot.conf; then RESCUE=$BAD
-      else log "INITRD_RESCUE=0: no rescue mode"; CFGD=/mnt/sd/config; fi
+      if rs_on; then RESCUE=$BAD; [ -d /tmp/rescue/config ] && CFGD=/tmp/rescue/config
+      else log "INITRD_RESCUE=0: no rescue mode"; fi
     fi
   fi
 fi

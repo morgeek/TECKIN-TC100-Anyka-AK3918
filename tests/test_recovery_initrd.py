@@ -124,10 +124,15 @@ class StackCheck(Base):
         self.part('stack', sqfs(200000), size=100000)
         self.assertEqual(self.run_rs('check', 'stack').returncode, 1)
         f = self.d / 'img'
-        f.write_bytes(b'hsqs' + b'\0' * 36 + struct.pack('<Q', 1 << 40) + b'\0' * 4000)
-        self.assertEqual(self.run_rs('imgcheck', f.as_posix(), str(STACK_SIZE)).returncode, 1)
-        f.write_bytes(b'hsqs' + b'\0' * 36 + struct.pack('<Q', 0) + b'\0' * 4000)
-        self.assertEqual(self.run_rs('imgcheck', f.as_posix(), str(STACK_SIZE)).returncode, 1)
+        r = self.run_rs('check', 'stack')
+        self.assertIn('the squashfs says 200000 bytes, more than the 100000 it has', r.stdout)
+        # a size under the superblock or beyond 4 GiB is "not plausible", not "more than the partition"
+        for used in (1 << 40, 0, 50, (1 << 32) + 5000):
+            f.write_bytes(b'hsqs' + b'\0' * 36 + struct.pack('<Q', used) + b'\0' * 4000)
+            r = self.run_rs('imgcheck', f.as_posix(), str(STACK_SIZE))
+            self.assertEqual(r.returncode, 1, used)
+            self.assertIn('not plausible (low word %d, high word %d)' % (used & 0xffffffff, used >> 32), r.stdout)
+            self.assertNotIn('more than', r.stdout)
 
     def test_no_partition(self):
         r = self.run_rs('check', 'stack')
@@ -183,7 +188,11 @@ class Settings(Base):
     def test_switch(self):
         c = self.d / 'boot.conf'
         for v, rc in (('INITRD_RESCUE=0\n', 1), ('INITRD_RESCUE="0"\n', 1), ('INITRD_RESCUE=off\n', 1), ('INITRD_RESCUE=1\n', 0),
-                      ('#INITRD_RESCUE=0\n', 0), ('OTHER=0\n', 0), ('INITRD_RESCUE=0\nINITRD_RESCUE=1\n', 0)):
+                      ('#INITRD_RESCUE=0\n', 0), ('OTHER=0\n', 0), ('INITRD_RESCUE=0\nINITRD_RESCUE=1\n', 0),
+                      ('INITRD_RESCUE=0 # no rescue\n', 1), ("INITRD_RESCUE='0'\n", 1), ('  INITRD_RESCUE=0\n', 1),
+                      ('\tINITRD_RESCUE="0"  # x\n', 1), ('INITRD_RESCUE=0\r\n', 1), ('INITRD_RESCUE=0#x\n', 1),
+                      ('INITRD_RESCUE=1 # 0\n', 0), ('INITRD_RESCUE="1"\n', 0), ('XINITRD_RESCUE=0\n', 0),
+                      ('INITRD_RESCUE=\n', 0), ('INITRD_RESCUE=1\nINITRD_RESCUE=0 # last wins\n', 1)):
             c.write_text(v)
             self.assertEqual(self.run_rs('enabled', c.as_posix()).returncode, rc, v)
         self.assertEqual(self.run_rs('enabled', self.p('missing')).returncode, 0)	# no settings: on
@@ -280,7 +289,12 @@ class Watch(Base):
         self.listen(554)	# the video server alone is not a way in
         r = self.run_rs('watch', self.p('boot.conf'), env={'RS_WAIT': '2', 'RS_STEP': '1'})
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn('no web interface, ssh or telnet 2 s after', (self.d / 'rescue-mode').read_text())
+        self.assertIn('no web interface, ssh or telnet 2 s after', (self.d / 'console').read_text())
+        # the telnet only: web-guard.sh closes it when the web interface is back, and nothing else may be left that
+        # says "RESCUE MODE" on a camera whose user space runs (login banner, S50telnet)
+        self.assertFalse((self.d / 'rescue-mode').exists())
+        self.assertFalse((self.d / 'motd').exists())
+        self.assertNotIn('RESCUE MODE', (self.d / 'console').read_text())
         for _ in range(20):
             if (self.d / 'tcpsvd.args').exists():
                 break
@@ -324,6 +338,27 @@ class WifiTurn(Base):
         calls = (self.d / 'calls').read_text()
         self.assertIn('killall wpa_supplicant', calls)
         self.assertIn('wpa_supplicant -B -i wlan0 -c ' + self.p('wpa.conf'), calls)
+
+    def test_lost_link_goes_back_to_the_first_file(self):
+        a, b, c = self.d / 'a.conf', self.d / 'b.conf', self.d / 'c.conf'
+        a.write_text('network={\n ssid="saved"\n}\n')
+        b.write_text('network={\n ssid="card"\n}\n')
+        c.write_text('network={\n ssid="card2"\n}\n')
+        (self.d / 'net').mkdir()
+        op = self.p('net/operstate')
+        (self.d / 'net/operstate').write_text('dormant\n')
+        # the link comes up with the second file (wpa_supplicant stand-in), and is lost while the loop rests 60 s
+        self.stub('wpa_supplicant', 'grep ssid= "$5" >> %s\ngrep -q card "$5" && echo up > %s\nexit 0\n' % (self.p('applied'), op))
+        self.stub('sleep', '[ "$1" = 60 ] && echo dormant > %s\nexit 0\n' % op)
+        for n in ('killall', 'udhcpc', 'pidof'):
+            self.stub(n, 'exit 0\n')
+        env = dict(self.env, RS_NET=self.p('net'), RS_WPA_CONF=self.p('wpa.conf'), RS_WIFI_TRY='5', RS_WIFI_ONCE='3')
+        r = subprocess.run(['sh', RESCUE.as_posix(), 'wifi', a.as_posix(), b.as_posix(), c.as_posix()], capture_output=True,
+                           text=True, env=env, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = re.findall(r'ssid="(\w+)"', (self.d / 'applied').read_text())
+        # no link with "saved" -> "card" (up, then lost) -> "saved" again, not "card2" -> then the turn goes on: "card"
+        self.assertEqual(got, ['card', 'saved', 'card'])
 
     def test_one_settings_file_is_left_alone(self):
         a = self.d / 'a.conf'
@@ -482,11 +517,31 @@ class BootScript(unittest.TestCase):
 
     def test_switch_off_in_the_saved_settings(self):
         self.part('stack', b'\xff' * 400000)
+        (self.d / 'mount-ok').unlink()	# with 0 a stack that mounts is started as before: here it does not
         self.settings({'boot.conf': b'WIFI_COUNTRY=FR\nINITRD_RESCUE=0\n'})
         res, log, calls = self.boot()
         self.assertEqual((res['FM'], res['RESCUE']), ('0', ''))
         self.assertTrue(res['CFGD'].endswith('/sd/config'))
         self.assertIn('INITRD_RESCUE=0', log)
+
+    def test_switch_off_starts_a_stack_the_new_checks_refuse_as_before(self):
+        """INITRD_RESCUE=0 is the behaviour before the rescue mode: a stack that mounts and whose flashmode-prep.sh
+        succeeds is started, whatever "check" and "files" say"""
+        self.part('stack', sqfs(200000, 400000)[:50000] + b'\xff' * 350000)	# "check" says: write cut
+        (self.d / 'rom/v3/autorun-linux66.sh').unlink()				# "files" says: missing
+        self.settings({'boot.conf': b'INITRD_RESCUE=0 # as before\n'})
+        res, log, calls = self.boot()
+        self.assertEqual((res['FM'], res['RESCUE']), ('1', ''))
+        self.assertTrue(res['CFGD'].endswith('/mntconfig'))
+        self.assertIn('mount -t squashfs', calls)
+        self.assertIn('prep', calls)
+        self.assertEqual(log, '')
+        self.assertFalse((self.d / 'rescue').exists())		# the copy of the settings (password, Wi-Fi key) is not left
+        # and with the switch on, the same camera goes to the rescue mode
+        (self.d / 'dev/mtd1ro').write_bytes(slot(4, {'boot.conf': b'INITRD_RESCUE=1\n'}))
+        res, log, calls = self.boot()
+        self.assertEqual(res['FM'], '0')
+        self.assertIn('stops before its end', res['RESCUE'])
 
     def test_test_file_pretends_a_bad_stack_without_touching_it(self):
         self.part('stack', sqfs(200000, 400000))
@@ -525,7 +580,7 @@ class Wiring(unittest.TestCase):
     def test_boot_script_order(self):
         s = text('v3/S39tc100-linux66')
         i = [s.index(x) for x in ('$RS check stack', 'mount -t squashfs -o ro', '$RS files /rom', 'flashmode-prep.sh; then CFGD=/mnt/config',
-                                  '$RS settings /tmp/rescue', 'chpasswd', 'wpa_supplicant -B', '$RS start "$RESCUE"',
+                                  'if rs_on; then RESCUE=$BAD', 'chpasswd', 'wpa_supplicant -B', '$RS start "$RESCUE"',
                                   '$RS watch $CFGD/boot.conf', 'log "starting $a"')]
         self.assertEqual(i, sorted(i))
         # rescue mode starts no user space

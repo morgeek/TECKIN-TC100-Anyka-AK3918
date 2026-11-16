@@ -16,10 +16,12 @@
 #   start WHY            RESCUE MODE: /tmp/rescue-mode, a telnet on port 23 for the private networks only (tcpsvd +
 #                        "gate"), login root with the camera password. Nothing else runs (no video, no web).
 #   wifi FILE...         rescue mode: when the Wi-Fi does not come up with the first settings file, try the next one
-#                        (the saved settings, then wpa_supplicant.conf on the SD card), in turn
+#                        (the saved settings, then wpa_supplicant.conf on the SD card), in turn; a link that was up
+#                        and is lost goes back to the first file
 #   watch BOOT.CONF      the user space was started: when neither the web interface, ssh nor telnet listens
 #                        RS_WAIT seconds later (300), open the rescue telnet (same pid file as scripts/web-guard.sh,
-#                        which closes it again once the web interface is back)
+#                        which closes it again once the web interface is back). The telnet only: no /tmp/rescue-mode,
+#                        no motd.
 #   gate                 run by tcpsvd for each connection: telnetd for a private address, nothing for another
 #   images               the stack images found on the SD card or in /tmp, checked, with the command that writes one
 #   help                 how to put a user space back
@@ -52,7 +54,8 @@ img_check() {
   set -- "$1" "$2" $(dd if="$1" bs=4 skip=10 count=2 2>/dev/null | od -An -tu4)
   case "$3$4" in ''|*[!0-9]*) echo "squashfs header not readable"; return 1 ;; esac
   case "$2" in ''|*[!0-9]*) echo "size limit unknown"; return 1 ;; esac
-  [ "$4" = 0 ] && [ "$3" -ge 96 ] && [ "$3" -le "$2" ] || { echo "the squashfs says $3 bytes, more than the $2 it has"; return 1; }
+  [ "$4" = 0 ] && [ "$3" -ge 96 ] || { echo "squashfs size not plausible (low word $3, high word $4)"; return 1; }
+  [ "$3" -le "$2" ] || { echo "the squashfs says $3 bytes, more than the $2 it has"; return 1; }
   # the last 64 bytes of the image (its tables end there, never 0xff only): erased = the write stopped before the end
   _b=$(( ($3 - 1) / 4096 )); _r=$(( ($3 - 1) % 4096 + 1 ))
   [ "$_b" -gt 0 ] && { _b=$((_b - 1)); _r=$((_r + 4096)); }
@@ -89,7 +92,9 @@ settings() {
 }
 
 enabled() {
-  _v=$(sed -n 's/^INITRD_RESCUE="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$1" 2>/dev/null | tail -n 1)
+  # as boot.conf is read elsewhere (read_kv_config_value): blanks before the key, the value in quotes of either kind
+  # or bare, a comment after it; the last line wins
+  _v=$(sed -n "s/^[[:space:]]*INITRD_RESCUE=[\"']\{0,1\}\([^\"'#[:space:]]*\).*/\1/p" "$1" 2>/dev/null | tail -n 1)
   case "$_v" in 0|no|off|false) return 1 ;; esac
   return 0
 }
@@ -163,27 +168,34 @@ watch)
     [ "$t" -ge "$w" ] && break
     sleep "$st"; t=$((t + st))
   done
-  exec /bin/sh "$SELF" start "no web interface, ssh or telnet $w s after the start of the user space" ;;
+  # the telnet only: /tmp/rescue-mode and the motd belong to the rescue mode of S39tc100 (no user space). Here a user
+  # space runs, and scripts/web-guard.sh closes this telnet (same pid file) once the web interface is back: nothing
+  # may be left behind that says "RESCUE MODE" on a healthy camera
+  telnet_start
+  log "no web interface, ssh or telnet $w s after the start of the user space: rescue telnet on port $PORT for the private networks (login root, the camera password). boot.conf INITRD_RESCUE=0 turns this off" ;;
 wifi)
   shift
   # the files that exist and name a network; the first one is what S39tc100 started
   n=0; for f in "$@"; do grep -q 'ssid=' "$f" 2>/dev/null && { n=$((n + 1)); eval "c$n=\$f"; }; done
   [ "$n" -ge 2 ] || exit 0
-  NET=${RS_NET:-/sys/class/net/wlan0}; WC=${RS_WPA_CONF:-/etc/wpa_supplicant.conf}; i=1
+  NET=${RS_NET:-/sys/class/net/wlan0}; WC=${RS_WPA_CONF:-/etc/wpa_supplicant.conf}; i=1; wasup=0; done_n=0
   while :; do
     t=0; up=0
     while [ "$t" -lt "${RS_WIFI_TRY:-60}" ]; do
       [ "$(cat "$NET/operstate" 2>/dev/null)" = up ] && { up=1; break; }
       sleep 5; t=$((t + 5))
     done
-    if [ $up = 1 ]; then sleep 60; continue; fi
-    i=$((i % n + 1)); eval "f=\$c$i"
+    if [ $up = 1 ]; then wasup=1; sleep 60; continue; fi
+    # never up with these settings: the next file. Up, then lost for the whole wait: the first file again (the saved
+    # network comes before the ones of the card), the turn starts over from there
+    if [ $wasup = 1 ] && [ $i != 1 ]; then i=1; else i=$((i % n + 1)); fi
+    wasup=0; eval "f=\$c$i"
     log "no Wi-Fi link: trying the settings of $f"
     killall wpa_supplicant 2>/dev/null; sleep 1
     ( umask 077; cat "$f" > "$WC" )
     wpa_supplicant -B -i wlan0 -c "$WC" >/dev/null 2>&1
     pidof udhcpc >/dev/null 2>&1 || udhcpc -i wlan0 -b -t 20 -T 1 -A 5 >/dev/null 2>&1
-    [ -n "$RS_WIFI_ONCE" ] && exit 0
+    done_n=$((done_n + 1)); [ -n "$RS_WIFI_ONCE" ] && [ "$done_n" -ge "$RS_WIFI_ONCE" ] && exit 0
   done ;;
 gate)
   # busybox tcpsvd gives the peer as TCPREMOTEADDR=address:port
