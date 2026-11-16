@@ -1256,11 +1256,7 @@ class OneSwitchPerService(unittest.TestCase):
         # two rescue cycles of AFTER + the access point's longest stay: WIFI_RESCUE_MAX_MIN (default 30) since audit-1116,
         # the AP stays that long while a device uses it: 2 x (10 + 30) min
         self.assertIn('limit_s=4800 ', r.stdout)
-        conf.write_text('NET_GUARD_MIN=15
-WIFI_RESCUE_AFTER_MIN=10
-WIFI_RESCUE_MANUAL_MIN=15
-WIFI_RESCUE_MAX_MIN=15
-')
+        conf.write_text('NET_GUARD_MIN=15\nWIFI_RESCUE_AFTER_MIN=10\nWIFI_RESCUE_MANUAL_MIN=15\nWIFI_RESCUE_MAX_MIN=15\n')
         r = sh('sleep 5 & echo $! > %s; sh %s status' % (self.d / 'wr.pid', ng), env)
         self.assertIn('limit_s=3000 ', r.stdout)
 
@@ -1299,8 +1295,7 @@ class BootGuard(unittest.TestCase):
         slow = self.d / 'slow.sh'
         slow.write_text('sleep 2; echo "$CFG" >> %s\n' % (self.d / 'saves'))
         # after a requested restart (audit-1116: an unclean end saves synchronously, tests/test_audit_1116_flash.py)
-        (self.d / 'reason').write_text('requested at 2026-11-16 10:00:00 (web)
-')
+        (self.d / 'reason').write_text('requested at 2026-11-16 10:00:00 (web)\n')
         env = dict(self.env, BG_PERSIST='sh %s' % slow, BG_LASTREASON=str(self.d / 'reason')); env.pop('BG_SYNC')
         t0 = time.time()
         r = sh('sh %s start' % (ROOT / 'v3/linux66-sd/boot-guard'), env)

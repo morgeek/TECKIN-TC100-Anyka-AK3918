@@ -27,6 +27,12 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
+/* to stderr by fd 2: the stand-in builds must not import a libc data symbol such as stderr (tests/test_audit_fixes.py) */
+static void say_err(const char *m)
+{
+	if (write(2, m, strlen(m)) < 0) { /* nothing more to do */ }
+}
+
 struct ent { char *sec, *key, *val; };
 static struct ent *E;
 static size_t nE, capE;
@@ -163,7 +169,7 @@ static void save(const char *path)
 	if (bad) unlink(tmp);
 	free(tmp);
 	free(real);
-	if (bad) { fprintf(stderr, "rwconf: write failed, file unchanged\n"); exit(1); }
+	if (bad) { say_err("rwconf: write failed, file unchanged\n"); exit(1); }
 }
 
 static void help(void)
@@ -201,7 +207,7 @@ int main(int argc, char **argv)
 					char *t = dup_trim(argv[i + j], strlen(argv[i + j]));
 					int bad = strpbrk(t, "\r\n") != NULL;
 					free(t);
-					if (bad) { fprintf(stderr, "rwconf: newline in a name or value, nothing written\n"); return 1; }
+					if (bad) { say_err("rwconf: newline in a name or value, nothing written\n"); return 1; }
 				}
 			for (int i = 3; i <= argc - 3; i += 3)
 				put(dup_trim(argv[i], strlen(argv[i])), dup_trim(argv[i + 1], strlen(argv[i + 1])),
