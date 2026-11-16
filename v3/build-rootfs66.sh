@@ -31,6 +31,13 @@ ln -sfn /mnt/ext/share/alsa usr/share/alsa	# the ALSA configuration directory co
 install -m 755 "$HERE/S50dropbear-linux66" etc/init.d/S50dropbear
 # telnet is a Services entry now (off by default): the base S50telnet started telnetd at every boot
 install -m 755 "$HERE/S50telnet-linux66" etc/init.d/S50telnet
+# the way back in without the user space (damaged "stack" partition, or one that gives no access): the rescue mode of
+# S39tc100 (v3/initrd-rescue: settings slots read-only, telnet for the private networks) and the flash writer, with
+# which the owner puts a user space back by hand (nothing in the initramfs writes the flash by itself). Both are
+# shell scripts: under 6 KB of the xz image.
+mkdir -p etc/tc100
+install -m 755 "$HERE/initrd-rescue" etc/tc100/rescue
+install -m 755 "$HERE/linux66-sd/flashw" usr/sbin/flashw
 # musl library search path, same content as autorun-linux66.sh writes: the moved libraries (ext/lib) are found by a
 # rescue shell too, before autorun runs
 for l in lib/ld-musl-*.so.1; do

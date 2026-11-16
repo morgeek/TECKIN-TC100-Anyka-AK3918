@@ -7,6 +7,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **Rescue mode of the initramfs** (`[recovery]`): when the user space of the flash (`stack`) is damaged (for example
+  an update cut by a power loss) and no SD card carries one, the camera joins the saved Wi-Fi and opens a telnet for
+  the private networks only (login `root`, the camera password); `/etc/tc100/rescue help` tells how to write a user
+  space back with `flashw`. The same telnet opens when a started user space offers no web, ssh or telnet after
+  5 minutes. Nothing is written to the flash by itself. `INITRD_RESCUE=0` in `boot.conf` turns it off. Needs the new
+  initramfs. Test-queue entry AUDIT-1116-RECOVERY.
+
 ## [3.0.1] - 2026-11-15
 
 ### Fixed

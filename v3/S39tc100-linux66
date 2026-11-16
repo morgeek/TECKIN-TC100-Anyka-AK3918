@@ -38,20 +38,55 @@ mountpoint -q /mnt/sd && log "SD card mounted" || log "no SD card"
 
 # 1a. Flash mode: the user space comes from the SPI flash (squashfs in the "stack" partition), the card is optional.
 #     Switches: flashroot=1 on the kernel command line (U-Boot flash boot), or tc100test/flashmode on the card (test).
+#     A user space that cannot be used (v3/initrd-rescue, /etc/tc100/rescue here: no squashfs or a cut write in the
+#     partition, no mount, start files unreadable, flashmode-prep failed) is never repaired from here, nothing is
+#     written. In order: the user space of an SD card that carries one (the 3.0 package: SD mode, as before), else
+#     the RESCUE MODE of the initramfs: Wi-Fi and password from the settings slots (read-only), a telnet for the
+#     private networks, and the owner writes a user space back by hand (flashw). boot.conf INITRD_RESCUE=0 = off.
+#     Test, nothing damaged: tc100test/stackbad on the card pretends the partition is bad ("rescue" in the file:
+#     the user space of the card is not taken either).
+RS=/etc/tc100/rescue
 FM=0
 grep -q 'flashroot=1' /proc/cmdline && FM=1
 [ -f /mnt/sd/tc100test/flashmode ] && FM=1
 CFGD=/mnt/sd/config
+RESCUE=
 if [ $FM = 1 ]; then
+  SM=; BAD=; SDUS=1
   for d in /sys/class/mtd/mtd[0-9]*; do
     case $d in *ro) continue;; esac
     [ "$(cat $d/name)" = stack ] && { SM=${d##*/}; break; }
   done
   mkdir -p /rom
-  if [ -n "$SM" ] && mount -t squashfs -o ro /dev/mtdblock${SM#mtd} /rom 2>/dev/null && [ -f /rom/v3/linux66-sd/flashmode-prep.sh ]; then
-    /bin/sh /rom/v3/linux66-sd/flashmode-prep.sh && CFGD=/mnt/config || { log "flash mode failed"; FM=0; }
+  if [ -f /mnt/sd/tc100test/stackbad ]; then
+    BAD="test file tc100test/stackbad on the card"
+    grep -q rescue /mnt/sd/tc100test/stackbad 2>/dev/null && SDUS=0
+  elif [ -z "$SM" ]; then BAD="no stack partition"
+  elif [ -x $RS ] && ! r=$($RS check stack 2>/dev/null); then BAD=${r:-check failed}
+  elif ! mount -t squashfs -o ro /dev/mtdblock${SM#mtd} /rom 2>/dev/null; then BAD="the stack partition does not mount"
+  elif [ ! -f /rom/v3/linux66-sd/flashmode-prep.sh ]; then BAD="no flashmode-prep.sh in the stack"; umount /rom 2>/dev/null
+  elif [ -x $RS ] && ! r=$($RS files /rom 2>/dev/null); then BAD=${r:-files check failed}; umount /rom 2>/dev/null
+  elif /bin/sh /rom/v3/linux66-sd/flashmode-prep.sh; then CFGD=/mnt/config
   else
-    log "cannot mount the user space from flash"; FM=0
+    BAD="flashmode-prep.sh failed"
+    # it stops with the card parked at /tmp/cardmnt: back where the rest of this script expects it
+    mountpoint -q /mnt/sd || { mountpoint -q /tmp/cardmnt && mount --move /tmp/cardmnt /mnt/sd; }
+  fi
+  if [ -n "$BAD" ]; then
+    FM=0
+    log "the user space of the flash cannot be used: $BAD"
+    if [ $SDUS = 1 ]; then
+      SDUS=0
+      for a in /mnt/sd/v3/autorun-linux66.sh /mnt/sd/autorun-linux66.sh /mnt/sd/tc100test/autorun.sh; do [ -f "$a" ] && SDUS=1; done
+    fi
+    if [ $SDUS = 1 ]; then
+      log "the user space of the SD card is started instead"
+    elif [ -x $RS ]; then
+      # the settings of the flash slots, read-only: Wi-Fi, password, boot.conf (the switch)
+      $RS settings /tmp/rescue 2>/dev/null && CFGD=/tmp/rescue/config
+      if $RS enabled $CFGD/boot.conf; then RESCUE=$BAD
+      else log "INITRD_RESCUE=0: no rescue mode"; CFGD=/mnt/sd/config; fi
+    fi
   fi
 fi
 # item 42: BOOT_STEALTH=1: the LEDs off as early as the settings can be read (the kernel lights the blue one at boot)
@@ -73,7 +108,10 @@ fi
 
 # 2. One password for the camera (config/user.pwd); without it, remote login stays closed
 PW=
-[ -s $CFGD/user.pwd ] && PW=$(head -n 1 $CFGD/user.pwd)
+PWF=$CFGD/user.pwd
+# rescue mode without a password in the saved settings: the one of config/user.pwd on the SD card, if any
+[ -n "$RESCUE" ] && [ ! -s $PWF ] && PWF=/mnt/sd/config/user.pwd
+[ -s $PWF ] && PW=$(head -n 1 $PWF)
 if [ -n "$PW" ]; then
   echo "root:$PW" | chpasswd -m 2>/dev/null
 else
@@ -119,11 +157,22 @@ else
   log "no wlan0"
 fi
 
+# 3a. Rescue mode (step 1a): the telnet for the private networks, and the Wi-Fi settings of the card when the saved
+#     ones give no link. No user space is started: steps 3b, 4 and 5 are skipped.
+if [ -n "$RESCUE" ]; then
+  $RS start "$RESCUE"
+  ( exec $RS wifi $CFGD/wpa_supplicant.conf /mnt/sd/wpa_supplicant.conf /mnt/sd/tc100test/wpa_supplicant.conf ) </dev/null >/dev/null 2>&1 &
+fi
+
+if [ -z "$RESCUE" ]; then
 # 3b. The ALSA tools, the ssh server and some libraries are not in this RAM image: they come with the user space
 #     (ext/, links and start script prepared by v3/build-rootfs66.sh). A user space older than this initramfs lacks them.
 [ -x /mnt/ext/bin/aplay ] || [ -x /mnt/sd/ext/bin/aplay ] || log "user space without ext/bin/aplay: no audio tools, no ssh (telnet only); update the stack or the card together with the initrd"
 
-# 4. V3 services
+# 4. V3 services. Before them, the watcher of the rescue telnet (v3/initrd-rescue watch): the user space is there but
+#    may not come up; 5 minutes later, with no web interface, ssh or telnet listening, the camera would be closed for
+#    good (no serial console): the rescue telnet opens then. The switch is read now (SD mode moves the card later).
+[ -x $RS ] && ( exec $RS watch $CFGD/boot.conf ) </dev/null >/dev/null 2>&1 &
 for a in /mnt/v3/autorun-linux66.sh /mnt/sd/v3/autorun-linux66.sh /mnt/sd/autorun-linux66.sh /mnt/sd/tc100test/autorun.sh; do
   if [ -f "$a" ]; then log "starting $a"; /bin/sh "$a" </dev/null >/dev/null 2>&1 & break; fi
 done
@@ -134,6 +183,7 @@ if [ -f /mnt/sd/tc100test/selftest ]; then
     [ -f "$t" ] && { ( sleep 20; /bin/sh "$t" ) & break; }
   done
 fi
+fi	# not in rescue mode
 
 # 6. Optional hardware report (touch tc100test/diag on the card)
 [ -f /mnt/sd/tc100test/diag ] && (

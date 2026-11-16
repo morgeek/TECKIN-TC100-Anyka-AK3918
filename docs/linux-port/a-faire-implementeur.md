@@ -13,8 +13,14 @@ les tests caméra `AUDIT-1116-*` de `test-queue.md`. Ce qui reste ouvert, par or
 - [ ] **AUDIT-1116-FLASHBOOT** (propriétaire). Vérifier qu'une caméra installée par `stock-hook.sh` démarre bien la
   3.0 depuis la flash : la ligne `flashboot` fait environ 270 caractères, au-delà de la limite de 256.
 - [ ] **AUDIT-1116-FTP** (propriétaire). Vérifier que `ftpd` refuse un mauvais mot de passe.
-- [ ] Ajouter une récupération dans l'initramfs quand `stack` est abîmé (Wi-Fi minimal + telnet ou point d'accès de
-  secours). La section « Unattended recovery » d'AGENTS.md décrit un retour à la user space précédente qui n'existe pas.
+- [x] Récupération dans l'initramfs quand `stack` est abîmé (`[recovery]`, `v3/initrd-rescue`, interrupteur
+  `INITRD_RESCUE=0`) : contrôle de la partition avant usage, puis user space de la carte SD si elle en porte une,
+  sinon mode secours (Wi-Fi et mot de passe lus dans `cfga`/`cfgb`, telnet réservé aux réseaux privés, `flashw` à la
+  main). Rien n'est écrit en flash par l'initramfs. **À tester sur caméra : `AUDIT-1116-RECOVERY`.** AGENTS.md est
+  corrigé (il n'y a pas de retour à une user space précédente).
+- [ ] Suites possibles de la récupération (décisions du propriétaire) : point d'accès de secours dans l'initramfs
+  (`hostapd` est dans `stack` ; mode AP de `wpa_supplicant` à mesurer contre les 2 Mio de l'initrd) ; périphérique
+  loop dans le noyau pour démarrer une sauvegarde `tc100-3/backup/stack-*.bin` depuis la carte.
 - [ ] Patch 0003 (hôte USB) : un unlink d'URB actif attend une IRQ, `endpoint_disable` n'a pas de verrou, l'ep0 passe par
   l'index -1. **Corrigé par le patch 0024** (`[usb0003]`, interrupteur `otg_hs.unlink_wait_irq=1` pour revenir à
   l'ancien unlink), compilé mais jamais exécuté : reste le test caméra **AUDIT-1116-USB** de `test-queue.md` (le Wi-Fi

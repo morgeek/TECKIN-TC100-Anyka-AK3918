@@ -136,6 +136,49 @@ per flash write.
   3. Reboot cleanly from the web UI. The boot time must be unchanged.
 - **Pass:** safe mode is reached after repeated early crashes, and a clean reboot is not slower.
 
+### AUDIT-1116-RECOVERY Rescue mode of the initramfs when `stack` is damaged (`[recovery]`) — `to test`
+- **What:** the initramfs boot script (`v3/S39tc100-linux66`, step 1a) checks the `stack` partition before using it:
+  squashfs magic, size against the partition, end of the image written (an update cut by a power loss leaves an
+  erased start or end), mount, start files readable, `flashmode-prep.sh`. When one fails:
+  1. an SD card that carries a user space (the 3.0 package) starts the camera in SD mode, as before;
+  2. else **rescue mode** (`v3/initrd-rescue`, `/etc/tc100/rescue` in the initramfs): Wi-Fi and password from the
+     settings slots `cfga`/`cfgb` (read-only; `wpa_supplicant.conf` of the card is tried in turn when the saved
+     network gives no link), and a telnet on port 23 for the private networks only (`tcpsvd` + address check, login
+     `root` with the camera password). No video, no web. `/etc/tc100/rescue help` and `images` give the command that
+     writes a user space back: `FLASHW_ALLOW=stack flashw -m <md5> stack <file>` (`flashw` is now in the initramfs).
+
+  Nothing is written to the flash by the initramfs; the write is the owner's. The same telnet opens when a user space
+  was started but neither the web interface (80), ssh nor telnet listens 5 minutes later (`rescue watch`).
+  Not done, and why: the backups of the web update (`tc100-3/backup/stack-*.bin`) cannot be started from the card
+  (the kernel has no loop device), they are images to write back by hand; no rescue access point (`hostapd` lives in
+  the `stack`, and `wpa_supplicant` is built without AP mode): with wrong saved Wi-Fi settings the way in is a
+  `wpa_supplicant.conf` on the SD card. No boot counter in the initramfs either (it would have to write the flash):
+  the watcher works within one boot, and a dead user space does not restart the camera.
+- **Switch:** `INITRD_RESCUE=0` in `boot.conf` (read from the settings slot when the stack is bad): no rescue mode
+  and no watcher; the way back is then the 3.0 SD card.
+- **Needs:** the new initramfs (`c66rd.gz`). Its size limit (2,012,654 bytes) is checked by the build; two shell
+  scripts are added (15 KB of text, under 6 KB of xz), the headroom of the CI image is not measured yet.
+- **Test (nothing on the flash is damaged or written):** boot the SD kernel in RAM (`pack66/boot66b.sh`,
+  `tc100test/c66.img` + the new `c66rd.gz`), flash mode by `tc100test/flashmode` on the card.
+  1. Without any test file: normal start from the flash, no `[rescue]` line on the console, `/tmp/rescue-mode`
+     absent, boot time unchanged (the check reads three 4 KiB blocks), and 6 minutes later no `tcpsvd` in `ps`.
+  2. `tc100test/stackbad` holding the word `rescue`: the console shows `the user space of the flash cannot be used:
+     test file ...` then `[rescue] RESCUE MODE`; the camera joins the Wi-Fi with its usual address; `telnet <camera>`
+     from the LAN logs in as `root` with the camera password; `cat /tmp/rescue-mode`; `/etc/tc100/rescue images`
+     lists the backups of the card as `good` with the `flashw` line (do **not** run it); `ps` shows no `tc100_rtsp`
+     and no `httpfront`; `md5sum /dev/mtd*ro` before and after is the same for every partition.
+  3. `tc100test/stackbad` empty, card with the 3.0 package: the user space of the card starts (SD mode).
+  4. With `INITRD_RESCUE=0` saved in `boot.conf` (set it from a normal start, wait for the settings save), repeat 2:
+     `INITRD_RESCUE=0: no rescue mode` on the console, no `tcpsvd` on port 23.
+  5. Watcher: from a normal start, stop the web guard, the service watchdog, `httpfront` and `dropbear`, then run
+     `RS_WAIT=60 /etc/tc100/rescue watch /mnt/config/boot.conf`: the rescue telnet opens after a minute; a
+     connection from an address outside the private networks gets no prompt.
+  6. Remove `tc100test/stackbad` and `flashmode` afterwards.
+- **Pass:** 1 to 5 as described, and no partition changed. Only then flash the initramfs (owner's agreement).
+- **Owner's questions:** telnet (password in clear) as the rescue door, open as long as the rescue mode lasts, and
+  opened whatever `SECURITY_HARDENING_MODE` says, like the rescue telnet of `web-guard.sh`; a rescue access point in
+  the initramfs or not; a loop device in the kernel to start a backup from the card.
+
 ### AUDIT-1116-UPDATE Update safety: no restart during a write, atomic lock, backups — `to test`
 - **What:**
   - web reboot and shutdown, the button (3 s and longer) and the scheduled reboot are refused while a live update lock

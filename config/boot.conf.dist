@@ -148,6 +148,13 @@ LOG_PERSIST_MIN=10
 # A restart once it has run 5 minutes is a normal one again. Reboots from the web page or the reset button do not
 # count. The history: /mnt/config/log/reboot-history.log. 0 = off.
 BOOT_GUARD=1
+# Rescue mode of the initramfs (v3/initrd-rescue, camera running from its flash). When the user space of the flash
+# cannot be used (damaged "stack" partition, e.g. an update cut by a power loss) and no SD card carries one, the
+# camera joins the saved Wi-Fi and opens a telnet on port 23 for the private networks only (login root, the camera
+# password): "/etc/tc100/rescue help" there tells how to write a user space back. The same telnet opens when a user
+# space was started but neither the web interface, ssh nor telnet listens 5 minutes later. Nothing is ever written
+# to the flash by itself. 0 = off (the way back is then the 3.0 SD card).
+INITRD_RESCUE=1
 # SERIAL_CONSOLE=auto: the UART login prompt (115200 8N1) is there for 5 minutes at every boot; if nobody has a
 # session on it by then, it stops and its memory is freed (v3/linux66-sd/console-timer). It stays on for good in
 # safe mode (BOOT_GUARD) and when /tmp/console-keep exists. on = never stopped. Takes effect at the next start.

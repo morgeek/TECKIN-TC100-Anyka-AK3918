@@ -1,0 +1,207 @@
+#!/bin/sh
+# initrd-rescue: the way back in when the user space of the flash ("stack") is damaged or does not come up.
+# Lives in the initramfs (/etc/tc100/rescue, put there by v3/build-rootfs66.sh), called by S39tc100. It uses busybox
+# only and READS the flash only: nothing here writes a partition. Putting a good user space back is a manual action
+# of the owner, with flashw (also in the initramfs, /usr/sbin/flashw), see "help" below.
+#
+#   check PART           is the squashfs of the partition PART plausible? (magic, size against the partition, the
+#                        end of the image really written). Prints why not and exits 1. A flashcp cut by a power loss
+#                        leaves an erased start or an erased end: both are seen here without reading the whole image.
+#   imgcheck FILE MAX    the same for a file (a backup of the web update, a stack.sqfs)
+#   files ROOT           are the files the start needs readable in the mounted user space?
+#   settings DIR         restore the newest valid settings slot (cfga/cfgb, the format of v3/linux66-sd/cfg-persist)
+#                        into DIR/config, read-only: the Wi-Fi settings and the password are there, and cfg-persist
+#                        itself is in the user space that does not start
+#   enabled BOOT.CONF    exit 1 when INITRD_RESCUE=0 (the switch, boot.conf only)
+#   start WHY            RESCUE MODE: /tmp/rescue-mode, a telnet on port 23 for the private networks only (tcpsvd +
+#                        "gate"), login root with the camera password. Nothing else runs (no video, no web).
+#   wifi FILE...         rescue mode: when the Wi-Fi does not come up with the first settings file, try the next one
+#                        (the saved settings, then wpa_supplicant.conf on the SD card), in turn
+#   watch BOOT.CONF      the user space was started: when neither the web interface, ssh nor telnet listens
+#                        RS_WAIT seconds later (300), open the rescue telnet (same pid file as scripts/web-guard.sh,
+#                        which closes it again once the web interface is back)
+#   gate                 run by tcpsvd for each connection: telnetd for a private address, nothing for another
+#   images               the stack images found on the SD card or in /tmp, checked, with the command that writes one
+#   help                 how to put a user space back
+# Test hooks: RS_SYS, RS_DEV, RS_TCP, RS_CONSOLE, RS_FLAG, RS_PIDFILE, RS_MOTD, RS_WAIT, RS_STEP, RS_PROCS,
+# RS_TELNETD, RS_PORT, RS_IMAGES, RS_NET, RS_WIFI_TRY, RS_WPA_CONF.
+SYS=${RS_SYS:-/sys/class/mtd}
+DEV=${RS_DEV:-/dev}
+TCP=${RS_TCP:-/proc/net/tcp}
+CON=${RS_CONSOLE:-/dev/console}
+FLAG=${RS_FLAG:-/tmp/rescue-mode}
+PIDF=${RS_PIDFILE:-/var/run/rescue-telnetd.pid}
+MOTD=${RS_MOTD:-/etc/motd}
+PORT=${RS_PORT:-23}
+case "$0" in /*) SELF=$0 ;; *) SELF=$PWD/$0 ;; esac
+
+log() { echo "[rescue] $*" 2>/dev/null > "$CON"; }
+
+find_mtd() {
+  for d in "$SYS"/mtd[0-9]*; do
+    case $d in *ro) continue ;; esac
+    [ "$(cat "$d/name" 2>/dev/null)" = "$1" ] && { echo "${d##*/}"; return 0; }
+  done
+  return 1
+}
+
+# img_check FILE MAX: 0 = a squashfs whose size fits MAX and whose last bytes are written
+img_check() {
+  [ "$(dd if="$1" bs=4 count=1 2>/dev/null | tr -d '\000')" = hsqs ] || { echo "no squashfs image (erased or overwritten)"; return 1; }
+  # bytes_used: 64 bits, little endian, at offset 40 of the superblock
+  set -- "$1" "$2" $(dd if="$1" bs=4 skip=10 count=2 2>/dev/null | od -An -tu4)
+  case "$3$4" in ''|*[!0-9]*) echo "squashfs header not readable"; return 1 ;; esac
+  case "$2" in ''|*[!0-9]*) echo "size limit unknown"; return 1 ;; esac
+  [ "$4" = 0 ] && [ "$3" -ge 96 ] && [ "$3" -le "$2" ] || { echo "the squashfs says $3 bytes, more than the $2 it has"; return 1; }
+  # the last 64 bytes of the image (its tables end there, never 0xff only): erased = the write stopped before the end
+  _b=$(( ($3 - 1) / 4096 )); _r=$(( ($3 - 1) % 4096 + 1 ))
+  [ "$_b" -gt 0 ] && { _b=$((_b - 1)); _r=$((_r + 4096)); }
+  _n=$(dd if="$1" bs=4096 skip="$_b" count=2 2>/dev/null | head -c "$_r" | tail -c 64 | tr -d '\377' | wc -c)
+  [ "${_n:-0}" -gt 0 ] 2>/dev/null || { echo "the image stops before its end (a write was cut)"; return 1; }
+  return 0
+}
+
+files_check() {
+  for f in v3/linux66-sd/flashmode-prep.sh v3/linux66-sd/cfg-persist v3/autorun-linux66.sh scripts/common_functions.sh; do
+    [ -s "$1/$f" ] && cat "$1/$f" >/dev/null 2>&1 || { echo "$f is missing or cannot be read"; return 1; }
+  done
+  return 0
+}
+
+# the newest valid slot into DIR (read-only on the flash); 1 when the flash holds no valid settings
+settings() {
+  _dir=$1; _bm=; _bs=-1; _bl=; _bh=
+  for s in cfga cfgb; do
+    m=$(find_mtd $s) || continue
+    set -- $(dd if="$DEV/${m}ro" bs=96 count=1 2>/dev/null | head -n 1 | tr -d '\000\377')
+    [ "$1" = TC1CFG ] || continue
+    case "$2$3" in ''|*[!0-9]*) continue ;; esac
+    [ "$3" -gt 0 ] && [ "$3" -le 36864 ] || continue
+    hl=$(dd if="$DEV/${m}ro" bs=96 count=1 2>/dev/null | head -n 1 | wc -c)
+    [ "$(dd if="$DEV/${m}ro" bs=4096 2>/dev/null | tail -c +$((hl + 1)) | head -c "$3" | md5sum | cut -d' ' -f1)" = "$4" ] || continue
+    [ "$2" -gt "$_bs" ] && { _bs=$2; _bm=$m; _bl=$3; _bh=$hl; }
+  done
+  [ -n "$_bm" ] || return 1
+  ( umask 077; mkdir -p "$_dir" ) && chmod 700 "$_dir" || return 1
+  dd if="$DEV/${_bm}ro" bs=4096 2>/dev/null | tail -c +$((_bh + 1)) | head -c "$_bl" | gunzip 2>/dev/null | ( cd "$_dir" && tar xf - 2>/dev/null )
+  [ -d "$_dir/config" ] || return 1
+  log "settings read from the flash slot $_bm (seq $_bs)"
+}
+
+enabled() {
+  _v=$(sed -n 's/^INITRD_RESCUE="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$1" 2>/dev/null | tail -n 1)
+  case "$_v" in 0|no|off|false) return 1 ;; esac
+  return 0
+}
+
+port_listening() {
+  [ -r "$TCP" ] || return 1
+  while read -r _sl _local _rem _st _rest; do
+    [ "$_st" = 0A ] || continue
+    _p=${_local##*:}
+    case "$_p" in ''|*[!0-9A-Fa-f]*) continue ;; esac
+    [ "$((0x$_p))" -eq "$1" ] && return 0
+  done < "$TCP"
+  return 1
+}
+
+# the private networks of scripts/common_functions.sh (NETACL_PRIVATE) and the loopback; NET_ALLOW_EXTRA is not read
+# here: the rescue telnet is never wider than the private networks
+lan_ip() {
+  case "$1" in ''|*[!0-9.]*) return 1 ;; esac
+  case "$1" in
+    10.*|192.168.*|169.254.*|127.*) return 0 ;;
+    172.1[6-9].*|172.2[0-9].*|172.3[01].*) return 0 ;;
+    100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*) return 0 ;;
+  esac
+  return 1
+}
+
+telnet_start() {
+  port_listening "$PORT" && return 0	# a telnet is already there (Services page, web-guard, an old user space)
+  if [ -s "$PIDF" ] && kill -0 "$(cat "$PIDF")" 2>/dev/null; then return 0; fi
+  tcpsvd -c 4 0 "$PORT" /bin/sh "$SELF" gate </dev/null >/dev/null 2>&1 &
+  echo $! > "$PIDF"
+}
+
+help_text() {
+  cat <<'EOF'
+RESCUE MODE of the initramfs: the user space of the flash did not start. Nothing was written to the flash.
+To put a user space back (the "stack" partition, 2.7 MiB), from this shell:
+  1. get an image: the backup of the last web update on the SD card (tc100-3/backup/stack-<date>.bin), the
+     stack.sqfs of a 3.0 package on the card (tc100-3/stack.sqfs), or send one over the network:
+       camera:   nc -l -p 9000 > /tmp/stack.sqfs        computer:   nc <camera address> 9000 < stack.sqfs
+  2. check it:    /etc/tc100/rescue images              (lists what it finds, with the md5 and the command)
+  3. write it:    FLASHW_ALLOW=stack flashw -m <md5> stack <file>     (erase, write, read back; "OK" at the end)
+  4. restart:     reboot
+Without the SD card nothing saves the present content first; add "-b /mnt/sd/tc100-3/backup" before "stack" to keep it.
+An SD card with the whole 3.0 package also starts the camera (U-Boot takes tc100test/c66.img first).
+boot.conf INITRD_RESCUE=0 turns this mode off.
+EOF
+}
+
+case "$1" in
+check)
+  m=$(find_mtd "$2") || { echo "no $2 partition"; exit 1; }
+  sz=$(cat "$SYS/$m/size" 2>/dev/null)
+  img_check "$DEV/${m}ro" "$sz" ;;
+imgcheck) img_check "$2" "$3" ;;
+files) files_check "$2" ;;
+settings) [ -n "$2" ] || exit 2; settings "$2" ;;
+enabled) enabled "$2" ;;
+start)
+  echo "${2:-unknown}" > "$FLAG"
+  { echo "RESCUE MODE: ${2:-unknown}"; echo "Type: /etc/tc100/rescue help"; } > "$MOTD" 2>/dev/null
+  telnet_start
+  log "RESCUE MODE (${2:-unknown}): telnet on port $PORT for the private networks, login root with the camera password; '/etc/tc100/rescue help' tells how to write a user space back. Nothing is written to the flash by itself. boot.conf INITRD_RESCUE=0 turns this off" ;;
+watch)
+  enabled "$2" || exit 0
+  w=${RS_WAIT:-300}; st=${RS_STEP:-15}; t=0
+  while :; do
+    for p in 80 22 23; do port_listening $p && exit 0; done
+    for p in ${RS_PROCS-dropbear}; do pidof "$p" >/dev/null 2>&1 && exit 0; done
+    [ "$t" -ge "$w" ] && break
+    sleep "$st"; t=$((t + st))
+  done
+  exec /bin/sh "$SELF" start "no web interface, ssh or telnet $w s after the start of the user space" ;;
+wifi)
+  shift
+  # the files that exist and name a network; the first one is what S39tc100 started
+  n=0; for f in "$@"; do grep -q 'ssid=' "$f" 2>/dev/null && { n=$((n + 1)); eval "c$n=\$f"; }; done
+  [ "$n" -ge 2 ] || exit 0
+  NET=${RS_NET:-/sys/class/net/wlan0}; WC=${RS_WPA_CONF:-/etc/wpa_supplicant.conf}; i=1
+  while :; do
+    t=0; up=0
+    while [ "$t" -lt "${RS_WIFI_TRY:-60}" ]; do
+      [ "$(cat "$NET/operstate" 2>/dev/null)" = up ] && { up=1; break; }
+      sleep 5; t=$((t + 5))
+    done
+    if [ $up = 1 ]; then sleep 60; continue; fi
+    i=$((i % n + 1)); eval "f=\$c$i"
+    log "no Wi-Fi link: trying the settings of $f"
+    killall wpa_supplicant 2>/dev/null; sleep 1
+    ( umask 077; cat "$f" > "$WC" )
+    wpa_supplicant -B -i wlan0 -c "$WC" >/dev/null 2>&1
+    pidof udhcpc >/dev/null 2>&1 || udhcpc -i wlan0 -b -t 20 -T 1 -A 5 >/dev/null 2>&1
+    [ -n "$RS_WIFI_ONCE" ] && exit 0
+  done ;;
+gate)
+  # busybox tcpsvd gives the peer as TCPREMOTEADDR=address:port
+  lan_ip "${TCPREMOTEADDR%:*}" || exit 0
+  exec ${RS_TELNETD:-telnetd -i} ;;
+images)
+  sz=$(cat "$SYS/$(find_mtd stack)/size" 2>/dev/null)
+  found=0
+  for f in ${RS_IMAGES:-/mnt/sd/tc100-3/backup/stack-*.bin /mnt/sd/tc100-3/stack.sqfs /mnt/sd/stack.sqfs /tmp/stack.sqfs}; do
+    [ -f "$f" ] || continue
+    found=1
+    if r=$(img_check "$f" "$sz") && [ "$(wc -c < "$f")" -le "${sz:-0}" ]; then
+      echo "good  $f"; echo "      FLASHW_ALLOW=stack flashw -m $(md5sum < "$f" | cut -d' ' -f1) stack $f"
+    else
+      echo "BAD   $f: ${r:-larger than the stack partition}"
+    fi
+  done
+  [ $found = 1 ] || echo "no stack image on the SD card or in /tmp (see: /etc/tc100/rescue help)" ;;
+help) help_text ;;
+*) echo "usage: rescue check|imgcheck|files|settings|enabled|start|wifi|watch|gate|images|help"; exit 2 ;;
+esac

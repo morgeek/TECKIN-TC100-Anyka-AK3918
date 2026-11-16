@@ -182,6 +182,14 @@ What protects you:
   without a serial console. Information page: "SAFE MODE"; once it has run 5 minutes, a restart is a normal one.
   Reboots from the web page or the reset button do not count. Why the camera restarted is kept in the flash
   settings (`/mnt/config/log/reboot-history.log`, Information page "Previous run ended").
+- **Rescue mode of the initramfs** (`INITRD_RESCUE=1`, on by default, `v3/initrd-rescue`): the flash holds one user
+  space and no copy of the previous one. Before using the `stack` partition the initramfs checks it (squashfs magic,
+  size, end of the image written, mount, start files). When it cannot be used, an SD card that carries a user space
+  starts the camera; without one the camera joins the saved Wi-Fi (settings slots, read-only) and opens a telnet on
+  port 23 for the private networks only (login `root`, the camera password). `/etc/tc100/rescue help` there gives
+  the command that writes a user space back (`FLASHW_ALLOW=stack flashw -m <md5> stack <file>`, from the backup of
+  the last web update on the card or an image sent with `nc`). The initramfs itself never writes the flash. The same
+  telnet opens when a started user space offers neither web, ssh nor telnet after 5 minutes.
 - Any doubt in the checks: nothing is written, the red LED says so and `tc100-3/STATUS.txt` says why.
 
 - **A power cut during the environment write** (a fraction of a second): `envtool` puts the original back when the

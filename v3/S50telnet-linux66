@@ -16,6 +16,11 @@ done
 
 case "$1" in
   start)
+	# rescue mode of the initramfs (S39tc100, v3/initrd-rescue): its telnet (private networks only) holds port 23
+	if [ -f /tmp/rescue-mode ]; then
+		echo "Starting telnetd: rescue mode, the rescue telnet (private networks only) is the way in"
+		exit 0
+	fi
 	if [ -n "$DB" ]; then
 		echo "Starting telnetd: off (Services page; ssh is the way in)"
 		exit 0
