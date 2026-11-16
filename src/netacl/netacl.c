@@ -141,8 +141,22 @@ static void note_refusal(uint32_t a)
 /* 1: keep the connection (address copied to the caller), 0: closed. */
 static int check(int fd, const struct sockaddr_storage *ss, socklen_t sl, struct sockaddr *addr, socklen_t *len)
 {
+    /* an IPv4 client of a dual-stack socket (dropbear, a "::" listener) arrives as ::ffff:a.b.c.d: filtered as IPv4,
+     * otherwise a v6 socket would let every address through. A real IPv6 peer is still not filtered (LAN IPv6 is
+     * link-local/ULA and the camera has no global v6 service). */
+    uint32_t a = 0;
+    int v4 = 0;
     if (ss->ss_family == AF_INET) {
-        uint32_t a = ((const struct sockaddr_in *)ss)->sin_addr.s_addr;
+        a = ((const struct sockaddr_in *)ss)->sin_addr.s_addr;
+        v4 = 1;
+    } else if (ss->ss_family == AF_INET6) {
+        const struct in6_addr *x = &((const struct sockaddr_in6 *)ss)->sin6_addr;
+        if (IN6_IS_ADDR_V4MAPPED(x)) {
+            memcpy(&a, &x->s6_addr[12], 4);
+            v4 = 1;
+        }
+    }
+    if (v4) {
         if (!netacl_allowed(a)) {
             close(fd);
             note_refusal(a);

@@ -2112,6 +2112,26 @@ class NetworkAccessFilter(unittest.TestCase):
                         % (shlex.quote(str(mlib)), shlex.quote(str(lib)), shlex.quote(str(prog))))
                 self.assertEqual(run(code).stdout.decode().strip(), 'preload=' + want, name)
 
+    def test_ssh_is_started_through_the_filter(self):
+        # 2026-11-16: dropbear (a dynamic musl program) gets libnetacl-musl.so preloaded on its own command line, never
+        # on start-stop-daemon (the library removes LD_PRELOAD from the environment it loaded in); no library, no
+        # scripts: unfiltered start, never no ssh
+        ssh = (ROOT / 'controlscripts/ssh-server').read_text(encoding='utf-8')
+        s50 = (ROOT / 'v3/S50dropbear-linux66').read_text(encoding='utf-8')
+        self.assertIn('netacl_exec ssh "$DB" $DROPBEAR_ARGS -R -P "$PIDFILE"', ssh)
+        self.assertNotIn('start-stop-daemon -S', ssh)
+        self.assertIn('netacl_exec ssh "$DB" $DROPBEAR_ARGS -P /var/run/dropbear.pid', s50)
+        self.assertIn('unfiltered', s50)
+        self.assertIn('/mnt/sd/scripts/common_functions.sh', s50)        # SD mode: /mnt is not the stack yet
+        self.assertIn('NETACL_LIBDIR=/mnt/sd/lib', s50)
+        self.assertIn('NETACL_CONF', (ROOT / 'scripts/common_functions.sh').read_text(encoding='utf-8'))
+        self.assertIn('ld-musl-arm', (ROOT / 'v3/build-stack.sh').read_text(encoding='utf-8'))
+        self.assertIn('start-stop-daemon -S', s50)           # the fallback keeps ssh alive
+        cf = (ROOT / 'scripts/common_functions.sh').read_text(encoding='utf-8')
+        self.assertIn('WITHOUT the LAN filter', cf)
+        self.assertNotIn('Not ssh', cf)
+        self.assertNotIn('ssh (dropbear) is not filtered', (ROOT / 'config/boot.conf.dist').read_text(encoding='utf-8'))
+
     @unittest.skipUnless(shutil.which('gcc'), 'gcc')
     def test_filter_refuses_outside_the_list_and_never_locks_out(self):
         import socket

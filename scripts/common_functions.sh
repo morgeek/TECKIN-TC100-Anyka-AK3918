@@ -518,7 +518,7 @@ port_listening() {
 # LAN-only access: the kernel has no packet filter, so the programs close a
 # connection from outside the allowed networks themselves: httpfront and
 # tc100_rtsp (TC100_NET_ALLOW in their environment), telnetd and the FTP
-# server (src/netacl, lib/libnetacl.so, uClibc busybox). Not ssh (dropbear).
+# server (src/netacl, lib/libnetacl.so, uClibc busybox) and ssh (dropbear, musl: libnetacl-musl.so, since 2026-11-16).
 #   boot.conf NET_LAN_ONLY=1 (default)  private networks only: 10/8, 172.16/12,
 #             192.168/16, link-local and 100.64/10 (Tailscale, CGNAT)
 #             NET_LAN_ONLY=0            no filter
@@ -527,16 +527,17 @@ port_listening() {
 # never a camera its owner cannot reach.
 NETACL_PRIVATE="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10"
 netacl_allow_list() {
-  _na_on="$(read_kv_config_value /mnt/config/boot.conf NET_LAN_ONLY 1)"
+  # NETACL_CONF / NETACL_LIBDIR: where boot.conf and the library are when /mnt is not the stack yet (S50dropbear, SD mode)
+  _na_on="$(read_kv_config_value "${NETACL_CONF:-/mnt/config/boot.conf}" NET_LAN_ONLY 1)"
   case "$_na_on" in 0|false|no|off|disabled|'"0"') return 0 ;; esac
-  _na_extra="$(read_kv_config_value /mnt/config/boot.conf NET_ALLOW_EXTRA "")"
+  _na_extra="$(read_kv_config_value "${NETACL_CONF:-/mnt/config/boot.conf}" NET_ALLOW_EXTRA "")"
   _na_extra="${_na_extra#\"}"; _na_extra="${_na_extra%\"}"
   printf '%s' "$NETACL_PRIVATE${_na_extra:+ $_na_extra}"
 }
 # netacl_lib [musl]: the filter library for a uClibc program, or with "musl" for a musl one (the 3.0 base system)
 netacl_lib() {
   _nl_n=libnetacl.so; [ "$1" = musl ] && _nl_n=libnetacl-musl.so
-  for _nl in /tmp/tc100code/lib/$_nl_n /mnt/lib/$_nl_n; do
+  for _nl in /tmp/tc100code/lib/$_nl_n /mnt/lib/$_nl_n ${NETACL_LIBDIR:+"$NETACL_LIBDIR/$_nl_n"}; do
     [ -f "$_nl" ] && { printf '%s' "$_nl"; return 0; }
   done
   return 1
@@ -557,6 +558,10 @@ netacl_exec() {
     if grep -q 'ld-uClibc' "$_ne_bin" 2>/dev/null; then _ne_lib="$(netacl_lib)"
     elif grep -q 'ld-musl-arm' "$_ne_bin" 2>/dev/null; then _ne_lib="$(netacl_lib musl)"
     fi
+  fi
+  # fail open, but not silently: an allow-list is set, so the owner believes the service is LAN only
+  if [ -n "$_ne_allow" ] && [ -z "$_ne_lib" ]; then
+    tc100_log_event "netacl: $_ne_name starts WITHOUT the LAN filter (library missing or loader of '$1' not recognised)"
   fi
   if [ -n "$_ne_lib" ]; then
     LD_PRELOAD="$_ne_lib" TC100_NET_ALLOW="$_ne_allow" TC100_NET_STATUS="/var/run/netacl.$_ne_name" exec "$@"

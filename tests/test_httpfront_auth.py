@@ -75,12 +75,32 @@ class LoginCounting(unittest.TestCase):
 
     def test_header_name_and_scheme_in_any_case(self):
         self.assertIn('ipfx(h, "authorization:")', self.lo)
-        self.assertIn('ipfx(v, "basic ")', self.lo)
+        self.assertIn('ipfx(v, "basic")', self.lo)
+        # any run of blanks (TAB too) after "Basic", as busybox httpd accepts
+        self.assertNotIn(r"(v[5] != ' ' && v[5] != '\t')", self.lo)      # "BasicYWRt..." (no blank) is read as httpd does
+        self.assertIn('if (!ipfx(v, "basic")) return 0;', self.lo)
 
-    def test_a_cut_token_is_not_counted(self):
-        self.assertIn("if (v[i] != '\\r' && v[i] != '\\n' && v[i] != ' ' && v[i] != '\\t') return -1;", self.lo)
-        # but a token longer than tok (padded guess) is counted
-        self.assertLess(self.lo.index("if (v[i] > ' ') return 0;"), self.lo.index("if (v[i] != '\\r'"))
+    def test_present_authorization_is_never_minus_one_for_a_token(self):
+        # the token is read like busybox httpd does (alphabet only, no blank needed); a padded guess is counted
+        self.assertIn("if (i >= (int)sizeof tok - 1) return 0;", self.lo)
+        self.assertNotIn("return -1;	/* cut", self.lo)
+
+    def test_audit_1116_headers_must_end_inside_the_peek(self):
+        src = (ROOT / 'src/httpfront/httpfront.c').read_text()
+        sv = src[src.index('static void serve('):src.index('int run(')]
+        self.assertIn('lockout && (!has_end(b, (int)n) || auth_count(b) > 1)', sv)
+        self.assertIn('431', sv)
+        self.assertIn('char b[4096]', sv)
+        self.assertIn('lockout && has_end(b, (int)n) && hdr_bad(b, (int)n)', sv)
+        self.assertIn('#define NLOCK 64', src)
+
+    def test_audit_1116_locked_entry_never_evicted_and_fail_file_renamed(self):
+        src = (ROOT / 'src/httpfront/httpfront.c').read_text()
+        ln = src[src.index('static void lock_note('):src.index('#include "status.h"')]
+        self.assertIn('lk[i].until <= t && (old < 0', ln)
+        self.assertIn('full_until = t + LOCK_S', ln)      # a full table fails closed
+        self.assertIn('SYS_rename', ln)
+        self.assertNotIn('O_TRUNC', ln)
 
     def test_remembered_login_depends_on_the_password_file(self):
         # a new password (web-auth rewrites httpd.conf) must forget the remembered login

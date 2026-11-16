@@ -64,8 +64,24 @@ start() {
 	printf "Starting dropbear sshd: "
 	(
 		umask 022
-		start-stop-daemon -S -q -p /var/run/dropbear.pid \
-			--exec $DB -- $DROPBEAR_ARGS -P /var/run/dropbear.pid
+		# LAN only like web, telnet and ftp (boot.conf NET_LAN_ONLY / NET_ALLOW_EXTRA): libnetacl-musl.so is preloaded
+		# into dropbear itself (netacl_exec: its loader is musl; start-stop-daemon would not carry the variable, the
+		# library drops it from the environment once loaded). dropbear forks into the background by itself (no -F)
+		# and writes the pid file. The filter is IPv4 only, the 3.0 kernel has no IPv6. 127/8, the rescue AP
+		# (10.42.0.0/24) and every private network are in the list. Without the library or the scripts (SD test
+		# mode, a user space older than this script) ssh starts unfiltered and says so: ssh is never lost.
+		if [ -s /var/run/dropbear.pid ] && kill -0 "$(cat /var/run/dropbear.pid)" 2>/dev/null; then
+			:
+		elif CF=/mnt/scripts/common_functions.sh; [ -f $CF ] || CF=/mnt/sd/scripts/common_functions.sh
+		     [ -f $CF ] && . $CF && type netacl_exec >/dev/null 2>&1; then
+			# SD mode: /mnt is not the stack yet, the settings and the library are on the card
+			[ -f /tmp/flashmode ] || { NETACL_CONF=$CFG/boot.conf; NETACL_LIBDIR=/mnt/sd/lib; export NETACL_CONF NETACL_LIBDIR; }
+			netacl_exec ssh "$DB" $DROPBEAR_ARGS -P /var/run/dropbear.pid
+		else
+			echo "[tc100] ssh: no LAN filter available (no common_functions.sh), dropbear starts unfiltered" > /dev/console
+			start-stop-daemon -S -q -p /var/run/dropbear.pid \
+				--exec $DB -- $DROPBEAR_ARGS -P /var/run/dropbear.pid
+		fi
 	)
 	[ $? = 0 ] && echo "OK" || echo "FAIL"
 }

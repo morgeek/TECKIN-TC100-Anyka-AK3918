@@ -156,6 +156,28 @@ class Expectations(unittest.TestCase):
         out, _, _ = run(MINE, b'a=1\n', ['read', ' ', 'a'])
         self.assertEqual(out, b'1\n')
 
+    def test_newline_in_value_key_or_section_is_refused(self):
+        # audit 2026-11-16: "a\nroot=x" would write a forged second line; refused, nothing written
+        base = b'a=1\n'
+        for args in ([' ', 'k', 'v\nroot=x'], [' ', 'k\nx', 'v'], ['s\n[evil]', 'k', 'v'], [' ', 'k', 'v\rw']):
+            out, f, st = run(MINE, base, ['w'] + args)
+            self.assertEqual((out, f, st != 0), (b'', base, True), args)
+        out, f, st = run(MINE, None, ['w', ' ', 'k', 'v\nx'])
+        self.assertEqual((f, st != 0), (None, True))
+
+    def test_write_is_by_rename_and_keeps_the_mode(self):
+        d = tempfile.mkdtemp(dir=TMP)
+        f = os.path.join(d, 'c.conf')
+        Path(f).write_bytes(b'a=1\n')
+        os.chmod(f, 0o600)
+        ino = os.stat(f).st_ino
+        r = subprocess.run([MINE, f, 'w', ' ', 'a', '2'], capture_output=True)
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(Path(f).read_bytes(), b'a=2\n')
+        self.assertEqual(os.stat(f).st_mode & 0o777, 0o600)
+        self.assertNotEqual(os.stat(f).st_ino, ino)       # a new file renamed over the old one
+        self.assertEqual(os.listdir(d), ['c.conf'])       # no temp file left
+
     def test_unwritable_target_is_silent(self):
         d = tempfile.mkdtemp(dir=TMP)
         r = subprocess.run([MINE, os.path.join(d, 'no', 'such', 'c.conf'), 'w', ' ', 'a', '1'], capture_output=True)
@@ -182,8 +204,8 @@ class ParityWithOriginal(unittest.TestCase):
                  ['r', ' ', 'k', ' '], ['rx', ' ', 'k'],
                  ['w', ' ', 'PORT', '8554'], ['w', '0', 'codec', '1', '0', 'bps', ' 99 '], ['w', ' ', 'k', ''],
                  ['w', 's', 'new', 'v v', ' ', 'k', 'w'], ['w', ' ', 'k', 'v', ' ', 'k', 'v2'], ['w', 'a', 'x', '1'],
-                 ['w', ' ', 'x', '2'], ['w', '', 'z', '1'], ['w', ' ', '', 'v'], ['w', ' ', 'k', 'a\nb'],
-                 ['w', ' ', 'volume', '3', ' ', 'incomplete'], ['w', ' ', 'k'], ['r'], ['r', ' '], ['r', ' ', 'k'],
+                 ['w', ' ', 'x', '2'], ['w', '', 'z', '1'], ['w', ' ', '', 'v'],  # a value with a newline differs on purpose (refused, audit 2026-11-16)
+                                  ['w', ' ', 'volume', '3', ' ', 'incomplete'], ['w', ' ', 'k'], ['r'], ['r', ' '], ['r', ' ', 'k'],
                  ['wx', ' ', 'q', 'r'], ['z', ' ', 'q', 'r'], ['', ' ', 'q', 'r'],
                  ['w', ' ', 'osdtext', '%H:%M:%S %d.%m.%Y', ' ', 'USERPASSWORD', 'p w "q" $x \\y']]
         for c in contents:

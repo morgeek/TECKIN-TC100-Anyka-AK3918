@@ -13,16 +13,19 @@
  *  - missing file, section or key reads as an empty string (still one field and the newline); exit status always 0.
  *  - a write keeps nothing of the old layout: top level keys first, then each "[section]" with its keys, sections and
  *    keys sorted by byte value, written as "key=value\n"; comments and blank lines are dropped, CRLF becomes LF.
- *  - the file is written (truncated in place) only when a value changed and there is at least one entry; a file that
+ *  - the file is written (a temp file in its directory, fsync, rename; its mode kept) only when a value changed and there is at least one entry; a file that
  *    cannot be opened for writing is silently left alone. Writing an empty value to a key that does not exist is
  *    not a change (but the empty key is written if another value changes).
+ *  - a write with a CR or LF inside a section, key or value (after trimming): status 1, nothing written.
  *  - fewer than 5 arguments or a mode not starting with r/w: the help text on stdout, status 0. Incomplete trailing
  *    groups of arguments are ignored.
  * Not kept: a NUL byte inside the file ends its line (the original keeps it inside the string).
- * No libc variable (stdout...) is used: the ARM build links against a stand-in libc (src/mqttd/Makefile). */
+ * Built against musl (src/musl.mk) like the other 3.0 programs. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/stat.h>
 
 struct ent { char *sec, *key, *val; };
 static struct ent *E;
@@ -129,8 +132,18 @@ static int cmp(const void *a, const void *b)
 static void save(const char *path)
 {
 	if (!nE || !changed) return;
-	FILE *f = fopen(path, "wb");
-	if (!f) return;
+	/* a temp file in the same directory, fsync, rename: a power cut or a full disk leaves the old file whole (the
+	 * in-place truncation could leave the login or the Wi-Fi settings empty); the old mode is kept */
+	char *real = realpath(path, NULL);	/* a symlinked file: the target is replaced, not the link */
+	if (real) path = real;
+	size_t pl = strlen(path);
+	char *tmp = malloc(pl + 16);
+	struct stat st;
+	if (!tmp) exit(1);
+	snprintf(tmp, pl + 16, "%s.tmp%d", path, (int)getpid());
+	FILE *f = fopen(tmp, "wb");
+	if (!f) { free(tmp); free(real); return; }
+	if (!stat(path, &st)) fchmod(fileno(f), st.st_mode & 07777);
 	qsort(E, nE, sizeof *E, cmp);
 	const char *cur = "";
 	for (size_t i = 0; i < nE; i++) {
@@ -140,7 +153,17 @@ static void save(const char *path)
 		}
 		fprintf(f, "%s=%s\n", E[i].key, E[i].val);
 	}
-	fclose(f);
+	/* musl: a failed buffered write only sets the stream's error flag and a later fflush can return 0, so ferror is
+	 * asked first; any failure leaves the old file in place and the status non-zero */
+	int bad = ferror(f);
+	if (fflush(f)) bad = 1;
+	if (fsync(fileno(f))) bad = 1;
+	if (fclose(f)) bad = 1;
+	if (!bad && rename(tmp, path)) bad = 1;
+	if (bad) unlink(tmp);
+	free(tmp);
+	free(real);
+	if (bad) { fprintf(stderr, "rwconf: write failed, file unchanged\n"); exit(1); }
 }
 
 static void help(void)
@@ -171,6 +194,15 @@ int main(int argc, char **argv)
 			}
 			printf("\n");
 		} else {
+			/* a newline inside a name or value would write a second line (a forged key, e.g. in a password
+			 * field): refused before anything is written. Trimmed first: a trailing newline stays harmless. */
+			for (int i = 3; i <= argc - 3; i += 3)
+				for (int j = 0; j < 3; j++) {
+					char *t = dup_trim(argv[i + j], strlen(argv[i + j]));
+					int bad = strpbrk(t, "\r\n") != NULL;
+					free(t);
+					if (bad) { fprintf(stderr, "rwconf: newline in a name or value, nothing written\n"); return 1; }
+				}
 			for (int i = 3; i <= argc - 3; i += 3)
 				put(dup_trim(argv[i], strlen(argv[i])), dup_trim(argv[i + 1], strlen(argv[i + 1])),
 				    dup_trim(argv[i + 2], strlen(argv[i + 2])));

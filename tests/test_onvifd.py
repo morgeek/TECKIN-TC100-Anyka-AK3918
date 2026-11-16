@@ -160,8 +160,8 @@ class OnvifD(unittest.TestCase):
 
     # ---- WS-Discovery -------------------------------------------------------------------------------------------
 
-    def probe(self, types='dn:NetworkVideoTransmitter', timeout=2.0, msg='Probe', header=''):
-        mid = 'uuid:' + secrets.token_hex(8)
+    def probe(self, types='dn:NetworkVideoTransmitter', timeout=2.0, msg='Probe', header='', mid=None):
+        mid = mid or 'uuid:' + secrets.token_hex(8)
         if msg == 'Probe':
             body = '<d:Probe><d:Types>%s</d:Types></d:Probe>' % types
             act = 'Probe'
@@ -182,6 +182,13 @@ class OnvifD(unittest.TestCase):
         finally:
             u.close()
         return mid, ET.fromstring(data)
+
+    def test_probe_message_id_is_escaped(self):
+        # audit 2026-11-16: the MessageID is echoed in RelatesTo; a "<" or "&" decoded from the probe must be escaped again
+        self.start()
+        mid, root = self.probe(mid='uuid:a&lt;b&amp;c&gt;d')
+        self.assertIsNotNone(root)                       # well-formed reply (ET.fromstring would raise otherwise)
+        self.assertEqual(root.find('s:Header/a:RelatesTo', NS).text, 'uuid:a<b&c>d')
 
     def test_probe_match(self):
         self.start()
@@ -277,6 +284,18 @@ class OnvifD(unittest.TestCase):
             st, n, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=hdr)
             self.assertEqual(st, 400)
             self.assertIn('ter:NotAuthorized', self.fault_sub(n))
+
+    def test_digest_replay_refused(self):
+        # audit 2026-11-16: the same (Nonce, Created) digest is valid once; a sniffed copy inside the +-300 s window is not
+        self.start()
+        hdr = security('root', self.password)
+        st, _, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=hdr)
+        self.assertEqual(st, 200)
+        st, n, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=hdr)
+        self.assertEqual(st, 400)
+        self.assertIn('ter:NotAuthorized', self.fault_sub(n))
+        st, _, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=security('root', self.password))
+        self.assertEqual(st, 200)                         # a fresh nonce still works
 
     def test_password_text_and_digest(self):
         self.start()

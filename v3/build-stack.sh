@@ -136,6 +136,8 @@ for f in ext/bin/aplay ext/bin/arecord ext/bin/amixer ext/bin/dropbear ext/lib/l
 	ext/share/alsa/pcm/dmix.conf ext/share/alsa/pcm/dsnoop.conf; do
 	[ -s "$T/$f" ] || { echo "build-stack: $f missing from the tree" >&2; exit 1; }
 done
+# the LAN-only filter of ssh is an LD_PRELOAD (netacl_exec): a static dropbear would silently ignore it
+grep -q 'ld-musl-arm' "$T/ext/bin/dropbear" || { echo "build-stack: ext/bin/dropbear is not a dynamic musl program: NET_LAN_ONLY cannot filter ssh" >&2; exit 1; }
 cd "$REPO"
 # scripts call /mnt/bin/curl: a wrapper (a FAT card cannot hold links). No jq any more (audit 2026-11-06 S1: the two
 # scripts that used it read JSON with scripts/jsonflat.awk; jq, libjq and oniguruma were ~110-240 KB of the image)

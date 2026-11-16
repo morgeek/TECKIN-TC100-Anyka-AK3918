@@ -51,7 +51,9 @@ static long sc(long n, long a, long b, long c, long d, long e)
 #define SYS_write 4
 #define SYS_open 5
 #define SYS_close 6
+#define SYS_unlink 10
 #define SYS_execve 11
+#define SYS_rename 38
 #define SYS_dup2 63
 #define SYS_wait4 114
 #define SYS_nanosleep 162
@@ -91,7 +93,7 @@ struct ts { long sec, nsec; };
 #define LOCK_FAILS 10	/* failed logins from one address ... */
 #define LOCK_WINDOW 300	/* ... within this many seconds ... */
 #define LOCK_S 300	/* ... close its connections this long */
-#define NLOCK 16
+#define NLOCK 64
 #define FAILFILE "/tmp/.httpfront-fail"
 #define OKFILE "/tmp/.httpfront-ok"
 
@@ -111,7 +113,19 @@ static int ipfx(const char *s, const char *p)
 }
 static int num(const char *s) { int n = 0; while (*s >= '0' && *s <= '9') n = n * 10 + *s++ - '0'; return n; }
 static int has_nl(const char *b, int n) { for (int i = 0; i < n; i++) if (b[i] == '\n') return 1; return 0; }
-static int has_end(const char *b, int n) { for (int i = 3; i < n; i++) if (b[i] == '\n' && b[i - 2] == '\n') return 1; return 0; }
+/* the end of the headers: an empty line, "\n" then an optional "\r" then "\n" (bare-LF clients included). A one-character
+ * line ("\nX\n") is not one: it would let filler push the Authorization line past the peek unseen. */
+static int has_end(const char *b, int n)
+{
+	for (int i = 0; i < n; i++)
+		if (b[i] == '\n') {
+			int j = i + 1;
+
+			if (j < n && b[j] == '\r') j++;
+			if (j < n && b[j] == '\n') return 1;
+		}
+	return 0;
+}
 static void cat(char *d, int *l, int max, const char *s) { while (*s && *l < max) d[(*l)++] = *s++; }
 static int slen_eq(const char *a, const char *b) { while (*a && *a == *b) { a++; b++; } return *a != *b; }	/* 0: equal */
 static int cred_cmp(const char *a, const char *b, int n) { while (n--) if (*a++ != *b++) return 1; return 0; }
@@ -198,6 +212,32 @@ static void reap(void)
 static int lockout;	/* TC100_WEB_LOCKOUT=1 */
 static const char *httpd_conf = "/etc/httpd.conf", *fail_file = FAILFILE, *ok_file = OKFILE;
 static struct { u32 ip; long first, until; int n; } lk[NLOCK];
+static long full_until;	/* the table was full of locked addresses when a new one failed: new addresses are refused until */
+
+/* Canonical header block, checked before login_ok/auth_count read it, so that what they match is what busybox httpd
+ * reads (httpd drops every CR of a line, keeps a NUL inside it, takes continuation lines...): 1 for a request whose
+ * header lines (up to the empty line) hold a NUL, a CR not followed by LF, another control byte but TAB, a
+ * continuation line (starts with a blank) or "Authorization" followed by a blank before the colon. Browsers send none of
+ * these; refused with 400 instead of mirroring each quirk of httpd. */
+static int hdr_bad(const char *b, int n)
+{
+	int ls = 1, first = 1;
+
+	for (int i = 0; i < n; i++) {
+		unsigned char c = (unsigned char)b[i];
+
+		if (c == 0) return 1;
+		if (c == '\n') { if (ls) return 0; ls = 1; first = 0; continue; }	/* an empty line: the end */
+		if (c == '\r') { if (i + 1 < n && b[i + 1] != '\n') return 1; continue; }
+		if ((c < 32 && c != '\t') || c == 127) return 1;
+		if (ls && !first) {
+			if (c == ' ' || c == '\t') return 1;
+			if (ipfx(b + i, "authorization") && (b[i + 13] == ' ' || b[i + 13] == '\t')) return 1;
+		}
+		ls = 0;
+	}
+	return 0;
+}
 
 static long now_s(void)
 {
@@ -235,6 +275,22 @@ static void hex16(const unsigned char d[16], char out[33])
 	out[32] = 0;
 }
 
+/* number of "Authorization:" header lines in the headers of b: httpd may take another one than the first, we check only
+ * the first, so a second line could carry the real guess past the counter: such a request is refused */
+static int auth_count(const char *b)
+{
+	const char *h = b;
+	int n = 0;
+
+	for (;;) {
+		while (*h && *h != '\n') h++;
+		if (!*h) return n;
+		h++;
+		if (*h == '\n' || (*h == '\r' && h[1] == '\n')) return n;
+		if (ipfx(h, "authorization:")) n++;
+	}
+}
+
 /* the Basic login of the request (headers in b): 1 matches httpd.conf, 0 does not, -1 no login or nothing to check */
 static int login_ok(const char *b)
 {
@@ -254,12 +310,18 @@ static int login_ok(const char *b)
 	}
 	v = h + 14;
 	while (*v == ' ' || *v == '\t') v++;
-	if (!ipfx(v, "basic ")) return -1;
-	v += 6;
-	for (i = 0; i < (int)sizeof tok - 1 && v[i] > ' '; i++) tok[i] = v[i];
-	if (v[i] > ' ') return 0;	/* longer than any camera login: a guess padded so that it is not checked, counted */
-	if (v[i] != '\r' && v[i] != '\n' && v[i] != ' ' && v[i] != '\t') return -1;	/* cut by the end of the peeked
-						 * bytes: not checked here, so never counted as a wrong login */
+	/* an Authorization header that is present is never "-1": httpd checks whatever it holds, so what is not a clean
+	 * right login is a counted guess. httpd only does strncasecmp("Basic"), skips blanks (none needed: "BasicYWRt..."
+	 * works) and decodes base64 ignoring every character outside the alphabet; the token is read the same way. */
+	if (!ipfx(v, "basic")) return 0;
+	v += 5;
+	while (*v == ' ' || *v == '\t') v++;
+	for (i = 0; *v && *v != '\n' && *v != '\r'; v++) {
+		if (!((*v >= 'A' && *v <= 'Z') || (*v >= 'a' && *v <= 'z') || (*v >= '0' && *v <= '9') || *v == '+' || *v == '/' ||
+		      *v == '=')) continue;
+		if (i >= (int)sizeof tok - 1) return 0;	/* longer than any camera login: a padded guess, counted */
+		tok[i++] = *v;
+	}
 	tok[i] = 0;
 	if ((n = read_file(httpd_conf, conf, sizeof conf)) <= 0) return -1;
 	/* remembered by the MD5 of the token and of httpd.conf: a new password (web-auth rewrites the file) forgets it */
@@ -295,14 +357,27 @@ static int login_ok(const char *b)
 /* parent: the failures the children noted, then whether ip is locked out now */
 static void lock_note(u32 ip, long t)
 {
-	int i, free_i = -1, old = 0;
+	int i, free_i = -1, old = -1;
 
+	if ((ip >> 24) == 127) return;	/* never counted, so never able to fill the table or arm full_until */
 	for (i = 0; i < NLOCK; i++) {
 		if (lk[i].n && lk[i].ip == ip) break;
 		if (!lk[i].n && free_i < 0) free_i = i;
-		if (lk[i].first < lk[old].first) old = i;
+		/* the oldest entry that is not locked now: evicting a locked address would unlock it (more guessing
+		 * addresses than slots must not free one) */
+		if (lk[i].n && lk[i].until <= t && (old < 0 || lk[i].first < lk[old].first)) old = i;
 	}
-	if (i == NLOCK) { i = free_i >= 0 ? free_i : old; lk[i].ip = ip; lk[i].n = 0; lk[i].until = 0; }
+	if (i == NLOCK) {
+		/* every slot holds a locked address: dropping the failure would give unlimited guesses to the 17th, 18th...
+		 * (aliased) address, and evicting would unlock one. Fail closed: no address that is not in the table gets
+		 * through for LOCK_S. Trade-off: 64 locked addresses (64 x 10 wrong logins inside 5 min, every one from a
+		 * distinct address) lock the web UI out for the owner's other LAN addresses, renewed for as long as the
+		 * guessing goes on: the owner prefers that to unlimited guesses. 127/8 is never counted nor refused, so
+		 * the camera itself (and an ssh tunnel to it) always gets in; ssh/telnet stay; the entries already in
+		 * the table are untouched. */
+		if (free_i < 0 && old < 0) { full_until = t + LOCK_S; return; }
+		i = free_i >= 0 ? free_i : old; lk[i].ip = ip; lk[i].n = 0; lk[i].until = 0;
+	}
 	if (!lk[i].n || t - lk[i].first > LOCK_WINDOW) { lk[i].first = t; lk[i].n = 0; }
 	if (++lk[i].n >= LOCK_FAILS && lk[i].until <= t) {
 		char msg[80];
@@ -320,14 +395,22 @@ static int locked(u32 ip)
 	u32 rec[64];
 	int n, i;
 
-	if ((n = read_file(fail_file, (char *)rec, sizeof rec)) > 0) {
-		write_file(fail_file, "", 0, O_TRUNC);
+	static char rd[136];	/* the file is renamed first: a record a child appends while we read goes to a fresh file, a
+				 * read-then-truncate would drop it */
+	int l = 0;
+
+	cat(rd, &l, sizeof rd - 3, fail_file); cat(rd, &l, sizeof rd - 1, ".r"); rd[l] = 0;
+	if (sc(SYS_rename, (long)fail_file, (long)rd, 0, 0, 0) == 0) {
+		n = read_file(rd, (char *)rec, sizeof rec);
+		sc(SYS_unlink, (long)rd, 0, 0, 0, 0);
+	} else n = -1;
+	if (n > 0) {
 		for (i = 0; i < n / 4; i++) lock_note(rec[i], t);
 	}
 	if ((ip >> 24) == 127) return 0;
 	for (i = 0; i < NLOCK; i++)
-		if (lk[i].n && lk[i].ip == ip && lk[i].until > t) return 1;
-	return 0;
+		if (lk[i].n && lk[i].ip == ip) return lk[i].until > t;
+	return full_until > t;
 }
 
 #include "status.h"
@@ -358,7 +441,7 @@ static void redirect(int c, const char *to)
 
 static void serve(int c, const char *home, const char *target, char **envp, u32 ip)
 {
-	char b[2048];
+	char b[4096];	/* a browser sends well under 1 KB of headers, cookies included */
 	long n;
 	int tries = 0;
 	struct ts rt = { 2, 0 }, none = { 0, 0 };	/* struct timeval: seconds, microseconds */
@@ -374,6 +457,21 @@ static void serve(int c, const char *home, const char *target, char **envp, u32 
 		if (has_nl(b, (int)n) && (!(lockout || native_status) || has_end(b, (int)n))) break;	/* the login needs the headers */
 		if (++tries > 20) { if (has_nl(b, (int)n)) break; _exit_(0); }
 		sleep100ms();
+	}
+	/* lockout on: the login is checked on the peeked headers only, and httpd then reads the whole request. A request
+	 * whose headers did not end inside the peek (filler headers, or sent slowly) would reach httpd with its
+	 * Authorization line unseen and its guesses uncounted: refused. A second Authorization header the same. */
+	if (lockout && has_end(b, (int)n) && hdr_bad(b, (int)n)) {
+		static const char m400[] = "HTTP/1.0 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+
+		sc(SYS_write, c, (long)m400, sizeof m400 - 1, 0, 0);
+		_exit_(0);
+	}
+	if (lockout && (!has_end(b, (int)n) || auth_count(b) > 1)) {
+		static const char m431[] = "HTTP/1.0 431 Request Header Fields Too Large\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+
+		sc(SYS_write, c, (long)m431, sizeof m431 - 1, 0, 0);
+		_exit_(0);
 	}
 	if (pfx(b, "GET / ") || pfx(b, "GET /?") || pfx(b, "HEAD / ")) redirect(c, target);
 	if (pfx(b, "GET /metrics ") || pfx(b, "GET /metrics?") || pfx(b, "HEAD /metrics ")) redirect(c, "/cgi-bin/metrics.cgi");

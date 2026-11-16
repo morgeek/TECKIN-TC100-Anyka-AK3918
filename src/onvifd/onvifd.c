@@ -825,6 +825,18 @@ static int check_auth(const char *b, int n)
 		sha1(buf, cn, dg);
 		b64enc(dg, 20, enc);
 		if (!ct_eq(enc, pw)) goto bad;
+		{	/* replay: a sniffed digest stays valid for the whole +-SKEW_S window, and the digest covers (Nonce, Created,
+			 * password), so remembering it rejects the exact pair a second time (kept even while the clock is unset) */
+			static unsigned char seen[64][20];
+			static unsigned seen_n;
+			unsigned k;
+
+			for (k = 0; k < 64 && k < seen_n; k++)
+				if (!memcmp(seen[k], dg, 20)) return 0;	/* refused, not counted: an NVR resending the same
+									 * envelope after a dropped connection must not lock itself
+									 * out (the digest did verify, so it is no guess) */
+			memcpy(seen[seen_n++ % 64], dg, 20);
+		}
 		return 1;
 	}
 	if (!ct_eq(pw, G.pass)) goto bad;
@@ -1711,7 +1723,7 @@ static void wsd_header(const char *action, const char *relates, const char *to)
 	P("<?xml version=\"1.0\" encoding=\"UTF-8\"?><s:Envelope xmlns:s=\"%s\" xmlns:a=\"http://schemas.xmlsoap.org/ws/2004/08/addressing\" "
 	  "xmlns:d=\"http://schemas.xmlsoap.org/ws/2005/04/discovery\" xmlns:dn=\"http://www.onvif.org/ver10/network/wsdl\" "
 	  "xmlns:tds=\"http://www.onvif.org/ver10/device/wsdl\"><s:Header><a:MessageID>urn:uuid:%s</a:MessageID>", NS_S, id);
-	if (relates && relates[0]) P("<a:RelatesTo>%s</a:RelatesTo>", relates);
+	if (relates && relates[0]) PXe("a:RelatesTo", relates);	/* the peer's MessageID: escaped, it is not ours */
 	P("<a:To>%s</a:To><a:Action>%s</a:Action><d:AppSequence InstanceId=\"%u\" MessageNumber=\"%u\"/></s:Header><s:Body>", to, action, g_instance, g_seq);
 }
 
@@ -1799,6 +1811,8 @@ static void udp_in(void)
 		if (++cnt > WSD_RATE) return;
 	}
 	get_text(buf, end, "MessageID", mid, sizeof mid);
+	xml_unescape(mid);	/* raw text of the datagram: decoded here, escaped again when echoed (wsd_header), so that a
+				 * hostile "<" or "&" cannot reach our reply as markup */
 	/* the address we have towards the sender: where the controller can reach us */
 	s = socket(AF_INET, SOCK_DGRAM, 0);
 	scpy(ip, sizeof ip, "127.0.0.1");

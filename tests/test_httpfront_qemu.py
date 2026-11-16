@@ -151,6 +151,38 @@ class HttpFront(unittest.TestCase):
         self.assertIn(b'302 Found', self.ask(root))                            # loopback still served
         self.assertEqual(len(open(os.path.join(lock, 'ok')).read()), 32)        # the right login is remembered
 
+    def test_lockout_filler_headers_and_second_authorization_refused(self):
+        """audit 2026-11-16: headers that do not end inside the peeked bytes would let httpd check a guess uncounted"""
+        import base64
+        conf = os.path.join(self.tmp, 'httpd.conf')
+        lock = os.path.join(self.tmp, 'lock2')
+        os.makedirs(lock, exist_ok=True)
+        with open(conf, 'w') as f:
+            f.write('/:root:$1$abcdefgh$1s0bv7.OjNizlrMAOIQD7.\n')
+        self.start(TC100_WEB_LOCKOUT='1', TC100_HTTPD_CONF=conf, TC100_LOCK_DIR=lock)
+        cred = base64.b64encode(b'root:wrong')
+        filler = b''.join(b'X-Pad%d: %s\r\n' % (i, b'a' * 100) for i in range(45))     # > 4 KB
+        self.assertGreater(len(filler), 4096)
+        r = self.ask(b'GET /x HTTP/1.0\r\n' + filler + b'Authorization: Basic ' + cred + b'\r\n\r\n')
+        self.assertIn(b' 431 ', r)
+        r = self.ask(b'GET /x HTTP/1.0\r\nAuthorization: Basic ' + cred + b'\r\nAuthorization: Basic ' + cred + b'\r\n\r\n')
+        self.assertIn(b' 431 ', r)
+        # a one-character line is not the end of the headers (audit review): filler, then Authorization past the peek
+        r = self.ask(b'GET /x HTTP/1.0\nX\n' + filler + b'Authorization: Basic ' + cred + b'\r\n\r\n')
+        self.assertIn(b' 431 ', r)
+        # non-canonical header blocks (NUL, CR inside a line, continuation, blank before the colon): 400, never to httpd
+        for bad in (b'X: \x00\r\nAuthorization: Basic ' + cred + b'\r\n\r\n',
+                    b'X: 1\r\n\rAuthorization: Basic ' + cred + b'\r\n\r\n',
+                    b'X: 1\r\nAuthor\rization: Basic ' + cred + b'\r\n\r\n',
+                    b'X: 1\r\n Authorization: Basic ' + cred + b'\r\n\r\n',
+                    b'X: 1\r\nAuthorization : Basic ' + cred + b'\r\n\r\n',
+                    b'X: \x01\r\nY: 1\r\n\r\n'):
+            self.assertIn(b' 400 ', self.ask(b'GET /x HTTP/1.1\r\n' + bad), bad)
+        # bare-LF clients are legitimate: "\n\n" ends the headers
+        self.assertIn(b'302 Found', self.ask(b'GET / HTTP/1.0\nHost: x\n\n'))
+        # a normal request with a few cookies still goes through (302 for the root)
+        self.assertIn(b'302 Found', self.ask(b'GET / HTTP/1.0\r\nCookie: ' + b'c=1; ' * 100 + b'\r\n\r\n'))
+
 
 if __name__ == '__main__':
     unittest.main()
