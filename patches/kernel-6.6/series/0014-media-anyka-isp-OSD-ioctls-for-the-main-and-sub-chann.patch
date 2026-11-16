@@ -17,9 +17,9 @@ allocates the two buffer halves once (64 KiB per half for the main channel,
 them across video sessions. tc100_rtsp draws the clock with it instead of
 writing into every captured frame (RTSP_ISPOSD=1).
 ---
- .../media/platform/anyka-isp/ak_isp_char.c    | 80 +++++++++++++++++++
+ .../media/platform/anyka-isp/ak_isp_char.c    | 90 +++++++++++++++++++
  .../media/platform/anyka-isp/ak_isp_char.h    | 21 +++++
- 2 files changed, 101 insertions(+)
+ 2 files changed, 111 insertions(+)
 
 diff --git a/drivers/media/platform/anyka-isp/ak_isp_char.c b/drivers/media/platform/anyka-isp/ak_isp_char.c
 index 2e2360c..5c22064 100644
@@ -52,7 +52,7 @@ index 2e2360c..5c22064 100644
 +	size_t half, len;
 +	size_t px;
 +	void *bits;
-+	int c;
++	int c, r;
 +
 +	if (copy_from_user(&u, arg, sizeof(u)))
 +		return -EFAULT;
@@ -104,19 +104,19 @@ index 2e2360c..5c22064 100644
 +	ctx.enable = u.enable ? 1 : 0;
 +	if (c) {
 +		ak_isp_vpp_set_sub_channel_osd_mem_attr(&mem);
-+		ak_isp_vpp_set_sub_channel_osd_context_attr(&ctx);
++		r = ak_isp_vpp_set_sub_channel_osd_context_attr(&ctx);
 +	} else {
 +		ak_isp_vpp_set_main_channel_osd_mem_attr(&mem);
-+		ak_isp_vpp_set_main_channel_osd_context_attr(&ctx);
++		r = ak_isp_vpp_set_main_channel_osd_context_attr(&ctx);
 +	}
 +	kfree(bits);
-+	return 0;
++	return r < 0 ? -EINVAL : 0;	/* a refused bitmap is not a silent success */
 +}
 +
  static long akisp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
  {
  	long ret = 0;
-@@ -3114,6 +3181,19 @@ static long akisp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+@@ -3114,6 +3191,19 @@ static long akisp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
  		}
  		break;
  

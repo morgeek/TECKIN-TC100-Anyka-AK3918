@@ -109,7 +109,11 @@ run_kernel() {
 		[ -s firmware/rtlwifi/rtl8188fufw.bin ] || curl -sfL --retry 3 "https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/rtlwifi/rtl8188fufw.bin?h=20241017" -o firmware/rtlwifi/rtl8188fufw.bin
 		cp /src/patches/kernel-6.6/defconfig_cma .config
 		make -s ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- olddefconfig
-		make -s ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j"$(nproc)" zImage dtbs 2>&1 | grep -E "warning:|error:|Error" | grep -v "^scripts/" | head -40
+		# no stale image may pass for a new one: the pipe below hides the exit status of make
+		rm -f arch/arm/boot/zImage vmlinux
+		make -s ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j"$(nproc)" zImage dtbs >/k/build.log 2>&1 || echo "make failed" >>/k/build.log
+		grep -E "warning:|error:|Error|undefined reference|ld: |make failed" /k/build.log | grep -v "^scripts/" | head -60
+		! grep -q "make failed" /k/build.log
 		test -s arch/arm/boot/zImage && ls -l arch/arm/boot/zImage arch/arm/boot/dts/anyka/*.dtb && echo "kernel: ok"' || rc=1
 }
 

@@ -17,6 +17,12 @@ les tests caméra `AUDIT-1116-*` de `test-queue.md`. Ce qui reste ouvert, par or
   secours). La section « Unattended recovery » d'AGENTS.md décrit un retour à la user space précédente qui n'existe pas.
 - [ ] Patch 0003 (hôte USB) : un unlink d'URB actif attend une IRQ, `endpoint_disable` n'a pas de verrou, l'ep0 passe par
   l'index -1. À faire en un seul changement, testé sur caméra (le Wi-Fi en dépend).
+- [ ] Encodeur (patch 0008, `ak39_venc_wait_irq`) : après un délai dépassé de 2 s, une IRQ tardive est mémorisée
+  (masquage paresseux, contrôleur sans `IRQ_LEVEL`) et rejouée au prochain `enable_irq` : `AKUIO_WAIT_IRQ` peut
+  rendre 0 sans image encodée. Défaut ancien (relecture Fable du 2026-11-16). Piste : effacer l'état IRQ de
+  l'encodeur avant de réarmer, ou `IRQ_DISABLE_UNLAZY`. Une seule modification, testée sur caméra.
+- [ ] I2C (patch 0005) : après un `-ETIMEDOUT` le contrôleur n'est pas remis à zéro avant le message suivant.
+  Mineur (10 ms suffisent largement à environ 117 kHz).
 - [ ] Durcissement du code C (`-fstack-protector-strong`, `-z relro,-z now`) : mesurer d'abord le coût en taille
   par rapport au budget flash.
 - [ ] MQTT : les commandes `telnet`, `ftp` et `reboot` ne dépendent que de la confiance accordée au broker (TCP en

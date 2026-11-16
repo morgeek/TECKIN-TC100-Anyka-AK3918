@@ -3966,7 +3966,6 @@ index 000000000..97f00ee92
 +	if (!isp)
 +		return -1;
 +
-+	isp->main_osd_update_flag = 0;
 +
 +	/* copy all config */
 +	p_osd_buffer = &isp->main_osd_buffer[chn];
@@ -3979,6 +3978,7 @@ index 000000000..97f00ee92
 +	/* an oversized or wrapped bitmap is refused, not clamped to half the buffer */
 +	if ((u64)p_context->osd_width * p_context->osd_height / 2 > bytes_osd)
 +		return -EINVAL;
++	isp->main_osd_update_flag = 0;
 +	osd_len = p_context->osd_width * p_context->osd_height / 2;
 +
 +	memcpy(p_osd_buffer, p_context, sizeof(AK_ISP_OSD_CONTEXT_ATTR));
@@ -4302,7 +4302,6 @@ index 000000000..97f00ee92
 +	if (!isp)
 +		return -1;
 +
-+	isp->sub_osd_update_flag = 0;
 +	
 +	p_osd_buffer = &isp->sub_osd_buffer[chn];
 +#if 0
@@ -4314,6 +4313,7 @@ index 000000000..97f00ee92
 +	/* an oversized or wrapped bitmap is refused, not clamped to half the buffer */
 +	if ((u64)p_context->osd_width * p_context->osd_height / 2 > bytes_osd)
 +		return -EINVAL;
++	isp->sub_osd_update_flag = 0;
 +	osd_len = p_context->osd_width * p_context->osd_height / 2;
 +
 +	memcpy(p_osd_buffer, p_context, sizeof(AK_ISP_OSD_CONTEXT_ATTR));

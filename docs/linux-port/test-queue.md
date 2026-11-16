@@ -63,7 +63,9 @@ per flash write.
 - **What:** the encoder IRQ arm/mask is balanced in every path (no IRQ masked for good after a SIGTERM during a wait),
   `mmap` bounds cannot wrap, the delayed audio capture start cannot restart DMA after STOP (plus a NULL check in the L2
   callback), the I2C poll times out after 10 ms (plus the partial-word offset and per-message address), the OSD ioctl
-  size checks cannot wrap, and the restart register is mapped at boot.
+  size checks cannot wrap, and the restart register is mapped at boot. After the Fable review: a refused OSD bitmap
+  leaves the current OSD running (the update flag is cleared only after the size check) and `AK_ISP_SET_OSD` returns
+  the refusal instead of 0.
 - **Revert:** boot the previous CI kernel from the SD card (no switch, compiled in). Do not flash before it passes.
 - **Test:**
   1. Boot and check `/proc/cmdline`. Check dmesg for oopses and I2C timeouts.
@@ -73,7 +75,8 @@ per flash write.
   4. Do 200 fast audio client connect/disconnect cycles.
   5. Do 20 stream stop/start cycles.
   6. Bring Wi-Fi down and up 10 times while streaming.
-  7. Reboot 5 times from the web UI and by `reboot`.
+  7. With `RTSP_ISPOSD=1`, check that the clock is drawn and keeps ticking for the whole 3 h run.
+  8. Reboot 5 times from the web UI and by `reboot`.
 - **Pass:** no oops or kernel error, the 3 h run is stable, the encoder IRQ is alive after every kill, and every reboot
   comes back.
 
