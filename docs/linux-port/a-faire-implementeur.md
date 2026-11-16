@@ -27,10 +27,15 @@ les tests caméra `AUDIT-1116-*` de `test-queue.md`. Ce qui reste ouvert, par or
   en dépend, noyau SD d'abord). Non traités : le `BUG()` du timer de reprise et le code DMA mort.
   Reporté après le test caméra du 0024 : dans `done()`, vérifier RXPKTRDY / TXPKTRDY avant de traiter une IRQ (IRQ
   périmée d'un paquet arrêté), puis relancer l'URB suivant de l'endpoint après un unlink de l'URB actif.
-- [ ] Encodeur (patch 0008, `ak39_venc_wait_irq`) : après un délai dépassé de 2 s, une IRQ tardive est mémorisée
+- [ ] Encodeur (patch 0008, `ak39_venc_wait_irq`) : après un délai dépassé de 2 s, un signal pendant l'attente ou
+  la dernière fermeture (`kill -TERM` de `tc100_rtsp` : le cas le plus fréquent), une IRQ tardive est mémorisée
   (masquage paresseux, contrôleur sans `IRQ_LEVEL`) et rejouée au prochain `enable_irq` : `AKUIO_WAIT_IRQ` peut
-  rendre 0 sans image encodée. Défaut ancien (relecture Fable du 2026-11-16). Piste : effacer l'état IRQ de
-  l'encodeur avant de réarmer, ou `IRQ_DISABLE_UNLAZY`. Une seule modification, testée sur caméra.
+  rendre 0 sans image encodée, et libakuio rend alors le résultat 0 (état de fin vide), pris pour une réussite.
+  Défaut ancien (relecture Fable du 2026-11-16). **Corrigé par le patch 0025** (`[venc-irq]`) : `IRQ_DISABLE_UNLAZY`
+  sur la ligne (désarmée = masquée au contrôleur, rien n'est mémorisé ; la ligne est un niveau, aucune IRQ ne se
+  perd), interrupteur `ak39_venc.irq_unlazy=0` (0644) pour revenir au masquage paresseux. Jamais exécuté : reste le
+  test caméra **AUDIT-1116-VENCIRQ** de `test-queue.md` (noyau SD d'abord). Non traité, plus large : marquer
+  `IRQ_LEVEL` toutes les lignes du contrôleur (patch 0001), qui change le comportement de tous les pilotes.
 - [ ] I2C (patch 0005) : après un `-ETIMEDOUT` le contrôleur n'est pas remis à zéro avant le message suivant.
   Mineur (10 ms suffisent largement à environ 117 kHz).
 - [ ] Durcissement du code C (`-fstack-protector-strong`, `-z relro,-z now`) : mesurer d'abord le coût en taille

@@ -134,6 +134,53 @@ per flash write.
   unlink from the tail). An interrupt of the stopped packet that was already pending is ignored, as before. The
   `BUG()` of the resume timer and the dead DMA code of patch 0003 are not touched.
 
+### AUDIT-1116-VENCIRQ Encoder interrupt: no replay of a late interrupt at the next wait (`[venc-irq]`, kernel patch 0025) — `to test`
+- **What:** `ak39_venc` disarms the encoder interrupt with `disable_irq_nosync()`, which was lazy (line left unmasked).
+  An encoder interrupt that came with nobody waiting (after the 2 s timeout, after a signal during the wait, after
+  the last close: the picture in progress still ends) was noted as pending by the IRQ core and, the controller of
+  patch 0001 not marking its lines `IRQ_LEVEL`, replayed in software at the next `enable_irq()`: `AKUIO_WAIT_IRQ`
+  returned 0 at once with nothing encoded, libakuio read an end status of 0 and reported result 0, and the free
+  encoder took the stream buffer of a core that was still encoding. The likeliest way in is a `kill -TERM` of
+  `tc100_rtsp` (it spends most of its time in that wait): the note survives the close and hits the first picture of
+  the next process. Patch 0025 sets `IRQ_DISABLE_UNLAZY` on the line: disarmed = masked at the controller, nothing is
+  noted. The line is a level (no latch, no acknowledge in the controller; the end status 0x8018 stays set until user
+  space clears it), so an end that is still pending fires at the next unmask: no interrupt is lost. The `irq_armed`
+  accounting of AUDIT-1116-KERNEL is unchanged (the patch only adds lines). Compiled by CI only, never run.
+- **Switch:** `echo 0 > /sys/module/ak39_venc/parameters/irq_unlazy` (0644, read at every wait) restores the lazy
+  disable; `echo 1` turns the fix back on (a note taken while it was 0 can still be replayed once). Or boot the
+  previous CI kernel from the SD card. SD kernel first, do not flash before it passes; one kernel change at a time
+  (not together with patch 0024 if a failure must be attributed).
+- **Test:**
+  1. Boot the SD kernel, check `/proc/cmdline` (full initrd size) and `cat /sys/module/ak39_venc/parameters/irq_unlazy`
+     (`Y`). Note the encoder line: `grep venc /proc/interrupts`.
+  2. 3 h of 1080p H.265 with audio (`-a 1`), a client connected. Every 30 min read `grep venc /proc/interrupts` and
+     the last `STAT` line: the interrupt count must grow at the rate of the encoded pictures (`enc` + `sub_enc`, plus
+     the JPEG snapshots taken), not faster (a replay adds an interrupt without a picture) and without 2 s holes.
+     In the log: no `free encoder: ... picture failed` line; `enc_ms` stays at its usual value (a replayed wait gives
+     a picture "encoded" in about 0 ms, a lost interrupt gives 2000 ms).
+  3. 50 times, while a client plays the stream: `kill -TERM` of `tc100_rtsp`, then restart with the arguments of
+     `v3/autorun-linux66.sh`. After each restart: the video comes back, the first picture decodes (`ffprobe` or VLC
+     without a grey / broken first GOP), the log has no `picture failed` line with `wait 0; after: 8018 00000000`
+     (the signature of a replayed wait: success reported, empty end status), and the encoder line of
+     `/proc/interrupts` counts again.
+  4. Control, to know whether the defect showed at all on this camera: `echo 0 > .../irq_unlazy`, repeat 20 of the
+     kills of step 3 and compare the first pictures and the log; then `echo 1` and one more kill + restart (this one
+     may still show one replay), then five clean ones.
+  5. Induced timeout, optional and only with the owner next to the camera (it stops the encoder clock from Linux, a
+     reboot undoes it; nothing is written to the flash): while streaming, gate the encoder clock for 3 s (bit 18 of
+     SYSCTRL 0x0800001c, e.g. `v=$(devmem 0x0800001c); devmem 0x0800001c 32 $((v | 0x40000)); sleep 3; devmem
+     0x0800001c 32 $v`, if the image has `devmem`). Expected: `picture failed` lines with `wait -1` during the gate
+     (2 s each), then the stream resumes by itself with an IDR, the interrupt count grows again, and no later picture
+     is reported in 0 ms. Pausing the sensor does not give this timeout (the encoder reads the frame from memory;
+     the capture stall has its own exit, AUDIT-1116-RTSP). This step checks the recovery after a timeout; the late
+     interrupt itself is produced by step 3.
+  6. `dmesg`: no `irq NN: nobody cared`, no `Unbalanced enable for IRQ`, no oops.
+- **Pass:** 3 h without a stall, a restart of `tc100_rtsp` or a failed picture; the interrupt count follows the
+  picture count; 50 of 50 restarts give a clean first picture and a counting interrupt line; after the induced
+  timeout (if done) the stream resumes without a restart; no kernel message. A 2 s stall per picture with
+  `irq_unlazy=1` that disappears with `=0` would mean a lost interrupt (the line is not the level it is taken for):
+  fail, leave the switch at 0 and report.
+
 ### AUDIT-1116-BOOT Boot counter saved at once after an unclean end — `to test`
 - **What:** `boot-guard start` saves the counter synchronously when the previous run did not end with a requested
   restart, or when the count is already >= 1. A crash at video start is now counted, and safe mode is reached on the

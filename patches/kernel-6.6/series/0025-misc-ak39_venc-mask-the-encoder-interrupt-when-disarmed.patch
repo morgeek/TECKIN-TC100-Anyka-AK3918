@@ -1,0 +1,94 @@
+From e400d6beceec8b96625b3b7159d906f6c10e68cb Mon Sep 17 00:00:00 2001
+From: morgeek <morgeek@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 19:54:56 +0100
+Subject: [PATCH] misc: ak39_venc: mask the encoder interrupt when it is
+ disarmed, no replay at the next wait
+
+ak39_venc_wait_irq() arms the encoder interrupt with enable_irq() and every path that disarms it (the handler, the 2 s timeout, a signal, the last close) calls disable_irq_nosync(). That disable is lazy: the line stays unmasked at the controller. Once the handler has run this does not matter (the level flow handler masks the line before the handler and does not unmask a disabled line). After a timeout, a signal or the last close it does: the picture in progress still ends, the interrupt comes with the line disabled, and handle_level_irq() masks it and notes IRQS_PENDING. The interrupt controller (drivers/irqchip/irq-ak39.c) sets no IRQ_LEVEL, so check_irq_resend() does not drop that note: the next enable_irq() replays it through the software resend tasklet and AKUIO_WAIT_IRQ returns 0 at once, whatever user space did to the core in between (soft reset at open and close, AKUIO_VIDEO_RESET and status clear after a failed wait). libakuio then reads an end status of 0 and reports result 0, which the free encoder takes for a finished picture: it reads the stream buffer of a core that is still encoding. The most common way in is a SIGTERM of tc100_rtsp during a wait: the note survives the close and hits the first picture of the next process.
+
+Set IRQ_DISABLE_UNLAZY on the line: irq_disable() then masks at the controller, no interrupt is taken while the line is disarmed and nothing is noted. No interrupt can be lost by this: the controller has no latch and no acknowledge (its status register follows the lines, which is why the level flow handler works with mask/unmask only), and the encoder keeps its end status (0x8018, write 1 to clear, cleared by user space) set, so an end that is still pending fires as soon as the next wait unmasks the line. The arm/mask accounting (irq_armed under v->lock) is not changed.
+
+ak39_venc.irq_unlazy=0 (0644, read at every wait with the line disarmed) restores the lazy disable.
+
+Not run on a camera yet: test-queue entry AUDIT-1116-VENCIRQ.
+---
+ drivers/misc/ak39_venc.c | 35 +++++++++++++++++++++++++++++++++++
+ 1 file changed, 35 insertions(+)
+
+diff --git a/drivers/misc/ak39_venc.c b/drivers/misc/ak39_venc.c
+index 82d66c5..abe5517 100644
+--- a/drivers/misc/ak39_venc.c
++++ b/drivers/misc/ak39_venc.c
+@@ -48,6 +48,7 @@ struct ak39_venc {
+ 	int irq;
+ 	struct completion irq_done;
+ 	bool irq_armed;
++	bool irq_unlazy_set;		/* IRQ_DISABLE_UNLAZY is set on the line */
+ 	spinlock_t lock;
+ 	struct mutex pool_lock;
+ 	void *pool_virt;
+@@ -74,6 +75,24 @@ static char *pool = "9600K";
+ module_param(pool, charp, 0444);
+ MODULE_PARM_DESC(pool, "encoder pool size when the memory-region is a reusable CMA area (default 9600K; 12M: the whole area)");
+ 
++/*
++ * disable_irq_nosync() is lazy by default: the line stays unmasked, and an
++ * interrupt that arrives while nobody waits (after the 2 s timeout, after a
++ * signal, after the last close) is only noted as pending by the IRQ core.
++ * The interrupt controller does not mark its lines as level, so the next
++ * enable_irq() replays that note in software: AKUIO_WAIT_IRQ returned 0 at
++ * once, with nothing encoded and whatever user space did to the core since.
++ * With IRQ_DISABLE_UNLAZY the line is masked at the controller as soon as it
++ * is disarmed, so nothing is ever noted. No interrupt is lost: the line is a
++ * level (the controller has no latch and no acknowledge, the end status stays
++ * set until user space clears it), so a still pending end fires at the unmask.
++ * irq_unlazy=0 restores the lazy disable; read at every wait (a note taken
++ * before a change to 1 can still be replayed once).
++ */
++static bool irq_unlazy = true;
++module_param(irq_unlazy, bool, 0644);
++MODULE_PARM_DESC(irq_unlazy, "mask the encoder interrupt at the controller when it is disarmed, so that a late interrupt is not replayed at the next wait (default 1; 0: lazy disable as before)");
++
+ #define GUARD_PAT	0xA5
+ #define GUARD_NEAR	SZ_64K
+ 
+@@ -132,6 +151,20 @@ static void venc_soft_reset(void)
+ 	sysctrl_update(SYSCTRL_SOFTRST, VENC_BIT, 0);
+ }
+ 
++/* probe, then every wait with v->lock held and the line disarmed (disabled) */
++static void ak39_venc_irq_mode(struct ak39_venc *v)
++{
++	bool want = READ_ONCE(irq_unlazy);
++
++	if (want == v->irq_unlazy_set)
++		return;
++	if (want)
++		irq_set_status_flags(v->irq, IRQ_DISABLE_UNLAZY);
++	else
++		irq_clear_status_flags(v->irq, IRQ_DISABLE_UNLAZY);
++	v->irq_unlazy_set = want;
++}
++
+ static irqreturn_t ak39_venc_irq(int irq, void *data)
+ {
+ 	struct ak39_venc *v = data;
+@@ -203,6 +236,7 @@ static int ak39_venc_wait_irq(struct ak39_venc *v)
+ 	if (!v->irq_armed) {
+ 		v->irq_armed = true;
+ 		reinit_completion(&v->irq_done);
++		ak39_venc_irq_mode(v);
+ 		enable_irq(v->irq);
+ 	}
+ 	spin_unlock_irqrestore(&v->lock, flags);
+@@ -380,6 +414,7 @@ static int ak39_venc_probe(struct platform_device *pdev)
+ 	if (v->irq < 0)
+ 		return v->irq;
+ 	irq_set_status_flags(v->irq, IRQ_NOAUTOEN);
++	ak39_venc_irq_mode(v);
+ 	ret = devm_request_irq(dev, v->irq, ak39_venc_irq, 0, "ak39-venc", v);
+ 	if (ret)
+ 		return ret;
+-- 
+2.43.0
+
