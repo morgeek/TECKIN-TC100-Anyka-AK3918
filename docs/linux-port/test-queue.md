@@ -389,6 +389,15 @@ per flash write.
   KB / 5 s was the dawn light, not the code). rc44 stock on the same scene before: about 400 KB / 5 s (its quality
   QP was 27, no `RTSP_VBR_QP`). Still to see: 2 (a busy / noisy night scene rising above 650 kbit/s), 1 with
   `RTSP_FE_SUBBUF=1`, 3 smart=1, 4 over 24 h, 5. Left running on the .24 from 08:17 UTC.
+- **2026-11-16 18:55, both cameras on 3.0.1 for 32 h (one night):** no reboot; `tc100_rtsp` up 26.5 h without a
+  restart on both (its only restart, 15/11 15:24-15:27, follows the owner's `set_all_password` in the audit log), so
+  no failure storm (L2 would exit after 30); 0 `picture failed` / AKUIO_WAIT_IRQ in the logs kept (the log cap keeps the
+  last 2-4 h only: a per-day failure counter in `STAT` or the stability file would close this). Memory: `MemAvailable`
+  17.1-17.7 MB on both, 17.9 MB just after boot: no leak. Night: .11 01:32 -> 07:47, .24 23:21 -> 07:49 (local),
+  switches done by the vendor-luma source; **.24 went back to day for 3 min at dawn (06:43 -> 06:46, then night until
+  07:49)**: the dawn flip-flop of the polish list, seen once. Evening (18:52) both in day mode with room lights on
+  (exposure at its maximum, luma 87 / 111): correct. .24: `FAT-fs ... not properly unmounted` at the update reboot
+  (SD card, harmless). Still to see by eye: the AWB-05 tint (owner).
 - **2026-11-15, .24, second look (same still night scene):** the RAM binary had 4 `picture failed` (AKUIO_WAIT_IRQ
   timeout, one picture each, the next one fine) in 15 min, each within seconds of a `service-watchdog` restart of the
   stock `tc100_rtsp` (its check did not see a process of that name): that start resets the encoder core (`fe_hw_init`)
