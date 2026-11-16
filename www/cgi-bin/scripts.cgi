@@ -637,7 +637,10 @@ if [ -n "$F_script" ]; then
         if [ "$_start_rc" -eq 0 ]; then
           case "$script" in privacy|motion-detection|recording) sh /mnt/scripts/presence-mode.sh manual >/dev/null 2>&1 || true ;; esac
         fi
-        echo "<pre>$(cat "$_start_out" 2>/dev/null)</pre>"
+        # HTML-escaped, as the view action: the output can hold "<" (a service name, an error text)
+        printf '<pre>'
+        sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' "$_start_out" 2>/dev/null
+        echo '</pre>'
         rm -f "$_start_out"
         invalidate_allstates_cache
         ;;

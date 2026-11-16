@@ -571,7 +571,7 @@ class EjectUnmountsARefusedCard(unittest.TestCase):
             status = t / 'status'; status.write_text('state=paused\n')
             env = dict(os.environ, PATH=f'{t}/bin:' + os.environ['PATH'], REC_SD_MOUNT=str(sd),
                        REC_PROC_MOUNTS=str(mounts), TC100_STORAGE_FILE=str(t / 'flash'), TC100FIX_REC_STATUS=str(status),
-                       REC_L66_FLAG=str(t / 'flash'), REC_FLASHMODE_FLAG=str(t / 'flash'))   # 3.0 in flash mode
+                       REC_FLASHMODE_FLAG=str(t / 'flash'))   # 3.0 in flash mode
             r = subprocess.run(['sh', str(ROOT / 'scripts/rec-storage.sh'), 'eject'], env=env, capture_output=True,
                                text=True, timeout=30)
             self.assertIn('ok', r.stdout)

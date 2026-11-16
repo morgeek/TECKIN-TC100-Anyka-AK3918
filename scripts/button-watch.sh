@@ -88,7 +88,8 @@ _bw_poll()
         read -t 1 _x <> "$_fifo" 2>/dev/null || [ -p "$_fifo" ] || sleep 1
     done
 }
-[ -f "${BUTTON_L66_FLAG:-/tmp/linux66}" ] && [ ! -e "$DEV" ] && _bw_poll
+# No input device (3.0: gpio_keys is off): the GPIO is polled.
+[ ! -e "$DEV" ] && _bw_poll
 
 # _bw_event -> sets ev_sec ev_type ev_value; 1 at end of input
 _bw_event()

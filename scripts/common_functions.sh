@@ -691,7 +691,7 @@ all_password()
 {
     DEFAULT_LOGIN="root"
     printf '%s\n%s\n' "$1" "$1" | passwd > /dev/null 2>&1
-    http_password $1
+    http_password "$1"
     rewrite_config /mnt/config/rtspserver.conf USERNAME "$DEFAULT_LOGIN"
     rewrite_config /mnt/config/rtspserver.conf USERPASSWORD "$1"
     echo "$1" > /mnt/config/user.pwd

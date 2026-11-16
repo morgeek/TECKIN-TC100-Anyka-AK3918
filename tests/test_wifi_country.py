@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -181,6 +182,67 @@ class WifiFirstAtBoot(unittest.TestCase):
         s = text('v3/S39tc100-linux66')
         i = s.index('> /etc/wpa_supplicant.conf )')
         self.assertIn('chmod 600 /etc/wpa_supplicant.conf', s[i:i + 120])
+
+
+class RescueHardCap(unittest.TestCase):
+    """scripts/wifi-rescue.sh (3.0): devices on the rescue access point keep it up only until WIFI_RESCUE_MAX_MIN
+    (default 30) after its start; then the station retries, even with a neighbour connected with the rescue password.
+    One pass of the watcher loop is run: the script is sourced (its case does nothing when $0 is not its own name),
+    the link and the access point are faked, and the sleep at the end of the pass is replaced by an exit."""
+
+    DRIVER = '''. "$SCRIPT"
+wr_link_ok() { return 1; }
+wr_ap_up() { return 0; }
+wr_ap_clients() { echo %d; }
+wr_stop_ap() { echo "stop: $1"; }
+_wr_wait() { exit 0; }
+wr_run
+'''
+
+    def one_pass(self, clients, since_ago_s, manual_left_s, boot_extra=''):
+        with tempfile.TemporaryDirectory() as t:
+            d = Path(t)
+            run = d / 'run'; run.mkdir()
+            now = int(time.time())
+            (run / 'since').write_text('%d\n' % (now - since_ago_s))
+            (run / 'manual_until').write_text('%d\n' % (now + manual_left_s))
+            # the keys the shipped boot.conf always has (the watcher reads them without a default); not WIFI_RESCUE_MAX_MIN
+            # unless the case sets it: an upgraded camera's boot.conf has no such key
+            (d / 'boot.conf').write_text('WIFI_RESCUE_AFTER_MIN=10\nWIFI_RESCUE_MANUAL_MIN=15\n' + boot_extra)
+            drv = d / 'drv.sh'
+            drv.write_text(self.DRIVER % clients)
+            env = dict(os.environ, SCRIPT=str(ROOT / 'scripts/wifi-rescue.sh'), WR_RUN=str(run),
+                       WR_BOOT_CONF=str(d / 'boot.conf'), WR_STEP='30')
+            r = subprocess.run(SHELL + [str(drv)], capture_output=True, text=True, env=env, timeout=30)
+            return r.stdout.strip()
+
+    def test_devices_keep_it_up_until_the_cap(self):
+        self.assertEqual(self.one_pass(clients=1, since_ago_s=60, manual_left_s=-1), '')            # 1 min old
+        self.assertEqual(self.one_pass(clients=1, since_ago_s=20 * 60, manual_left_s=-1), '')       # under 30 min
+        self.assertEqual(self.one_pass(clients=1, since_ago_s=31 * 60, manual_left_s=600), '')      # manual window on
+        self.assertEqual(self.one_pass(clients=1, since_ago_s=31 * 60, manual_left_s=-1),
+                         'stop: station retry, hard cap with devices connected')
+
+    def test_no_device_stops_it_after_the_manual_window(self):
+        self.assertEqual(self.one_pass(clients=0, since_ago_s=60, manual_left_s=-1), 'stop: station retry')
+        self.assertEqual(self.one_pass(clients=0, since_ago_s=60, manual_left_s=600), '')
+
+    def test_cap_is_a_boot_conf_key(self):
+        self.assertEqual(self.one_pass(clients=1, since_ago_s=40 * 60, manual_left_s=-1,
+                                       boot_extra='WIFI_RESCUE_MAX_MIN=45\n'), '')
+        self.assertEqual(self.one_pass(clients=1, since_ago_s=50 * 60, manual_left_s=-1,
+                                       boot_extra='WIFI_RESCUE_MAX_MIN=45\n'),
+                         'stop: station retry, hard cap with devices connected')
+
+    def test_shipped_default_and_single_source(self):
+        self.assertIn('\nWIFI_RESCUE_MAX_MIN=30\n', text('config/boot.conf.dist'))
+        self.assertIn('WIFI_RESCUE_MAX_MIN u:1:1440', text('scripts/config-transaction.sh'))
+
+    def test_no_2x_dead_side_left(self):
+        code = re.sub(r'(?m)^\s*#.*$', '', text('scripts/wifi-rescue.sh'))
+        self.assertNotIn('L66', code)
+        self.assertNotIn('wlan1', code)
+        self.assertNotIn('rtl871xdrv', code)
 
 
 if __name__ == '__main__':

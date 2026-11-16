@@ -69,12 +69,22 @@ wt_apply()
         printf '}\n'
         # The networks of the previous file stay as a fallback (priority 1):
         # a typo in wifi.txt does not take the camera off the old network.
-        [ -f "$_out" ] && awk -v new="$_ssid" '
-            /^[ \t]*network=\{/ { inb = 1; blk = ""; ss = "" }
+        # One fallback per SSID: the most recent previous block of that SSID (the newest block comes first in the
+        # file). For the SSID being saved, a block with the same password as the new one is not a fallback: the
+        # most recent block with another password is kept instead, so a mistyped password saved again does not
+        # remove the working one (wpa_supplicant tries both, priority 2 then 1).
+        [ -f "$_out" ] && awk -v new="$_ssid" -v newpsk="$_psk" '
+            /^[ \t]*network=\{/ { inb = 1; blk = ""; ss = ""; pk = "" }
             inb { line = $0
                   if (line ~ /^[ \t]*priority=/) next
                   if (line ~ /^[ \t]*ssid="/) { ss = line; sub(/^[ \t]*ssid="/, "", ss); sub(/"[ \t]*$/, "", ss) }
-                  if (line ~ /^[ \t]*\}/) { if (ss != new && ss != "") printf "%s\tpriority=1\n}\n", blk; inb = 0; next }
+                  if (line ~ /^[ \t]*psk="/) { pk = line; sub(/^[ \t]*psk="/, "", pk); sub(/"[ \t]*$/, "", pk) }
+                  if (line ~ /^[ \t]*\}/) {
+                      if (ss != "" && !(ss in seen) && !(ss == new && pk == newpsk)) {
+                          seen[ss] = 1
+                          printf "%s\tpriority=1\n}\n", blk
+                      }
+                      inb = 0; next }
                   blk = blk line "\n" }' "$_out"
         # First file: the network the vendor setup connects to (anyka_cfg.ini,
         # [wireless] ssid/password) is the fallback.

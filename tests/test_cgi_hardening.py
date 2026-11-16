@@ -127,5 +127,38 @@ class CgiHardening(unittest.TestCase):
         self.assertIn('tc_check_flat "$_tc_file" NOTIFY_UPLOAD_AUTH ntfy_auth "$_tc_rel" || return 1', tx)
 
 
+class AuditShellQuotingEscapingRejection(unittest.TestCase):
+    """audit 2026-11-16, items 2-5: passwords are quoted, the start output of a script is escaped like the view action,
+    a quote or a backslash in a Wi-Fi name or password is refused with a message (not stripped), the MQTT password
+    is refused when it holds a character outside its set, and the Wi-Fi credentials file is written with umask 077."""
+
+    def test_http_password_argument_is_quoted(self):
+        src = (ROOT / "scripts/common_functions.sh").read_text(encoding="utf-8")
+        self.assertIn('    http_password "$1"\n', src)
+        self.assertNotIn("    http_password $1\n", src)
+
+    def test_start_output_is_html_escaped(self):
+        src = (ROOT / "www/cgi-bin/scripts.cgi").read_text(encoding="utf-8")
+        self.assertNotIn('echo "<pre>$(cat "$_start_out"', src)
+        self.assertIn("sed -e 's/&/\\&amp;/g' -e 's/</\\&lt;/g' -e 's/>/\\&gt;/g' \"$_start_out\" 2>/dev/null", src)
+
+    def test_network_wifi_refuses_quote_and_backslash(self):
+        src = (ROOT / "scripts/action.d/network.sh").read_text(encoding="utf-8")
+        self.assertNotIn('gsub(/["\\\\]/, "")', src)
+        self.assertIn('*\\"*|*\\\\*) json_body_err "INVALID_CHARS"', src)
+        self.assertIn("( umask 077; mkdir -p \"$_wd\" && printf", src)
+
+    def test_wizard_wifi_and_mqtt_password_are_refused_not_stripped(self):
+        src = (ROOT / "www/cgi-bin/wizard.cgi").read_text(encoding="utf-8")
+        self.assertIn('"error":"invalid_wifi_chars"', src)
+        self.assertIn("invalid_wifi_chars:", src)                 # the message the page shows
+        self.assertIn("invalid_mqtt_password:", src)
+        self.assertIn('[ "$_mqtt_pass" = "$_mqtt_pass_in" ] ||', src)
+        self.assertIn('( umask 077; mkdir -p "$_wd" && {', src)
+        # the MQTT check comes before anything is written
+        self.assertLess(src.index('"error":"invalid_mqtt_password"'), src.index('set_conf "$MQTT_CONF" MQTT_PASSWORD'))
+
+
+
 if __name__ == "__main__":
     unittest.main()

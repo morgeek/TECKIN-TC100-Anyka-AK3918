@@ -558,6 +558,7 @@ _tc_validate_candidate_body()
       tc_check_flat "$_tc_file" WIFI_RESCUE bool "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" WIFI_RESCUE_AFTER_MIN u:2:1440 "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" WIFI_RESCUE_MANUAL_MIN u:1:1440 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" WIFI_RESCUE_MAX_MIN u:1:1440 "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" WIFI_RESCUE_SSID rescue_ssid_optional "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" WIFI_RESCUE_PSK rescue_psk_optional "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" BOOT_GUARD bool "$_tc_rel" || return 1

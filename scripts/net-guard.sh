@@ -108,6 +108,9 @@ _ng_limit()
     if _ng_rescue_on; then
         _ng_kv WIFI_RESCUE_AFTER_MIN; _ra=$_kv; case "$_ra" in ''|*[!0-9]*|0) _ra=10 ;; esac
         _ng_kv WIFI_RESCUE_MANUAL_MIN; _rm=$_kv; case "$_rm" in ''|*[!0-9]*|0) _rm=15 ;; esac
+        # with devices connected the access point stays up to WIFI_RESCUE_MAX_MIN (wifi-rescue.sh)
+        _ng_kv WIFI_RESCUE_MAX_MIN; _rx=$_kv; case "$_rx" in ''|*[!0-9]*|0) _rx=30 ;; esac
+        [ "$_rx" -gt "$_rm" ] && _rm=$_rx
         _rl=$(( 2 * (_ra + _rm) * 60 ))
         [ "$_l" -lt "$_rl" ] && _l=$_rl
     fi

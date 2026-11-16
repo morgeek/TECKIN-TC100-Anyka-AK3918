@@ -1586,12 +1586,55 @@ class WifiTxt(unittest.TestCase):
             self.assertEqual(oct((d / 'wpa.conf').stat().st_mode & 0o777), '0o600')
             self.assertFalse((d / 'sd' / 'wifi.txt').exists())
             self.assertNotIn('new secret', (d / 'sd' / 'wifi-applied.txt').read_text())
-            # a second file keeps the earlier networks as fallbacks, once each
+            # a second file keeps the earlier networks as fallbacks, one block per SSID (Home: the old password too)
             self.assertEqual(self.apply(d, 'SSID=Home\nPASSWORD=changed99\n'), 0)
             conf = (d / 'wpa.conf').read_text()
-            self.assertEqual(conf.count('ssid="Home"'), 1)
+            self.assertEqual(conf.count('ssid="Home"'), 2)
             self.assertIn('psk="changed99"\n\tpriority=2', conf)
-            self.assertIn('ssid="Phone Hotspot"', conf)
+            self.assertIn('psk="homepass99"\n\tpriority=1', conf)
+            self.assertIn('ssid="Phone Hotspot"\n\tscan_ssid=1\n\tkey_mgmt=WPA-PSK\n\tpsk="new secret 1"\n\tpriority=1', conf)
+
+    def test_same_ssid_with_a_mistyped_password_keeps_the_working_one(self):
+        """Re-saving the SSID in use with a wrong password must not delete the only working credentials."""
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            self.assertEqual(self.apply(d, 'SSID=Home\nPASSWORD=goodpass1\n'), 0)
+            self.assertEqual(self.apply(d, 'SSID=Home\nPASSWORD=typo9999\n'), 0)
+            conf = (d / 'wpa.conf').read_text()
+            self.assertIn('psk="typo9999"\n\tpriority=2', conf)
+            self.assertIn('psk="goodpass1"\n\tpriority=1', conf)
+            self.assertEqual(conf.count('ssid="Home"'), 2)
+            # saved again and again with the typo: still one fallback for the SSID, the working password (no pile-up,
+            # and the typo is not repeated as a fallback of itself)
+            for _ in range(3):
+                self.assertEqual(self.apply(d, 'SSID=Home\nPASSWORD=typo9999\n'), 0)
+            conf = (d / 'wpa.conf').read_text()
+            self.assertEqual(conf.count('ssid="Home"'), 2)
+            self.assertIn('psk="typo9999"\n\tpriority=2', conf)
+            self.assertIn('psk="goodpass1"\n\tpriority=1', conf)
+            # the right password saved again: the typo is the fallback, the good one is not repeated
+            self.assertEqual(self.apply(d, 'SSID=Home\nPASSWORD=goodpass1\n'), 0)
+            conf = (d / 'wpa.conf').read_text()
+            self.assertEqual(conf.count('ssid="Home"'), 2)
+            self.assertIn('psk="goodpass1"\n\tpriority=2', conf)
+            self.assertIn('psk="typo9999"\n\tpriority=1', conf)
+
+    def test_same_ssid_same_password_is_not_kept_twice(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            self.assertEqual(self.apply(d, 'SSID=Home\nPASSWORD=goodpass1\n'), 0)
+            self.assertEqual(self.apply(d, 'SSID=Home\nPASSWORD=goodpass1\n'), 0)
+            conf = (d / 'wpa.conf').read_text()
+            self.assertEqual(conf.count('network={'), 1)
+            self.assertNotIn('priority=1', conf)
+
+    def test_quote_or_backslash_in_wifi_txt_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / 'wpa.conf').write_text('old\n')
+            self.assertEqual(self.apply(d, 'SSID=Home\nPASSWORD=ab"cdefgh\n'), 2)
+            self.assertIn('no " or \\', (d / 'sd' / 'wifi-invalid.txt').read_text())
+            self.assertEqual((d / 'wpa.conf').read_text(), 'old\n')
 
     def test_invalid_file_is_set_aside_and_conf_untouched(self):
         with tempfile.TemporaryDirectory() as d:

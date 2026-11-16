@@ -26,8 +26,7 @@ PROC_MOUNTS="${REC_PROC_MOUNTS:-/proc/mounts}"
 
 # 3.0 (Linux 6.6) in flash mode (/tmp/flashmode): the card is the video storage at /mnt/sd; without one, a
 # 16 KiB RAM placeholder is mounted there (nothing can be recorded into RAM), put back after an eject.
-L66=0; [ -f "${REC_L66_FLAG:-/tmp/linux66}" ] && L66=1
-_flash() { [ "$(cat "$STORAGE_FILE" 2>/dev/null)" = flash ] || { [ "$L66" = 1 ] && [ -f "${REC_FLASHMODE_FLAG:-/tmp/flashmode}" ]; }; }
+_flash() { [ "$(cat "$STORAGE_FILE" 2>/dev/null)" = flash ] || [ -f "${REC_FLASHMODE_FLAG:-/tmp/flashmode}" ]; }
 
 # the files that make the vendor boot use a card (same list as scripts/sd-diag.sh): such a card is refused
 SD_BOOT_FILES="wifitest uImage uimage root.sqsh4 usr.sqsh4 usr.jffs2"
@@ -35,13 +34,9 @@ _boot_file() { for _bad in $SD_BOOT_FILES; do [ -e "$MNT_SD/$_bad" ] && { echo "
 
 # a usable card is mounted: a FAT/exFAT file system without boot files (R25: a boot card mounted by an earlier call
 # counted as mounted and was used)
-_mounted()
-{
-    if [ "$L66" = 1 ]; then grep -qE " $MNT_SD (vfat|exfat) " "$PROC_MOUNTS" 2>/dev/null && ! _boot_file >/dev/null
-    else grep -q " $MNT_SD " "$PROC_MOUNTS" 2>/dev/null; fi
-}
+_mounted() { grep -qE " $MNT_SD (vfat|exfat) " "$PROC_MOUNTS" 2>/dev/null && ! _boot_file >/dev/null; }
 
-_placeholder() { [ "$L66" = 1 ] && ! grep -q " $MNT_SD " "$PROC_MOUNTS" 2>/dev/null && mount -t tmpfs -o size=16k tmpfs "$MNT_SD" 2>/dev/null; return 0; }
+_placeholder() { ! grep -q " $MNT_SD " "$PROC_MOUNTS" 2>/dev/null && mount -t tmpfs -o size=16k tmpfs "$MNT_SD" 2>/dev/null; return 0; }
 
 # R25 (IPCAM1, rc31): a refused card stayed mounted read-write. Now: one caller at a time (lock), the card is mounted
 # READ-ONLY first and switched to read-write only once it is known to carry no boot file, and a refused card that
@@ -65,9 +60,8 @@ _mount_card_locked()
         _bf=$(_boot_file) || return 0                      # mounted and usable
         _refuse_card "$_bf"; return 1                      # mounted by someone, but a boot card
     fi
-    [ "$L66" = 1 ] || { grep -q " $MNT_SD " "$PROC_MOUNTS" 2>/dev/null && return 0; }
     mkdir -p "$MNT_SD" 2>/dev/null
-    [ "$L66" = 1 ] && umount "$MNT_SD" 2>/dev/null   # the RAM placeholder
+    umount "$MNT_SD" 2>/dev/null   # the RAM placeholder
     for _d in $DEVS; do
         [ -b "$_d" ] || continue
         # (no check here: a full fsck at every remount costs minutes and MB; scripts/sd-diag.sh repair does it on demand
@@ -79,7 +73,7 @@ _mount_card_locked()
                 _refuse_card "$_bf"; return 1
             fi
             mount -o remount,rw "$MNT_SD" 2>/dev/null || logger -t tc100-rec "card left read-only: remount rw failed" 2>/dev/null
-            [ "$L66" = 1 ] && mkdir -p "$MNT_SD/DCIM" 2>/dev/null
+            mkdir -p "$MNT_SD/DCIM" 2>/dev/null
             return 0
         fi
     done

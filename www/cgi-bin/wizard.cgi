@@ -253,7 +253,7 @@ if [ "$METHOD" = "POST" ]; then
         if [ "$_wl" -gt 32 ] || { [ "$_pl" -gt 0 ] && { [ "$_pl" -lt 8 ] || [ "$_pl" -gt 63 ]; }; }; then
             echo '{"ok":false,"error":"invalid_wifi"}'; exit 0
         fi
-        case "$_wifi_ssid$_wifi_pass" in *\"*|*\\*) echo '{"ok":false,"error":"invalid_wifi"}'; exit 0 ;; esac
+        case "$_wifi_ssid$_wifi_pass" in *\"*|*\\*) echo '{"ok":false,"error":"invalid_wifi_chars"}'; exit 0 ;; esac
     fi
 
     # New camera password (3.0 wizard, optional): same rules as Settings → System → Password.
@@ -270,7 +270,11 @@ if [ "$METHOD" = "POST" ]; then
     _mqtt_port="$(urldecode "$_mqtt_port_raw" | awk '{ gsub(/[^0-9]/, ""); print }')"
     # mqtt.conf is sourced by the bridge: no ( ) either (an unquoted "a(b" is a shell syntax error there)
     _mqtt_user="$(urldecode "$_mqtt_user_raw" | awk '{ gsub(/[^a-zA-Z0-9._@!#%^*=+-]/, ""); print }')"
-    _mqtt_pass="$(urldecode "$_mqtt_pass_raw" | awk '{ gsub(/[^a-zA-Z0-9._@!#%^*=+-]/, ""); print }')"
+    # The MQTT password is refused when it holds a character outside the set below (it used to be stripped
+    # silently, so the broker got another password than the one typed).
+    _mqtt_pass_in="$(urldecode "$_mqtt_pass_raw" | awk 'NR == 1 { sub(/\r$/, ""); print }')"
+    _mqtt_pass="$(printf '%s' "$_mqtt_pass_in" | awk '{ gsub(/[^a-zA-Z0-9._@!#%^*=+-]/, ""); print }')"
+    [ "$_mqtt_pass" = "$_mqtt_pass_in" ] || { echo '{"ok":false,"error":"invalid_mqtt_password"}'; exit 0; }
 
     case "$_mqtt_port" in
         ''|*[!0-9]*) _mqtt_port=1883 ;;
@@ -336,8 +340,9 @@ if [ "$METHOD" = "POST" ]; then
     esac
 
     if [ -n "$_wifi_ssid" ]; then
-        _wd="/tmp/wizard-wifi.$$"; mkdir -p "$_wd"
-        { printf 'SSID=%s\n' "$_wifi_ssid"; [ -n "$_wifi_pass" ] && printf 'PASSWORD=%s\n' "$_wifi_pass"; } > "$_wd/wifi.txt"
+        # the credentials file is private (umask 077, in a subshell: the caller's umask is unchanged)
+        _wd="/tmp/wizard-wifi.$$"
+        ( umask 077; mkdir -p "$_wd" && { printf 'SSID=%s\n' "$_wifi_ssid"; [ -n "$_wifi_pass" ] && printf 'PASSWORD=%s\n' "$_wifi_pass"; } > "$_wd/wifi.txt" )
         [ ! -f "$WIFI_CONF" ] && [ -f /etc/wpa_supplicant.conf ] && cp /etc/wpa_supplicant.conf "$WIFI_CONF"
         if sh "$SCRIPTS/wifi-txt.sh" apply "$_wd/wifi.txt" "$WIFI_CONF" /etc/jffs2/anyka_cfg.ini >/dev/null 2>&1; then
             _wifi=applied
@@ -1051,6 +1056,8 @@ function renderSummary() {
 
 var ERRORS = {
     invalid_wifi: 'The Wi-Fi network name or password is not valid.',
+    invalid_wifi_chars: 'The Wi-Fi network name and password cannot contain a double quote or a backslash.',
+    invalid_mqtt_password: 'The MQTT password may only contain letters, digits and . _ @ ! # % ^ * = + - (no spaces, quotes, slashes or brackets).',
     invalid_wifi_country: 'The Wi-Fi country code is not valid (two letters ISO 3166).',
     invalid_tz: 'The time zone is not valid: choose another one in the list.',
     invalid_frigate_url: 'The Frigate address must look like http://192.168.1.20:5000.',

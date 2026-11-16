@@ -329,8 +329,13 @@
             _wpa_conf=/mnt/config/wpa_supplicant.conf
             [ -f "$_wpa_conf" ] || { [ -f /etc/wpa_supplicant.conf ] && cp /etc/wpa_supplicant.conf "$_wpa_conf"; }
         fi
-        _ssid="$(printf '%s' "${F_ssid:-}" | awk '{ gsub(/["\\]/, ""); print }' | cut -c1-32)"
-        _psk="$(printf '%s' "${F_psk:-}" | awk '{ gsub(/["\\]/, ""); print }' | cut -c1-63)"
+        # A quote or a backslash cannot be written in wpa_supplicant.conf (or wifi.txt): refused, not stripped
+        # (a stripped password would silently differ from the one typed).
+        case "${F_ssid:-}${F_psk:-}" in
+            *\"*|*\\*) json_body_err "INVALID_CHARS" "The network name and the password cannot contain a double quote or a backslash"; exit 0 ;;
+        esac
+        _ssid="$(printf '%s' "${F_ssid:-}" | cut -c1-32)"
+        _psk="$(printf '%s' "${F_psk:-}" | cut -c1-63)"
         _ssid_len="$(printf '%s' "$_ssid" | wc -c)"
         _psk_len="$(printf '%s' "$_psk" | wc -c)"
         if [ "$_ssid_len" -lt 1 ]; then
@@ -341,8 +346,9 @@
             # scripts/wifi-txt.sh writes the new network first and keeps the
             # ones already in the file as a fallback (priority 1): a wrong
             # password does not take the camera off the network it was on.
-            _wd="/tmp/wifi-set.$$"; mkdir -p "$_wd"
-            printf 'SSID=%s\nPASSWORD=%s\n' "$_ssid" "$_psk" > "$_wd/wifi.txt"
+            # the credentials file is private (umask 077, in a subshell: the caller's umask is unchanged)
+            _wd="/tmp/wifi-set.$$"
+            ( umask 077; mkdir -p "$_wd" && printf 'SSID=%s\nPASSWORD=%s\n' "$_ssid" "$_psk" > "$_wd/wifi.txt" )
             if ! sh /mnt/scripts/wifi-txt.sh apply "$_wd/wifi.txt" "$_wpa_conf" /etc/jffs2/anyka_cfg.ini >/dev/null 2>&1; then
                 rm -rf "$_wd"
                 json_body_err "WRITE_ERROR" "Failed to write WiFi configuration"
