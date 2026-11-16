@@ -60,7 +60,7 @@ class FlashBudget(unittest.TestCase):
         # the fixed size that U-Boot loads is written in these places; they must all agree
         self.assertIn('INITRD_SIZE=%d' % initrd, text('v3/build-release.sh'))
         self.assertIn('INITRD_SIZE=%d' % initrd, text('v3/install/stock-hook.sh'))
-        self.assertIn('-eq %d ]' % initrd, text('v3/install/update66.sh'))
+        self.assertIn('-eq %d ]' % initrd, text('v3/install/imgcheck.sh'))	# shared by update66.sh and install66.sh
         for p in ('v3', 'scripts', 'controlscripts'):
             for f in glob.glob(os.path.join(ROOT, p, '**', '*'), recursive=True):
                 if os.path.isfile(f) and not f.endswith(('.gz', '.pyc')):
