@@ -5,6 +5,25 @@ Les sections datées qui suivent sont des notes historiques des RC précédentes
 foi. La liste d'origine date de rc25 ; les audits des 3, 4 et 6 novembre sont des instantanés, pas des listes de tâches
 à jour.
 
+## Audit du 2026-11-16 (`[audit-1116]`)
+
+L'audit complet est dans [audit-2026-11-16.md](audit-2026-11-16.md). Les corrections sont dans `main` et attendent
+les tests caméra `AUDIT-1116-*` de `test-queue.md`. Ce qui reste ouvert, par ordre de priorité :
+
+- [ ] **AUDIT-1116-FLASHBOOT** (propriétaire). Vérifier qu'une caméra installée par `stock-hook.sh` démarre bien la
+  3.0 depuis la flash : la ligne `flashboot` fait environ 270 caractères, au-delà de la limite de 256.
+- [ ] **AUDIT-1116-FTP** (propriétaire). Vérifier que `ftpd` refuse un mauvais mot de passe.
+- [ ] Ajouter une récupération dans l'initramfs quand `stack` est abîmé (Wi-Fi minimal + telnet ou point d'accès de
+  secours). La section « Unattended recovery » d'AGENTS.md décrit un retour à la user space précédente qui n'existe pas.
+- [ ] Patch 0003 (hôte USB) : un unlink d'URB actif attend une IRQ, `endpoint_disable` n'a pas de verrou, l'ep0 passe par
+  l'index -1. À faire en un seul changement, testé sur caméra (le Wi-Fi en dépend).
+- [ ] Durcissement du code C (`-fstack-protector-strong`, `-z relro,-z now`) : mesurer d'abord le coût en taille
+  par rapport au budget flash.
+- [ ] MQTT : les commandes `telnet`, `ftp` et `reboot` ne dépendent que de la confiance accordée au broker (TCP en
+  clair). Décision du propriétaire : ajouter un interrupteur, ou documenter les ACL du broker.
+- [ ] CI : épingler les actions par SHA, vérifier les checksums de mbedtls et d'aiortc, rendre les builds reproductibles
+  (`SOURCE_DATE_EPOCH`), et contrôler le budget `--vendor`.
+
 ## Après 3.0.1 : plafond et polissage (bilan du 2026-11-15 10:15, demande du propriétaire)
 **Bilan :** fluidité, stabilité et Wi-Fi sont près du maximum. Plafond matériel atteint, **ne pas y retourner** : CPU
 ARM 400 MHz (même PLL que la DDR, voir plus bas), 64 Mo de RAM, Wi-Fi 2,4 GHz 1T1R, options de l'encodeur (SAO, AMP,

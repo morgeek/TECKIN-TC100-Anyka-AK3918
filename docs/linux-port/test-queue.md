@@ -53,6 +53,159 @@ HW-09 night part, the patch 0003 `finish_request_epx` fix (a-faire-implementeur.
 (just below, 2026-11-15), and the
 older `to test` entries below.
 
+## Audit of 2026-11-16 (`[audit-1116]`): fixes waiting for the camera
+
+The findings and the reasons are in [audit-2026-11-16.md](audit-2026-11-16.md). Each fix was read by the reviewer agent
+(no blocker left). None of them ran on a camera yet. Test the kernel entry on the SD kernel first, one kernel change
+per flash write.
+
+### AUDIT-1116-KERNEL Kernel robustness fixes (patches 0001, 0005, 0006, 0007, 0008, 0014) — `to test`
+- **What:** the encoder IRQ arm/mask is balanced in every path (no IRQ masked for good after a SIGTERM during a wait),
+  `mmap` bounds cannot wrap, the delayed audio capture start cannot restart DMA after STOP (plus a NULL check in the L2
+  callback), the I2C poll times out after 10 ms (plus the partial-word offset and per-message address), the OSD ioctl
+  size checks cannot wrap, and the restart register is mapped at boot.
+- **Revert:** boot the previous CI kernel from the SD card (no switch, compiled in). Do not flash before it passes.
+- **Test:**
+  1. Boot and check `/proc/cmdline`. Check dmesg for oopses and I2C timeouts.
+  2. Run 3 h of 1080p H.265 with audio (`-a 1`).
+  3. Do 50 `kill -TERM` of `tc100_rtsp` while it streams, then restart it with the autorun arguments. Video must come
+     back each time, and the encoder line of `/proc/interrupts` must keep counting.
+  4. Do 200 fast audio client connect/disconnect cycles.
+  5. Do 20 stream stop/start cycles.
+  6. Bring Wi-Fi down and up 10 times while streaming.
+  7. Reboot 5 times from the web UI and by `reboot`.
+- **Pass:** no oops or kernel error, the 3 h run is stable, the encoder IRQ is alive after every kill, and every reboot
+  comes back.
+
+### AUDIT-1116-BOOT Boot counter saved at once after an unclean end — `to test`
+- **What:** `boot-guard start` saves the counter synchronously when the previous run did not end with a requested
+  restart, or when the count is already >= 1. A crash at video start is now counted, and safe mode is reached on the
+  4th start. After a crash or power loss, the boot takes about 10 s longer.
+- **Switch:** `BOOT_GUARD=0` in `boot.conf` turns the whole guard off.
+- **Test:**
+  1. Pull the power, then check that the boot log shows the synchronous save and that `/mnt/config/.boot-guard` holds
+     the new count.
+  2. Make the video server crash at start 3 times in a row, for example with a broken `tc100_rtsp` from `try-rtsp.sh`.
+     The next start must be in safe mode (`/tmp/safemode`).
+  3. Reboot cleanly from the web UI. The boot time must be unchanged.
+- **Pass:** safe mode is reached after repeated early crashes, and a clean reboot is not slower.
+
+### AUDIT-1116-UPDATE Update safety: no restart during a write, atomic lock, backups — `to test`
+- **What:**
+  - web reboot and shutdown, the button (3 s and longer) and the scheduled reboot are refused while a live update lock
+    exists. A lock is ignored when its pid is dead or it is older than 30 min.
+  - crond and the button watcher are stopped during the write and restarted if the update fails;
+  - `update.cgi` takes the lock with `mkdir`;
+  - the backup is made on the first attempt only;
+  - the SD free space is checked first, counting what the prune of old backups will free;
+  - `flashw` syncs the backup and compares it with the flash before the erase.
+- **Switch:** none (safety checks).
+- **Test:**
+  1. During a web update, a reboot from the UI must answer `UPDATE_RUNNING`.
+  2. Two install POSTs at once must start one run only.
+  3. `crond` and `button-watch` must be absent during the write.
+  4. `/tmp/update66.simfail` must leave one good backup per partition.
+  5. A card too full even after the prune must be refused before any service stops. A nearly full card whose old
+     backups free enough room must go ahead.
+  6. Kill the apply process: a web reboot and the scheduled reboot must work again.
+- **Pass:** all of the above, and a normal update completes and reboots.
+
+### AUDIT-1116-INSTALL Settings slot check and SD install checks — `to test`
+- **What:**
+  - `cfg-persist` checks the slot it just wrote (`slot_valid` now reads its argument);
+  - `install66.sh` uses the kernel and initrd checks of the web update (`v3/install/imgcheck.sh`) and the published md5;
+  - it checks the card space up front;
+  - it reads every partition back before it renames `c66.img`.
+- **Switch:** none.
+- **Test:**
+  1. Run `cfg-persist save`, then `status`: both slots must be valid.
+  2. On a trial-mode SD install, a corrupted `c66.img.md5` or a truncated `c66.img` must stop the install at the check
+     step with nothing written.
+  3. A normal install must end with `c66.img.installed` and a boot from the flash.
+- **Pass:** all three.
+
+### AUDIT-1116-FLASHBOOT Does a camera installed by `stock-hook.sh` boot 3.0 from the flash? — `owner`
+- **Why:** the `flashboot` value written by `stock-hook.sh` is about 270 characters. AGENTS.md says this U-Boot reads
+  at most 256 characters per line. The hand-made camera uses the `flashargs` variable form instead. No test record
+  shows a hook-installed camera starting 3.0 from its flash.
+- **Test (read-only):**
+  1. On a camera installed by the hook, take the card out and power-cycle.
+  2. It must start 3.0 from the flash (hostname, `/proc/cmdline` with `flashroot=1`).
+- **If it fails:** the camera starts the stock firmware (`boot_normal`). The hook must then write `flashargs` and a
+  short `flashboot`. This is a U-Boot environment change, so it waits for the owner's agreement.
+
+### AUDIT-1116-RTSP `tc100_rtsp`: monotonic timeouts, capture stall exit, UDP burst, audio gap, SETUP — `to test`
+- **What:**
+  - every interval timeout uses the monotonic clock;
+  - the server exits with status 3 after `RTSP_CAPTURE_STALL_S` (default 30) without a frame, or after 100 DQBUF errors
+    in a row; iterations blocked elsewhere do not count, and the service watchdog restarts it with the same arguments;
+  - `wait_idr` stays set after a UDP burst that hit backpressure;
+  - the audio RTP timestamp skips a microphone gap;
+  - ABR uses a generation counter and counts main-stream drops only;
+  - a SETUP of a disabled track answers 404.
+- **Switch:** `RTSP_CAPTURE_STALL_S=0` in `/mnt/config/rtsp.env` turns off the stall exit. The rest has no switch:
+  revert the commit.
+- **Test:**
+  1. Connect UDP and TCP clients within 30 s of boot. They must survive the NTP step.
+  2. Stall a TCP client: it must be closed after 20 s.
+  3. Run 1 h or more across a day/night switch, the eco frame rate and the low-light rate: no spurious stall exit.
+  4. Force a stall with `RTSP_CAPTURE_STALL_S=5` and SIGSTOP. The log must say "no frame for", exit 3 must follow, and
+     the stream must come back.
+  5. Kill `arecord` while audio plays: no growing A/V offset, no zombie.
+  6. With audio and talk off, SETUP track2 and track3 must get 404 and the video must keep playing.
+- **Pass:** all of the above.
+
+### AUDIT-1116-WIFI Same-SSID password fallback, refused characters, rescue AP cap — `to test`
+- **What:**
+  - saving the current SSID with another password keeps the old one as a priority-1 fallback;
+  - `"` and `\` in the SSID or PSK, and bad MQTT password characters, are refused with a message instead of being
+    stripped;
+  - credential temp files are created with umask 077;
+  - the rescue AP stops after `WIFI_RESCUE_MAX_MIN` (default 30) even with clients connected;
+  - the dead 2.x branches of wifi-rescue, rec-storage and button-watch are removed.
+- **Switch:** `WIFI_RESCUE_MAX_MIN=1440` (cap effectively off). For the fallback, revert the commit.
+- **Test:**
+  1. In Settings, save the current SSID with a wrong password. `/mnt/config/wpa_supplicant.conf` must hold two blocks.
+     Reboot: the camera must be back on the network.
+  2. A quote in the password must be refused with the message.
+  3. Open the rescue AP (button 3-7 s), connect a phone with the rescue password and wait past 30 min. The AP must stop
+     and the station must reconnect.
+  4. Press the button 3-7 s (rescue AP), then 8 s (reboot). SD eject and resume must behave as before.
+- **Pass:** all of the above.
+
+### AUDIT-1116-NET Login lockout, ONVIF replay, rwconf, netacl, ssh LAN only — `to test`
+- **What:**
+  - `httpfront`, with `WEB_LOCKOUT=1`, answers 431 when the headers do not end within 4 KB or carry two `Authorization`
+    lines;
+  - Basic is parsed like busybox httpd, any unverified `Authorization` counts, and a full lock table fails closed for
+    5 min;
+  - `onvifd` refuses a replayed WS-Security digest (not counted) and escapes the WS-Discovery MessageID;
+  - `rwconf` writes atomically and refuses CR/LF;
+  - `netacl` filters IPv4-mapped peers and logs a warning when the filter cannot load;
+  - **ssh follows `NET_LAN_ONLY`** (owner's decision 2026-11-16): dropbear starts through `netacl_exec`, and fails
+    open with a warning if the library is missing.
+- **Switch:** `WEB_LOCKOUT=0`, and `NET_LAN_ONLY=0` (also lifts the ssh filter).
+- **Test:**
+  1. Use the web UI normally (login, Services, Settings, a browser with many cookies): no 431.
+  2. `curl -H "X-Pad: $(head -c 5000 /dev/zero | tr '\0' a)" -u root:wrong http://cam/x` must get 431.
+  3. 10 wrong logins must lock the address for 5 min.
+  4. Connect an NVR or Home Assistant over ONVIF, then unplug and replug the network: it must reconnect without being
+     locked out.
+  5. Save the password, Wi-Fi and OSD text from the web UI.
+  6. ssh from the LAN must work after a normal boot, in safe mode, in SD test mode, from the rescue AP network and
+     from 127.0.0.1. `/proc/<dropbear pid>/maps` must show `libnetacl-musl.so` in both flash and SD mode.
+  7. From a non-private address (forwarded port, or 4G), the ssh connection must be closed at once. With
+     `NET_LAN_ONLY=0` it must reach the prompt.
+  8. `logread` must show no "WITHOUT the LAN filter".
+- **Pass:** all of the above. **Never lose ssh from the LAN:** if step 6 fails, set `NET_LAN_ONLY=0` and report.
+
+### AUDIT-1116-FTP Does the busybox `ftpd` of 3.0 check the password? — `owner`
+- **Why:** `controlscripts/ftp-server` runs `busybox ftpd -w /` under `tcpsvd`, with no chroot. The busybox fragment
+  does not name `FEATURE_FTPD_AUTHENTICATION`. FTP is off by default.
+- **Test:** turn FTP on and log in with a wrong password.
+- **Pass:** the login is refused. If it is accepted, keep FTP off and report: chroot it to the card and require the
+  password.
+
 ### AWB-05-SAVED Instant manual white balance from saved gains (`[awb]`) — `to test`
 
 - **What:** `src/tc100rtsp/tc100_rtsp.c` (`awb_state_save`, `awb_state_load`, `awb_hw_init`): `/mnt/config/awb.state` now stores `ex_r ex_b mwb_r mwb_g mwb_b bw_want timestamp` (backwards-compatible with 2-number files). When `awb_hw_init()` finds recent (`<= 6 h`, or pre-NTP boot with wall-clock `awb.state`) manual gains from the same day/night mode (`sbw == bw_want`), it enters ISP manual mode (`ISP_SET_WB_TYPE=0`, `ISP_SET_MWB`) immediately instead of running 10 s of ISP automatic mode (`AWB_MANUAL_AFTER`). Falls back to the 10 s auto warmup when missing, stale, or day/night differs.
