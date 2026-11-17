@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [3.0.2-rc1] - 2026-11-17
 
 ### Added
 - **Rescue mode of the initramfs** (`[recovery]`): when the user space of the flash (`stack`) is damaged (for example
@@ -14,6 +14,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   space back with `flashw`. The same telnet opens when a started user space offers no web, ssh or telnet after
   5 minutes. Nothing is written to the flash by itself. `INITRD_RESCUE=0` in `boot.conf` turns it off. Needs the new
   initramfs. Test-queue entry AUDIT-1116-RECOVERY.
+- **T1 QP bench** (`[t1-qp]`): `src/h265enc/qpbench.c` / `qpctl.h` bench tool to test the encoder's `0x4040` tables buffer.
+
+### Changed
+- **AWB-05 saved manual gains** (`[awb]`): `tc100_rtsp` starts ISP manual white balance immediately from `/mnt/config/awb.state`
+  when recent (`<= 6 h`) and in the same day/night mode, falling back to 10 s auto warmup otherwise (`AWB-05-SAVED`).
+- **Polish** (`[polish]`): `cfg-persist` uses a single `md5sum`, `AWB_RESTART_IGNORE=30` suppresses false day switches after
+  a video restart, `fe_hw_init` runs after `VIDIOC_REQBUFS`, `httpfront` serves `fullconfig` and `isp_tune` natively,
+  and boot `step_12b` skips already-handled services (`POLISH-01`).
+
+### Fixed
+- **2026-11-16 audit & hardening** (`[audit-1116]`): kernel `venc` IRQ/mmap bounds, audio start race, I2C timeout, and OSD
+  limits; flash/boot crash counting and update lockouts (`imgcheck.sh`); `httpfront` lockout bypass, ONVIF replay,
+  atomic `rwconf`, LAN-only SSH; `tc100_rtsp` monotonic timeouts, capture stall exit, UDP burst, audio gap, and digest/SETUP fixes.
+- **USB host & encoder IRQ** (`[usb0003]`, `[venc-irq]`): kernel patch 0024 (active URB unlink without waiting for an IRQ,
+  `endpoint_disable`, ep0/toggle fixes) and kernel patch 0025 (`ak39_venc` masks late encoder interrupt when disarmed).
 
 ## [3.0.1] - 2026-11-15
 
