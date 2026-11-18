@@ -450,6 +450,32 @@ per flash write.
   KB / 5 s was the dawn light, not the code). rc44 stock on the same scene before: about 400 KB / 5 s (its quality
   QP was 27, no `RTSP_VBR_QP`). Still to see: 2 (a busy / noisy night scene rising above 650 kbit/s), 1 with
   `RTSP_FE_SUBBUF=1`, 3 smart=1, 4 over 24 h, 5. Left running on the .24 from 08:17 UTC.
+- **2026-11-18 03:00, both cameras on 3.0.1 for 2 days (readings for the project):**
+  - **Stable:** no reboot, `tc100_rtsp` up 58.5 h on both, 0 `picture failed` in the logs kept, CPU 23 % busy on
+    average since boot (user 6.5 %, system 13 %, softirq 3.6 %), load 1.1-1.6.
+  - **Memory:** `MemAvailable` 17.9 MB at boot -> 17.0 (.11) / 16.8 MB (.24) after 2 days. Not the user space
+    (AnonPages 1.9-2.0 MB, largest process 1.6 MB `sh`, `tc100_rtsp` 1.2-1.5 MB): Cached 11.4 MB, Slab 4.5 MB
+    (SUnreclaim 3.7 MB), Shmem 1.5 MB (/tmp 0.8-0.9 MB + /mnt 0.4-0.5 MB, logs capped), CMA 30 MB with 2.2-2.3 MB free.
+    No `/proc/slabinfo` on 6.6: to tell slab growth from cache, log `SUnreclaim` and `Shmem` in the stability file.
+  - **Wi-Fi:** signal -31 dBm (.11) / -43 dBm (.24), 0 TX URB error, 0 RX URB lost, TCP retransmits 0.12 % / 0.09 %
+    of segments, `txq_stops` 680 (.11) / 5242 (.24) (always matched by wakes), RX dropped 1.6 % of packets on both
+    (`/proc/net/dev`, errors 0: frames for protocols the camera does not run, e.g. IPv6 / LLDP; harmless, about 180
+    received packets / s).
+  - **Day / night flip-flop on the .11 (new, the main finding):** 9 night -> day -> night cycles on 16/11 22:13-23:51
+    and 4 on 18/11 00:52-01:57 (3-9 min each, IR-cut clack every time). Source `vendor` (luma + AWB counts), room
+    dimly lit by a lamp or a screen. In night (IR on) the IR raises the picture: `lum` 1670-1880 near
+    `VENDOR_DAY_LUM` 1536 and the AWB counts show visible light (`DN_AWB_VIS`=1) -> day; in day (IR off) the sensor
+    is at its maximum gain (`idx` 33000-75000, `lum` 3000-6800 > `VENDOR_NIGHT_LUM` 3584) but the AWB counts stay
+    around `AWB_DAY_CNT` 200000 (177000-650000) and hold day until they dip below -> night again. See the
+    implementer list (DN-FLAP).
+  - **Night bit rate at the ceiling on the .24 (new):** 1618 kbit/s for hours (night since 21:37, the video server
+    running since 15/11). Video restart at 02:10 (same scene, same saved gains `rex 375 bex 1228`):
+    `RTSP_AWB_MANUAL=0` 680 kbit/s, then the normal settings again 650 kbit/s and staying there (no "ISP in manual
+    mode" line: AWB-05 does not start at night after a start). So the ceiling built up across the day -> night switch
+    of a running server, most likely AWB-05 kept steering the ISP gains under IR (blue x 4.8, `bex` 1228 near the
+    1536 cap; the .11 at night: `bex` 141, 941 kbit/s): grey-world on an IR picture, chroma noise amplified. Also
+    `awb.state` now holds that night blue gain. To confirm at the next evening switch (bit rate and MWB gains
+    before / after a video restart). See the implementer list (AWB-NIGHT).
 - **2026-11-16 18:55, both cameras on 3.0.1 for 32 h (one night):** no reboot; `tc100_rtsp` up 26.5 h without a
   restart on both (its only restart, 15/11 15:24-15:27, follows the owner's `set_all_password` in the audit log), so
   no failure storm (L2 would exit after 30); 0 `picture failed` / AKUIO_WAIT_IRQ in the logs kept (the log cap keeps the

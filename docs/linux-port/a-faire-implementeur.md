@@ -84,6 +84,32 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
   encore servies par un CGI shell sur l'onglet Réglages (`fullconfig`, `isp_tune` dans `state.cgi` hors `daynight`, POLISH-01). Gain : quelques
   dixièmes de seconde par page. Même JSON octet pour octet, tests à deux arbres comme `test_httpfront_poll.py`.
 
+### B2. Trouvé dans les relevés du 18/11 (2 jours en 3.0.1) — à traiter avant la 3.0.2 finale
+- [ ] **DN-FLAP, allers-retours jour / nuit en pièce faiblement éclairée (.11, 13 cycles sur 2 soirs).** Source
+  `vendor` (`dn_step_vendor`, `src/supervisord/supervisord.c` ; même logique dans `auto-night-daemon.sh`). En nuit,
+  la lumière IR fait baisser `lum` sous `VENDOR_DAY_LUM` (1536) avec de la lumière visible → jour ; en jour le capteur
+  est au gain maximum mais les compteurs AWB (~200 000) retiennent le jour, puis redescendent → nuit. Pistes, une
+  seule suffit, la 1re est la plus sûre :
+  1. **Recul après un aller-retour :** un retour en nuit moins de 15 min après un passage en jour double le temps
+     minimal avant le prochain passage en jour (15 → 30 → 60 → 120 min), remis à zéro par un vrai jour (`lum` bien
+     sous `VENDOR_DAY_LUM`, par ex. < 600, pendant 5 min) ;
+  2. seuil de jour compensé de l'IR : retenir `lum` juste après le passage en nuit (IR allumé) et n'accepter le jour
+     que si `lum` baisse d'au moins 50 % par rapport à cette valeur ;
+  3. en jour, ne pas laisser `AWB_DAY_CNT` retenir le jour quand le gain est au maximum (`idx` > 30 000).
+  Test : les relevés `daynight.log` de la .11 entre 22 h et 2 h (journal de nuit `/tmp/log/nightmode.log`).
+- [ ] **AWB-NIGHT, AWB-05 ne doit pas piloter les gains sous IR (.24 : 1618 kbit/s toute la nuit au lieu de ~650).**
+  Au passage jour → nuit d'un serveur qui tourne, la boucle grey-world continue sur l'image IR (bleu ×4,8, `bex`
+  1228 près du plafond 1536) : bruit de couleur amplifié, débit au plafond. Après un redémarrage de nuit : 650
+  kbit/s. Corriger : au passage en nuit (jeu de paramètres de nuit de l'ISP), arrêter la boucle et rendre la main à
+  l'ISP (ou figer des gains neutres), la reprendre au passage en jour depuis les gains de jour ; ne pas sauvegarder
+  `awb.state` la nuit (aujourd'hui il garde le bleu ×4,8). Vérifier aussi la 3.0.2-rc1 (AWB-05-SAVED charge les gains
+  du même mode : ne doit pas recharger un état de nuit pollué). Test : débit et gains MWB avant / après le passage du
+  soir, sans redémarrage vidéo.
+- [ ] **Compteur d'échecs sur la journée :** le journal vidéo plafonné ne garde que 2-4 h ; ajouter le total de
+  `picture failed` (et des réouvertures) dans `STAT` ou le fichier de stabilité, pour conclure sur 24 h et plus.
+- [ ] **Mémoire :** journaliser `SUnreclaim` et `Shmem` avec `MemAvailable` dans le fichier de stabilité (la baisse de
+  ~0,4 Mo / jour n'est pas l'espace utilisateur ; sans `/proc/slabinfo` on ne sait pas si c'est le cache ou le slab).
+
 ### C. Polissage invisible (robustesse, ressources)
 - [x] **Sauvegarde des réglages 5,4 s → ~1 s (`cfg-persist`) :** la boucle par fichier (~180 forks `cmp` / `md5sum` /
   `cat`) remplacée par un seul `md5sum` sur tous les fichiers (POLISH-01).
