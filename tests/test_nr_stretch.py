@@ -45,23 +45,59 @@ int main(void)
 }
 """
 
+# ASan under a kernel with vm.mmap_rnd_bits=32 (the WSL 2 VM of Docker Desktop, Ubuntu 24.04 runners): the ASan runtime
+# sometimes loops at start printing "AddressSanitizer:DEADLYSIGNAL" forever. Captured in memory by the test, that output
+# grew the test run to 4 GB and took Docker Desktop down (2026-11-23, 5 runs in 30 in Docker). So the program writes to a
+# file of which only the start is read, under a time limit, without address randomisation when setarch -R is allowed
+# (Docker's seccomp profile refuses it); and when the ASan runtime is the one that fails, the same checks are run again
+# under UBSan alone, which has no shadow memory to place.
+SANITIZERS = (["-fsanitize=address,undefined", "-fno-sanitize-recover=all"],
+              ["-fsanitize=undefined", "-fno-sanitize-recover=all"],
+              [])
+ASAN_BROKEN = "AddressSanitizer:DEADLYSIGNAL"
+
+
+def _norandom():
+    if not shutil.which("setarch"):
+        return []
+    try:
+        ok = subprocess.run(["setarch", "-R", "true"], capture_output=True, timeout=10).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        ok = False
+    return ["setarch", "-R"] if ok else []
+
 
 @unittest.skipUnless(shutil.which("gcc"), "needs gcc")
 class NrStretch(unittest.TestCase):
+    def _run(self, t, exe):
+        log = Path(t) / "out.txt"
+        with open(log, "wb") as f:
+            try:
+                rc = subprocess.run(_norandom() + [str(exe)], stdout=f, stderr=subprocess.STDOUT, timeout=30).returncode
+            except subprocess.TimeoutExpired:
+                rc = "timeout"
+        with open(log, "rb") as f:
+            return rc, f.read(4096).decode("utf-8", "replace")
+
     def test_properties(self):
         src = (ROOT / "src/tc100rtsp/tc100_rtsp.c").read_text(encoding="utf-8")
         fn = re.search(r"static void nr_stretch\(.*?\n\}\n", src, re.S).group(0)
         with tempfile.TemporaryDirectory() as t:
             c = Path(t) / "t.c"
             c.write_text(fn + MAIN)
-            flags = ["-O1", "-Wall", "-Werror", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"]
-            r = subprocess.run(["gcc", *flags, "-o", str(Path(t) / "t"), str(c)], capture_output=True, text=True)
-            if r.returncode:     # a host without the sanitizer runtimes: plain build
-                r = subprocess.run(["gcc", "-O1", "-Wall", "-Werror", "-o", str(Path(t) / "t"), str(c)], capture_output=True, text=True)
+            exe = Path(t) / "t"
+            for san in SANITIZERS:
+                r = subprocess.run(["gcc", "-O1", "-Wall", "-Werror", *san, "-o", str(exe), str(c)],
+                                   capture_output=True, text=True, timeout=120)
+                if r.returncode:        # a host without this sanitizer runtime: the next, lighter build
+                    continue
+                rc, text = self._run(t, exe)
+                if ASAN_BROKEN in text and "address" in " ".join(san):
+                    continue            # the ASan runtime itself failed (address layout), not nr_stretch
+                break
             self.assertEqual(r.returncode, 0, r.stderr)
-            out = subprocess.run([str(Path(t) / "t")], capture_output=True, text=True)
-            self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
-            self.assertIn("OK", out.stdout)
+            self.assertEqual(rc, 0, text)
+            self.assertIn("OK", text)
 
 
 if __name__ == "__main__":
