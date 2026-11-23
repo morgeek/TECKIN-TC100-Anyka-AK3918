@@ -67,9 +67,10 @@ mw_append() { # file header cap pendingfile
   [ -s "$4" ] || return 0
   mkdir -p "${1%/*}" 2>/dev/null || true
   [ -s "$1" ] || printf '%s\n' "$2" > "$1" 2>/dev/null || return 0
-  # a file from an older version has a shorter header: put the current one on top (the old rows keep their fewer columns)
+  # a file from an older version has a shorter header: put the current one on top (the old rows keep their fewer columns);
+  # only an old header is replaced, never a data row (a file whose header was lost keeps all its rows)
   _h1=; read -r _h1 < "$1" 2>/dev/null
-  if [ "$_h1" != "$2" ]; then
+  if [ "$_h1" != "$2" ] && [ "${_h1%%,*}" = timestamp ]; then
     _t="$1.$$"
     { printf '%s\n' "$2"; tail -n +2 "$1"; } > "$_t" && mv "$_t" "$1" || rm -f "$_t"
   fi
@@ -152,12 +153,15 @@ EOF
   _c_st=; _c_pf=; _c_er=; _c_cs=; _c_dq=; _c_so=; _c_e3=
   if [ -r "$CTRS" ]; then
     read -r _cl < "$CTRS"
+    set -f	# no file name expansion of a damaged line; only plain numbers reach the CSV
     for _w in $_cl; do
+      mw_num "${_w#*=}"
       case "$_w" in
-        starts=*) _c_st="${_w#*=}" ;; pic_fail=*) _c_pf="${_w#*=}" ;; enc_reopen=*) _c_er="${_w#*=}" ;;
-        cap_stall=*) _c_cs="${_w#*=}" ;; dq_err=*) _c_dq="${_w#*=}" ;; sub_off=*) _c_so="${_w#*=}" ;; exit3=*) _c_e3="${_w#*=}" ;;
+        starts=*) _c_st="$_mwn" ;; pic_fail=*) _c_pf="$_mwn" ;; enc_reopen=*) _c_er="$_mwn" ;;
+        cap_stall=*) _c_cs="$_mwn" ;; dq_err=*) _c_dq="$_mwn" ;; sub_off=*) _c_so="$_mwn" ;; exit3=*) _c_e3="$_mwn" ;;
       esac
     done
+    set +f
   fi
   mw_dir
   _hcap="${MEMWATCH_MAX_HOURLY:-}"; mw_num "$_hcap"; _hcap="${_mwn:-}"
