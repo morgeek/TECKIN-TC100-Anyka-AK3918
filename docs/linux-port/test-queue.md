@@ -414,6 +414,44 @@ per flash write.
 - **Next step:** only if `SUnreclaim` grows linearly, an SD test kernel with `CONFIG_SLUB_DEBUG` (`/proc/slabinfo`,
   `slabtop`) to name the cache. Otherwise close the item in a-faire B2.
 
+### DN-FLAP Day held back after a quick day -> night round trip, vendor source (`[dn-flap]`) — `to test` (the .11 over 2+ evenings, the .24 at dawn and dusk)
+
+- **What:** `src/supervisord/supervisord.c` (`dn_flap_*`, `dn_switch`, `dn_step_vendor`) and, as the shell fallback,
+  `scripts/auto-night-daemon.sh` (same names; the C daemon is the live path of 3.0, the shell loop runs when
+  `tc100-supervisord` is missing or died; both are kept identical by `tests/test_supervisord.py`). Source `vendor` only.
+  A return to night less than 15 min (`DN_FLAP_WINDOW_MIN`) after a switch to day is a round trip: the day switch is then
+  held until 15 min after the night switch, and each further round trip doubles it (15, 30, 60, 120 min, capped by
+  `DN_FLAP_MAX_MIN`). It builds on `MIN_SWITCH` (the day switch waits for the larger of the two). The switch to night is
+  never held back. The hold is cleared by a real day: `lum` below `DN_DAY_RESET_LUM` (600) for `DN_DAY_RESET_MIN` (5)
+  minutes in a row. State in memory only; a reboot or a daemon restart starts again without hold.
+- **Why these values (field data of 2026-11-16 / 18, the .11):** the night readings sat at `lum` 1670-1880 (IR) against
+  `VENDOR_DAY_LUM` 1536, the day readings at 3000-6800 at maximum gain, each phase 3-9 min. 15 min is longer than every
+  observed day phase, so each flap is seen as a round trip, and the 120 min cap lets a lamp-lit evening settle in one
+  or two switches. 600 is under a third of the 1536 threshold and far from the 1670+ the IR lifts the night picture
+  to; the day phases never went under 3000, so 5 min under 600 cannot be a flap, it is daylight.
+- **Switch to turn it off:** `DN_FLAP_BACKOFF=0` in `/mnt/config/daynight.conf` (same file as the other day/night keys;
+  read again on the next write of the file, no restart). Other keys, defaults in brackets: `DN_FLAP_WINDOW_MIN` (15),
+  `DN_FLAP_MAX_MIN` (120), `DN_DAY_RESET_LUM` (600), `DN_DAY_RESET_MIN` (5). Not on the settings page: a save of the
+  page keeps them. They are in the parameter catalog and in the configuration export / import.
+- **Log lines:** in `/tmp/logs/daynight.log` (copied to the card by `log-persist.sh`) and on the console:
+  `HH:MM [auto-night] day held back N min after a round trip (night again S s after day)` when it engages or grows,
+  `... day hold reset: lum below 600 for 5 min (real day)` when a real day clears it. While it holds, the console shows
+  `day wanted (...) S s after the last switch: waiting N s`. Also changed on the way: the 15 s "switching back" lock of
+  the vendor source starts only after a real switch (a switch that was only made to wait no longer starts it).
+- **Test:** the .11 in its dim room, 2+ evenings, 3.0.x with this build and `DAYNIGHT_SOURCE=vendor`. In the morning:
+  `grep -c 'Switching to DAY' ` and the `nightmode.log` (`/tmp/log/nightmode.log`) lines between 22:00 and 02:00 give the
+  number of IR-cut switches (2 per round trip); read the `held back` lines in `daynight.log`. Then the same with
+  `DN_FLAP_BACKOFF=0` for one evening if the room allows, to compare. On the .24: one normal sunrise and one sunset,
+  times of the two switches against the days before.
+- **Pass criteria:** the .11: at most 2-3 switches to day per evening between 22 h and 2 h (was 9 and 4 on the two
+  evenings of 16 and 18/11), the `held back` lines show 15, 30, 60 ... min. The .24: sunrise and sunset switch at the
+  same time as before, within a few minutes (a normal sunrise: `lum` falls under 600 and the day switch follows
+  5 min later at the latest). No missed switch to night: the switch to night comes within about a minute of the
+  picture getting dark (`MIN_SWITCH` aside), also while a hold is running.
+- **Host tests:** `tests/test_supervisord.py` `test_flap_*` (closed loop on the field pattern: 12 day switches in 2 h
+  without the backoff, 3 with it, 7 switches in all; holds 15 / 30 / 60 / 120 / 120; sunrise; sunset; switch off;
+  shell and C compared step by step), `tests/test_daynight_catalog.py` (the five keys everywhere).
+
 ### POLISH-01 Post-3.0.1 safe polish: cfg-persist single md5sum, AWB restart ignore, fe_hw_init guard, native fullconfig/isp_tune (`[polish]`) — `to test`
 
 - **What:**

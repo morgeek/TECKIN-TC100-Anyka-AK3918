@@ -484,6 +484,111 @@
       "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
     },
     {
+      "id": "daynight.dn_flap_backoff",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "DN_FLAP_BACKOFF"
+      },
+      "type": "int",
+      "default": 1,
+      "label": {
+        "en": "Day hold after a quick day/night round trip (1 = on, 0 = off)",
+        "fr": "Retenue du jour après un aller-retour jour/nuit rapide (1 = oui, 0 = non)"
+      },
+      "secret": false,
+      "range": [0, 1],
+      "ui_field": null,
+      "state_json": null,
+      "export_json": ".daynight.dn_flap_backoff",
+      "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
+    },
+    {
+      "id": "daynight.dn_flap_window_min",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "DN_FLAP_WINDOW_MIN"
+      },
+      "type": "int",
+      "default": 15,
+      "label": {
+        "en": "Day hold: a return to night within this time of a day switch is a round trip, and the first hold (min)",
+        "fr": "Retenue du jour : un retour en nuit dans ce délai après le passage en jour est un aller-retour, et la 1re retenue (min)"
+      },
+      "secret": false,
+      "range": [0, 999999999],
+      "ui_field": null,
+      "state_json": null,
+      "export_json": ".daynight.dn_flap_window_min",
+      "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
+    },
+    {
+      "id": "daynight.dn_flap_max_min",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "DN_FLAP_MAX_MIN"
+      },
+      "type": "int",
+      "default": 120,
+      "label": {
+        "en": "Day hold: longest hold before the next day switch (min)",
+        "fr": "Retenue du jour : durée maximale avant le prochain passage en jour (min)"
+      },
+      "secret": false,
+      "range": [0, 999999999],
+      "ui_field": null,
+      "state_json": null,
+      "export_json": ".daynight.dn_flap_max_min",
+      "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
+    },
+    {
+      "id": "daynight.dn_day_reset_lum",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "DN_DAY_RESET_LUM"
+      },
+      "type": "int",
+      "default": 600,
+      "label": {
+        "en": "Day hold: lum below this counts as a real day (clears the hold after the time below)",
+        "fr": "Retenue du jour : un lum sous cette valeur est un vrai jour (efface la retenue après la durée ci-dessous)"
+      },
+      "secret": false,
+      "range": [0, 999999999],
+      "ui_field": null,
+      "state_json": null,
+      "export_json": ".daynight.dn_day_reset_lum",
+      "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
+    },
+    {
+      "id": "daynight.dn_day_reset_min",
+      "family": "daynight",
+      "source": {
+        "path": "/mnt/config/daynight.conf",
+        "format": "flat",
+        "key": "DN_DAY_RESET_MIN"
+      },
+      "type": "int",
+      "default": 5,
+      "label": {
+        "en": "Day hold: minutes of real day that clear the hold",
+        "fr": "Retenue du jour : minutes de vrai jour qui effacent la retenue"
+      },
+      "secret": false,
+      "range": [0, 999999999],
+      "ui_field": null,
+      "state_json": null,
+      "export_json": ".daynight.dn_day_reset_min",
+      "read_by": ["src/supervisord/supervisord.c", "scripts/auto-night-daemon.sh"]
+    },
+    {
       "id": "image.brightness",
       "family": "image",
       "source": {

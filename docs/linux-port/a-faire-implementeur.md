@@ -85,7 +85,7 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
   dixièmes de seconde par page. Même JSON octet pour octet, tests à deux arbres comme `test_httpfront_poll.py`.
 
 ### B2. Trouvé dans les relevés du 18/11 (2 jours en 3.0.1) — à traiter avant la 3.0.2 finale
-- [ ] **DN-FLAP, allers-retours jour / nuit en pièce faiblement éclairée (.11, 13 cycles sur 2 soirs).** Source
+- [x] **DN-FLAP (remède 1 fait 2026-11-23 `[dn-flap]`, à tester sur la .11 deux soirs et sur la .24 : test-queue `DN-FLAP`, coupure `DN_FLAP_BACKOFF=0` dans `daynight.conf`), allers-retours jour / nuit en pièce faiblement éclairée (.11, 13 cycles sur 2 soirs).** Source
   `vendor` (`dn_step_vendor`, `src/supervisord/supervisord.c` ; même logique dans `auto-night-daemon.sh`). En nuit,
   la lumière IR fait baisser `lum` sous `VENDOR_DAY_LUM` (1536) avec de la lumière visible → jour ; en jour le capteur
   est au gain maximum mais les compteurs AWB (~200 000) retiennent le jour, puis redescendent → nuit. Pistes, une
@@ -97,6 +97,8 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
      que si `lum` baisse d'au moins 50 % par rapport à cette valeur ;
   3. en jour, ne pas laisser `AWB_DAY_CNT` retenir le jour quand le gain est au maximum (`idx` > 30 000).
   Test : les relevés `daynight.log` de la .11 entre 22 h et 2 h (journal de nuit `/tmp/log/nightmode.log`).
+  Fait : la piste 1 (C `supervisord.c` et shell `auto-night-daemon.sh`, source `vendor`) ; les pistes 2 et 3 restent
+  ouvertes si le recul ne suffit pas.
 - [x] **AWB-NIGHT (fait 2026-11-23 `[awb-night]`, à tester sur les deux caméras : test-queue `AWB-NIGHT`, coupure `RTSP_AWB_NIGHT=0`), AWB-05 ne doit pas piloter les gains sous IR (.24 : 1618 kbit/s toute la nuit au lieu de ~650).**
   Au passage jour → nuit d'un serveur qui tourne, la boucle grey-world continue sur l'image IR (bleu ×4,8, `bex`
   1228 près du plafond 1536) : bruit de couleur amplifié, débit au plafond. Après un redémarrage de nuit : 650

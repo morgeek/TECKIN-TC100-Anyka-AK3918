@@ -321,6 +321,137 @@ class AutoNightParity(unittest.TestCase):
         self.assertEqual(calls_v.split(), ['on'])
         self.assertIn('switching back within 15 s: locked for 900 s', out_v)
 
+    # --- DN-FLAP: day held back after a day -> night round trip (vendor source) ---
+
+    # The camera of the field data (.11, dim room), closed loop on the shell daemon: night (IR on) lum 1400-2000 wave
+    # (below VENDOR_DAY_LUM 1536 for about 70 s of each 300 s) with visible light; day (IR off) lum 4500 at maximum gain
+    # while the AWB counts hold day (300000, > AWB_DAY_CNT) for 240-440 s, then dip (100000) -> night wanted. The
+    # inputs of every step are recorded, then replayed through the shell and the C daemon (parity) by `compare`.
+    FLAP_HARNESS = """
+. %(daemon)s
+rm -f %(d)s/console
+SLP=8
+iter() {
+  read_daynight; dn_log
+  [ "$DN_MODE" != "2" ] && return 0
+  dn_ir_guard && return 0
+  if [ "$DAYNIGHT_SOURCE" = vendor ]; then SLP=2; dn_step_vendor && return 0
+  elif [ "$DAYNIGHT_SOURCE" != luma ]; then SLP=2; dn_step_ae && return 0; fi
+  SLP=8; dn_step_luma
+}
+T=1000; END=$((T + %(secs)d)); SUNRISE=%(sunrise)d; SUNSET=%(sunset)d
+PREV=1; DAY_T0=$T; CYC=0
+while [ $T -lt $END ]; do
+  read -r IC < %(d)s/ircut
+  if [ "$IC" = 1 ] && [ "$PREV" = 0 ]; then DAY_T0=$T; CYC=$((CYC + 1)); fi
+  PREV=$IC
+  B=$((T %% 53))
+  if [ "$IC" = 0 ]; then
+    X=$((T %% 300)); [ $X -gt 150 ] && X=$((300 - X))
+    LUM=$((1400 + X * 4)); AWB="$((5000 + B)) 100 100 100 100 100 100 100 100 100 5000"
+  else
+    LUM=4500
+    if [ $CYC -eq 0 ]; then D=0; else D=$((240 + (CYC * 97) %% 200)); fi
+    if [ $((T - DAY_T0)) -lt $D ]; then AWB="$((300000 + B)) 100 100 100 100 100 100 100 100 100 5000"
+    else AWB="$((100000 + B)) 100 100 100 100 100 100 100 100 100 5000"; fi
+  fi
+  if [ $SUNSET -gt 0 ] && [ $T -ge $SUNSET ]; then LUM=4500; AWB="$((100000 + B)) 100 100 100 100 100 100 100 100 100 5000"
+  elif [ $SUNRISE -gt 0 ] && [ $T -ge $SUNRISE ]; then LUM=300; AWB="$((5000 + B)) 100 100 100 100 100 100 100 100 100 5000"; fi
+  AE="40 $((LUM * 1125 / 256)) 256 256 256 0 1125"
+  printf "%%s\\n" "$AE" > %(d)s/ae; printf "%%s\\n" "$AWB" > %(d)s/awb
+  echo "$T|$AE|$AWB" >> %(d)s/trace
+  DN_NOW=$T; iter
+  read -r IC2 < %(d)s/ircut
+  if [ "$IC2" != "$IC" ]; then if [ "$IC2" = 1 ]; then echo "$T day" >> %(d)s/sw; else echo "$T night" >> %(d)s/sw; fi; fi
+  T=$((T + %(step)d))
+done
+"""
+
+    def flap_run(self, conf, secs, sunrise=0, sunset=0, parity=True, step=2):
+        """-> (switches [(t - 1000, 'day'|'night')], flap log lines); the same inputs are then replayed by shell and C"""
+        self.reset()
+        for n in ('sw', 'trace'):
+            (self.d / n).unlink(missing_ok=True)
+        (self.d / 'daynight.conf').write_text(conf + '\n')
+        (self.d / 'harness.sh').write_text(self.FLAP_HARNESS % dict(daemon=str(ROOT / 'scripts/auto-night-daemon.sh'),
+                                           d=str(self.d), secs=secs, sunrise=sunrise, sunset=sunset, step=step))
+        env = dict(self.env, DN_TEST='1', DN_LOG_EVERY='99999999')
+        r = subprocess.run(SHELL + [str(self.d / 'harness.sh')], capture_output=True, text=True, env=env, timeout=170)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        sw = [(int(a) - 1000, b) for a, b in (ln.split() for ln in (self.d / 'sw').read_text().splitlines())] \
+            if (self.d / 'sw').exists() else []
+        log = (self.d / 'daynight.log').read_text() if (self.d / 'daynight.log').exists() else ''
+        flap = [re.sub(r'^\d\d:\d\d \[auto-night\] ', '', ln) for ln in log.splitlines()
+                if 'held back' in ln or 'hold reset' in ln]
+        if parity:
+            sc = Scenario(self.d)
+            sc.add('conf', conf)
+            for ln in (self.d / 'trace').read_text().splitlines():
+                t, ae, awb = ln.split('|')
+                sc.add('now', int(t)); sc.add('ae', ae); sc.add('awb', awb); sc.add('night')
+            self.compare(sc, 'flap')
+        return sw, flap
+
+    FLAP_CONF = 'DAYNIGHT_SOURCE=vendor\nIR_LED_MAX_ON=0\nMIN_SWITCH=180\n'
+
+    def test_flap_evening_switches_drop(self):
+        """the field pattern over a 2 h evening: switches to day drop from about 9 to at most 3"""
+        off, off_log = self.flap_run(self.FLAP_CONF + 'DN_FLAP_BACKOFF=0', 7200, parity=False)
+        on, on_log = self.flap_run(self.FLAP_CONF, 7200)
+        days_off = [t for t, k in off if k == 'day']
+        days_on = [t for t, k in on if k == 'day']
+        self.assertEqual(off_log, [])           # the switch off: no hold, no log line
+        self.assertGreaterEqual(len(days_off), 8, off)
+        self.assertLessEqual(len(days_on), 3, on)
+        self.assertLessEqual(len(on), 7, on)    # all switches, night ones included
+        self.assertTrue(on_log[0].startswith('day held back 15 min after a round trip'), on_log)
+        self.assertEqual([k for _, k in on][:2], ['night', 'day'])
+        # a night switch is never held back: it follows the AWB dip (day phase 240-440 s) within the MIN_SWITCH wait
+        for (t0, k0), (t1, k1) in zip(on, on[1:]):
+            if k0 == 'day' and k1 == 'night':
+                self.assertLessEqual(t1 - t0, 440 + 15, (t0, t1))
+
+    def test_flap_hold_grows_15_30_60_120_and_is_capped(self):
+        sw, log = self.flap_run(self.FLAP_CONF, 6 * 3600, step=6)   # a sample every 6 s: the replay script stays small
+        holds = [int(re.search(r'held back (\d+) min', ln).group(1)) for ln in log if 'held back' in ln]
+        self.assertEqual(holds[:5], [15, 30, 60, 120, 120], log)
+        self.assertEqual(max(holds), 120)
+        # a day switch comes no sooner than the hold after the night switch that set it
+        n = 0
+        for (t0, k0), (t1, k1) in zip(sw, sw[1:]):
+            if k0 == 'night' and k1 == 'day':
+                if n >= 1:
+                    self.assertGreaterEqual(t1 - t0, min(holds[n - 1], 120) * 60, (n, t0, t1, holds))
+                n += 1
+
+    def test_flap_real_sunrise_resets_and_switches_to_day_at_once(self):
+        """held back (30 min or more), then lum falls to 300 for good: day after 5 min of it, not after the hold"""
+        probe, plog = self.flap_run(self.FLAP_CONF, 5400, parity=False)
+        self.assertTrue(any('held back 30 min' in ln for ln in plog), plog)
+        night_t = [t for t, k in probe if k == 'night'][-1]
+        sunrise = night_t + 120         # the last night switch of the probe, the sunrise just after it
+        sw, log = self.flap_run(self.FLAP_CONF, sunrise + 900, sunrise=1000 + sunrise)
+        day_after = [t for t, k in sw if k == 'day' and t >= sunrise]
+        self.assertEqual(len([ln for ln in log if 'hold reset' in ln]), 1, log)
+        self.assertTrue(day_after, sw)
+        self.assertGreaterEqual(day_after[0] - sunrise, 5 * 60)                    # not before the 5 minutes
+        self.assertLessEqual(day_after[0] - sunrise, 5 * 60 + 30, (sunrise, sw))   # then at once
+
+    def test_flap_night_switch_never_delayed(self):
+        """a sunset after a sunrise, with the hold engaged before: night after the 3 samples, as with the switch off"""
+        sr, ss = 1000 + 3600 * 2, 1000 + 3600 * 2 + 1800
+        for conf in (self.FLAP_CONF, self.FLAP_CONF + 'DN_FLAP_BACKOFF=0'):
+            sw, _ = self.flap_run(conf, 3 * 3600, sunrise=sr, sunset=ss, parity=False)
+            nights = [t for t, k in sw if k == 'night' and t >= ss - 1000]
+            self.assertTrue(nights, (conf, sw))
+            self.assertLessEqual(nights[0] - (ss - 1000), 12, (conf, sw))
+
+    def test_flap_switch_off_is_the_old_behaviour(self):
+        """DN_FLAP_BACKOFF=0: no hold, no flap line, the round trips go on"""
+        sw, log = self.flap_run(self.FLAP_CONF + 'DN_FLAP_BACKOFF=0', 3600)
+        self.assertEqual(log, [])
+        self.assertGreaterEqual(len([1 for _, k in sw if k == 'day']), 4)
+
     def test_garbage_and_missing_inputs_fall_back_to_luma(self):
         sc = Scenario(self.d)
         sc.add('conf', 'DAYNIGHT_SOURCE=ae\nMIN_SWITCH=0\nIR_LED_MAX_ON=0\nAE_NIGHT_ABOVE=abc\nAE_DAY_BELOW=0001\nNIGHT_HOLD=0\n'
@@ -1399,7 +1530,7 @@ class ConfReadsStartFromDefaults(unittest.TestCase):
         self.assertLess(fn.index('n = slurp(envs("DN_CONF"'), reset)
         self.assertLess(reset, fn.index("/* IFS='=' */"))
         for kv in ('THRESHOLD_NIGHT = 40', 'AWB_DAY_CNT = 200000', 'VENDOR_LOCK = 900', 'DAYNIGHT_SOURCE = SRC_LUMA', 'IR_LED_MODE = 0'):
-            self.assertIn(kv, fn[reset - 400:reset + 200])
+            self.assertIn(kv, fn[reset - 400:reset + 400])
 
     def test_shell_value_comes_back_when_the_key_goes(self):
         src = (ROOT / 'scripts/auto-night-daemon.sh').read_text()

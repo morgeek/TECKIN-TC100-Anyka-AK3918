@@ -118,7 +118,7 @@
         # keys the page does not show (stock method white balance counts, its lock, the IR LED rest): kept as they are
         # (config/parameter-catalog.json, family daynight); the daemons read them, a save must not drop them
         _dnk=""
-        for _k in AWB_DAY_CNT AWB_NIGHT_CNT VENDOR_LOCK IR_LED_REST; do
+        for _k in AWB_DAY_CNT AWB_NIGHT_CNT VENDOR_LOCK IR_LED_REST DN_FLAP_BACKOFF DN_FLAP_WINDOW_MIN DN_FLAP_MAX_MIN DN_DAY_RESET_LUM DN_DAY_RESET_MIN; do
           _v=$(_dn_get "$_k")
           case "$_v" in ''|*[!0-9]*) continue ;; esac
           [ "${#_v}" -le 9 ] && _dnk="$_dnk$_k=$_v

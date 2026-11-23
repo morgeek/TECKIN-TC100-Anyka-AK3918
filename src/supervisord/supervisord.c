@@ -215,6 +215,10 @@ static ll THRESHOLD_NIGHT = 40, THRESHOLD_DAY = 100, AE_NIGHT_ABOVE = 15000, AE_
 static ll VENDOR_NIGHT_LUM = 3584, VENDOR_DAY_LUM = 1536, AWB_DAY_CNT = 200000, AWB_NIGHT_CNT = 1200;
 static ll VENDOR_LOCK = 900, IR_LED_MAX_ON = 50400, IR_LED_REST = 600, NIGHT_HOLD = 10, DAY_HOLD = 60, MIN_SWITCH = 180;
 static ll AWB_RESTART_IGNORE = 30;
+/* DN-FLAP: day held back after a day -> night round trip (vendor source only, memory only, see dn_flap_*) */
+static ll DN_FLAP_BACKOFF = 1, DN_FLAP_WINDOW_MIN = 15, DN_FLAP_MAX_MIN = 120, DN_DAY_RESET_LUM = 600, DN_DAY_RESET_MIN = 5;
+static ll DN_FLAP_HOLD, DN_FLAP_DAY_AT, DN_FLAP_LOW_SINCE;	/* hold in s (0 = none), time of the last day switch */
+static int have_flap_day, have_flap_low;
 static int DAYNIGHT_SOURCE = SRC_LUMA;
 static int IR_LED_MODE;	/* 0 auto, 1 off, 2 force */
 static char DN_MODE[16] = "2";
@@ -232,6 +236,7 @@ static void night_reset(void)
 	DN_LAST_SW = -100000;
 	DN_NIGHT_SINCE = DN_REST_UNTIL = DN_DARK_SINCE = DN_BRIGHT_SINCE = DN_LOG_AT = DN_LOG_N = DN_AWB_IGNORE_UNTIL = 0;
 	have_last_switch = have_too_soon = DN_AWB_SAME = DN_AE_DOWN = 0;
+	DN_FLAP_HOLD = DN_FLAP_DAY_AT = DN_FLAP_LOW_SINCE = have_flap_day = have_flap_low = 0;
 	DN_AWB_LAST[0] = DN_RTSP_PID_LAST[0] = 0;
 	SLP = 8;
 }
@@ -271,6 +276,7 @@ static void conf_daynight(void)
 	THRESHOLD_NIGHT = 40; THRESHOLD_DAY = 100; AE_NIGHT_ABOVE = 15000; AE_DAY_BELOW = 3000;
 	VENDOR_NIGHT_LUM = 3584; VENDOR_DAY_LUM = 1536; AWB_DAY_CNT = 200000; AWB_NIGHT_CNT = 1200;
 	VENDOR_LOCK = 900; IR_LED_MAX_ON = 50400; IR_LED_REST = 600; AWB_RESTART_IGNORE = 30;
+	DN_FLAP_BACKOFF = 1; DN_FLAP_WINDOW_MIN = 15; DN_FLAP_MAX_MIN = 120; DN_DAY_RESET_LUM = 600; DN_DAY_RESET_MIN = 5;
 	DAYNIGHT_SOURCE = SRC_LUMA; IR_LED_MODE = 0;
 	for (p = b; (e = strchr(p, '\n')); p = e + 1) {	/* IFS='=' */
 		char *v, *k = p;
@@ -293,7 +299,9 @@ static void conf_daynight(void)
 			else if (!strcmp(v, "force")) IR_LED_MODE = 2;
 		} else if (!strcmp(k, "VENDOR_NIGHT_LUM") || !strcmp(k, "VENDOR_DAY_LUM") || !strcmp(k, "AWB_DAY_CNT") ||
 			   !strcmp(k, "AWB_NIGHT_CNT") || !strcmp(k, "VENDOR_LOCK") || !strcmp(k, "IR_LED_MAX_ON") ||
-			   !strcmp(k, "IR_LED_REST") || !strcmp(k, "AE_NIGHT_ABOVE") || !strcmp(k, "AE_DAY_BELOW")) {
+			   !strcmp(k, "IR_LED_REST") || !strcmp(k, "AE_NIGHT_ABOVE") || !strcmp(k, "AE_DAY_BELOW") ||
+			   !strcmp(k, "DN_FLAP_BACKOFF") || !strcmp(k, "DN_FLAP_WINDOW_MIN") || !strcmp(k, "DN_FLAP_MAX_MIN") ||
+			   !strcmp(k, "DN_DAY_RESET_LUM") || !strcmp(k, "DN_DAY_RESET_MIN")) {
 			ll x;
 
 			if (!all_digits(v) || l > 9) continue;
@@ -306,6 +314,11 @@ static void conf_daynight(void)
 			else if (!strcmp(k, "IR_LED_MAX_ON")) IR_LED_MAX_ON = x;
 			else if (!strcmp(k, "IR_LED_REST")) IR_LED_REST = x;
 			else if (!strcmp(k, "AE_NIGHT_ABOVE")) AE_NIGHT_ABOVE = x;
+			else if (!strcmp(k, "DN_FLAP_BACKOFF")) DN_FLAP_BACKOFF = x;
+			else if (!strcmp(k, "DN_FLAP_WINDOW_MIN")) DN_FLAP_WINDOW_MIN = x;
+			else if (!strcmp(k, "DN_FLAP_MAX_MIN")) DN_FLAP_MAX_MIN = x;
+			else if (!strcmp(k, "DN_DAY_RESET_LUM")) DN_DAY_RESET_LUM = x;
+			else if (!strcmp(k, "DN_DAY_RESET_MIN")) DN_DAY_RESET_MIN = x;
 			else AE_DAY_BELOW = x;
 		} else if (!strcmp(k, "NIGHT_HOLD") || !strcmp(k, "DAY_HOLD")) {
 			if (!all_digits(v) || l > 4 || dec(v) < 1 || dec(v) > 3600) continue;
@@ -403,19 +416,80 @@ static int dn_vendor_lum(char *const *f, const char *m, ll *lum)
 	return 1;
 }
 
-static void dn_switch(int night, const char *why)
+/* DN-FLAP: one line in the calibration log (and on the console) for the owner to read in the morning */
+static void dn_flap_log(const char *fmt, ...)
+{
+	char b[300], line[340], hm[8] = "";
+	va_list ap;
+	time_t t = time(NULL);
+	struct tm tmv;
+	int n, f;
+
+	va_start(ap, fmt);
+	vsnprintf(b, sizeof b, fmt, ap);
+	va_end(ap);
+	console("[auto-night] %s", b);
+	if (localtime_r(&t, &tmv)) snprintf(hm, sizeof hm, "%02d:%02d", tmv.tm_hour % 100, tmv.tm_min % 100);
+	n = snprintf(line, sizeof line, "%s [auto-night] %s\n", hm, b);
+	if (n > (int)sizeof line - 1) n = sizeof line - 1;
+	f = open(envs("DN_LOG", "/tmp/logs/daynight.log"), O_WRONLY | O_CREAT | O_APPEND, 0644);
+	if (f >= 0) { if (write(f, line, n) < 0) {} close(f); }
+	DN_LOG_N++;
+}
+
+/* DN-FLAP, vendor source: a return to night less than DN_FLAP_WINDOW_MIN minutes after a switch to day is a round trip
+ * (the IR lifts lum at night, the AWB counts hold day by day). Each one doubles the time kept between the night switch
+ * and the next day switch (window, 2 x window, ... up to DN_FLAP_MAX_MIN). It builds on MIN_SWITCH (dn_switch takes the
+ * larger of the two for a day switch); a switch to night is never held back. */
+static int dn_flap_on(void) { return DN_FLAP_BACKOFF && DAYNIGHT_SOURCE == SRC_VENDOR; }
+
+static void dn_flap_switched(int night)
+{
+	if (!dn_flap_on()) return;
+	if (!night) {
+		DN_FLAP_DAY_AT = NOW;
+		have_flap_day = 1;
+		return;
+	}
+	if (have_flap_day && NOW - DN_FLAP_DAY_AT < DN_FLAP_WINDOW_MIN * 60) {
+		ll cap = DN_FLAP_MAX_MIN * 60, h = DN_FLAP_HOLD ? DN_FLAP_HOLD * 2 : DN_FLAP_WINDOW_MIN * 60;
+
+		if (h > cap) h = cap;
+		DN_FLAP_HOLD = h;
+		dn_flap_log("day held back %lld min after a round trip (night again %lld s after day)", h / 60, NOW - DN_FLAP_DAY_AT);
+	}
+	have_flap_day = 0;
+}
+
+/* a real day: lum below DN_DAY_RESET_LUM for DN_DAY_RESET_MIN minutes in a row clears the hold */
+static void dn_flap_sample(ll lum)
+{
+	if (!dn_flap_on() || DN_FLAP_HOLD <= 0) { have_flap_low = 0; return; }
+	if (lum >= DN_DAY_RESET_LUM) { have_flap_low = 0; return; }
+	if (!have_flap_low) { have_flap_low = 1; DN_FLAP_LOW_SINCE = NOW; }
+	if (NOW - DN_FLAP_LOW_SINCE >= DN_DAY_RESET_MIN * 60) {
+		DN_FLAP_HOLD = 0;
+		have_flap_low = 0;
+		dn_flap_log("day hold reset: lum below %lld for %lld min (real day)", DN_DAY_RESET_LUM, DN_DAY_RESET_MIN);
+	}
+}
+
+static int dn_switch(int night, const char *why)	/* 1 when it switched */
 {
 	const char *argv[3];
+	ll dwell = MIN_SWITCH;
 
-	if (have_last_switch && NOW - DN_LAST_SWITCH < MIN_SWITCH) {
+	if (!night && dn_flap_on() && DN_FLAP_HOLD > dwell) dwell = DN_FLAP_HOLD;
+	if (have_last_switch && NOW - DN_LAST_SWITCH < dwell) {
 		/* too soon after the last switch: wait; the counters keep running, so it happens once the time is up */
 		if (!have_too_soon || DN_TOO_SOON != DN_LAST_SWITCH)
 			console("[auto-night] %s wanted (%s) %lld s after the last switch: waiting %lld s",
-				night ? "night" : "day", why, NOW - DN_LAST_SWITCH, MIN_SWITCH);
+				night ? "night" : "day", why, NOW - DN_LAST_SWITCH, dwell);
 		DN_TOO_SOON = DN_LAST_SWITCH;
 		have_too_soon = 1;
-		return;
+		return 0;
 	}
+	dn_flap_switched(night);
 	DN_LAST_SWITCH = NOW;
 	have_last_switch = 1;
 	if (night) console("[auto-night] Low light detected (%s): Switching to NIGHT mode", why);
@@ -426,6 +500,7 @@ static void dn_switch(int night, const char *why)
 	run(argv, 1);
 	DN_DARK_SINCE = DN_BRIGHT_SINCE = 0;
 	LOW_LIGHT_COUNT = BRIGHT_LIGHT_COUNT = 0;
+	return 1;
 }
 
 /* hold logic of the ae and isp sources: dark = wants night, bright = wants day; -1 nothing, 1 night, 0 day */
@@ -545,6 +620,7 @@ static int dn_step_vendor(void)
 	read_cut();
 	dn_awb_check_restart();
 	dn_awb();
+	dn_flap_sample(lum);
 	if (CUR_CUT_ON) { if (lum > VENDOR_NIGHT_LUM && DN_AWB_DAY == 0) want = 1; }
 	else if (lum < VENDOR_DAY_LUM && DN_AWB_VIS == 1) want = 0;
 	if (want >= 0) DN_VCNT++; else DN_VCNT = 0;
@@ -563,10 +639,11 @@ static int dn_step_vendor(void)
 		console("[auto-night] switching back within 15 s: locked for %lld s (lum=%lld)", VENDOR_LOCK, lum);
 		return 0;
 	}
-	DN_LAST_SW = NOW;
-	DN_SW_LUM = lum;
 	snprintf(why, sizeof why, "vendor lum=%lld awb day=%d visible=%d", lum, DN_AWB_DAY, DN_AWB_VIS);
-	dn_switch(want, why);
+	if (dn_switch(want, why)) {	/* only a real switch starts the 15 s "switching back" check (not a wait) */
+		DN_LAST_SW = NOW;
+		DN_SW_LUM = lum;
+	}
 	return 0;
 }
 

@@ -37,7 +37,7 @@ class DaynightCatalog(unittest.TestCase):
 
     def test_family_is_complete(self):
         self.assertIn("daynight", self.cat["families"])
-        self.assertEqual(len(self.p), 20)
+        self.assertEqual(len(self.p), 25)
         for k, e in self.p.items():
             self.assertEqual(e["id"], "daynight." + k.lower())
             self.assertEqual(e["source"]["path"], "/mnt/config/daynight.conf")
@@ -88,7 +88,7 @@ class DaynightCatalog(unittest.TestCase):
 
     def test_form_handler_bounds_and_keys(self):
         for k, e in self.ints().items():
-            if k in ("AWB_DAY_CNT", "AWB_NIGHT_CNT", "VENDOR_LOCK", "IR_LED_REST"):
+            if k in ("AWB_DAY_CNT", "AWB_NIGHT_CNT", "VENDOR_LOCK", "IR_LED_REST", "DN_FLAP_BACKOFF", "DN_FLAP_WINDOW_MIN", "DN_FLAP_MAX_MIN", "DN_DAY_RESET_LUM", "DN_DAY_RESET_MIN"):
                 continue
             lo, hi = e["range"]
             src = r"\$\{_irs\}" if k == "IR_LED_MAX_ON" else rf"\$\{{F_\w+:-\$\(_dn_get {k}\)\}}"

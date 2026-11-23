@@ -25,6 +25,8 @@
 #                   counts above AWB_NIGHT_CNT, 15000: the IR LEDs alone leave them low). A switch back within 15 s
 #                   locks the state for VENDOR_LOCK seconds (900) unless lum moves by more than 30 %. Its thresholds
 #                   assume the 10 fps low-light mode by day (RTSP_LOWLIGHT_FPS=1, exposure up to 2812 lines).
+#                   DN-FLAP: after a day -> night round trip under 15 min the next day switch is held back (15, 30, 60,
+#                   120 min), cleared by 5 min of lum < 600; DN_FLAP_BACKOFF=0 turns it off (see below).
 # Without a usable /tmp/cam_ae (tc100_rtsp not running) the ae, isp and vendor sources fall back to luma.
 # IR LED protection (all sources, as the stock firmware): after IR_LED_MAX_ON seconds of night (50400 = 14 h) day
 # mode for IR_LED_REST seconds (600), then the normal decision again; IR_LED_MAX_ON=0 turns it off.
@@ -74,6 +76,18 @@ IR_LED_MAX_ON=50400
 IR_LED_REST=600
 IR_LED_MODE=auto
 AWB_RESTART_IGNORE=30
+# DN-FLAP (vendor source): after a day -> night round trip shorter than DN_FLAP_WINDOW_MIN minutes the next day switch is
+# held back (window, 2 x window, ... up to DN_FLAP_MAX_MIN minutes after the night switch; on top of MIN_SWITCH, never
+# for a night switch). lum below DN_DAY_RESET_LUM for DN_DAY_RESET_MIN minutes (a real day) clears it.
+# DN_FLAP_BACKOFF=0 turns it off. State in memory only.
+DN_FLAP_BACKOFF=1
+DN_FLAP_WINDOW_MIN=15
+DN_FLAP_MAX_MIN=120
+DN_DAY_RESET_LUM=600
+DN_DAY_RESET_MIN=5
+DN_FLAP_HOLD=0
+DN_FLAP_DAY_AT=
+DN_FLAP_LOW_SINCE=
 DN_VCNT=0
 DN_AWB_LAST=
 DN_AWB_SAME=0
@@ -115,6 +129,7 @@ read_daynight() {
   THRESHOLD_NIGHT=40; THRESHOLD_DAY=100; AE_NIGHT_ABOVE=15000; AE_DAY_BELOW=3000
   VENDOR_NIGHT_LUM=3584; VENDOR_DAY_LUM=1536; AWB_DAY_CNT=200000; AWB_NIGHT_CNT=1200
   VENDOR_LOCK=900; IR_LED_MAX_ON=50400; IR_LED_REST=600; DAYNIGHT_SOURCE=luma; IR_LED_MODE=auto; AWB_RESTART_IGNORE=30
+  DN_FLAP_BACKOFF=1; DN_FLAP_WINDOW_MIN=15; DN_FLAP_MAX_MIN=120; DN_DAY_RESET_LUM=600; DN_DAY_RESET_MIN=5
   while IFS='=' read -r _k _v; do
     case "$_k" in
       LUMA_NIGHT|LUMA_DAY)
@@ -125,6 +140,10 @@ read_daynight() {
       IR_LED_MODE)
         case "$_v" in auto|off|force) IR_LED_MODE="$_v" ;; esac ;;
       VENDOR_NIGHT_LUM|VENDOR_DAY_LUM|AWB_DAY_CNT|AWB_NIGHT_CNT|VENDOR_LOCK|IR_LED_MAX_ON|IR_LED_REST)
+        case "$_v" in ''|*[!0-9]*) continue ;; esac
+        [ "${#_v}" -le 9 ] || continue
+        eval "$_k=$_v" ;;
+      DN_FLAP_BACKOFF|DN_FLAP_WINDOW_MIN|DN_FLAP_MAX_MIN|DN_DAY_RESET_LUM|DN_DAY_RESET_MIN)
         case "$_v" in ''|*[!0-9]*) continue ;; esac
         [ "${#_v}" -le 9 ] || continue
         eval "$_k=$_v" ;;
@@ -195,13 +214,49 @@ dn_hold() {
   fi
 }
 
-dn_switch() {   # $1 = night|day, $2 = what the decision was based on; NOW = the time of the decision (set by its caller)
-  if [ -n "$DN_LAST_SWITCH" ] && [ $(( NOW - DN_LAST_SWITCH )) -lt "$MIN_SWITCH" ]; then
-    # too soon after the last switch (item 21): wait; the counters keep running, so it happens once the time is up
-    [ "$DN_TOO_SOON" = "$DN_LAST_SWITCH" ] || echo "[auto-night] $1 wanted ($2) $(( NOW - DN_LAST_SWITCH )) s after the last switch: waiting ${MIN_SWITCH} s" > "$CONSOLE"
-    DN_TOO_SOON=$DN_LAST_SWITCH
-    return 0
+# DN-FLAP: one line in the calibration log (and on the console) for the owner to read in the morning
+dn_flap_log() {
+  echo "[auto-night] $1" > "$CONSOLE"
+  echo "$(date +%H:%M 2>/dev/null) [auto-night] $1" >> "$DN_LOG" 2>/dev/null
+  DN_LOG_N=$((DN_LOG_N + 1))
+}
+
+dn_flap_on() { [ "$DN_FLAP_BACKOFF" != 0 ] && [ "$DAYNIGHT_SOURCE" = vendor ]; }
+
+# a return to night less than DN_FLAP_WINDOW_MIN minutes after a switch to day is a round trip: it doubles the time kept
+# between the night switch and the next day switch (window, 2 x window ... up to DN_FLAP_MAX_MIN)
+dn_flap_switched() {   # $1 = night|day
+  dn_flap_on || return 0
+  if [ "$1" = day ]; then DN_FLAP_DAY_AT=$NOW; return 0; fi
+  if [ -n "$DN_FLAP_DAY_AT" ] && [ $(( NOW - DN_FLAP_DAY_AT )) -lt $(( DN_FLAP_WINDOW_MIN * 60 )) ]; then
+    if [ "$DN_FLAP_HOLD" -gt 0 ]; then _fh=$(( DN_FLAP_HOLD * 2 )); else _fh=$(( DN_FLAP_WINDOW_MIN * 60 )); fi
+    [ "$_fh" -le $(( DN_FLAP_MAX_MIN * 60 )) ] || _fh=$(( DN_FLAP_MAX_MIN * 60 ))
+    DN_FLAP_HOLD=$_fh
+    dn_flap_log "day held back $(( _fh / 60 )) min after a round trip (night again $(( NOW - DN_FLAP_DAY_AT )) s after day)"
   fi
+  DN_FLAP_DAY_AT=
+}
+
+# a real day: lum below DN_DAY_RESET_LUM for DN_DAY_RESET_MIN minutes in a row clears the hold ($1 = lum)
+dn_flap_sample() {
+  if ! dn_flap_on || [ "$DN_FLAP_HOLD" -le 0 ] || [ "$1" -ge "$DN_DAY_RESET_LUM" ]; then DN_FLAP_LOW_SINCE=; return 0; fi
+  [ -n "$DN_FLAP_LOW_SINCE" ] || DN_FLAP_LOW_SINCE=$NOW
+  if [ $(( NOW - DN_FLAP_LOW_SINCE )) -ge $(( DN_DAY_RESET_MIN * 60 )) ]; then
+    DN_FLAP_HOLD=0; DN_FLAP_LOW_SINCE=
+    dn_flap_log "day hold reset: lum below $DN_DAY_RESET_LUM for $DN_DAY_RESET_MIN min (real day)"
+  fi
+}
+
+dn_switch() {   # $1 = night|day, $2 = what the decision was based on; NOW = the time of the decision (set by its caller). Returns 1 when it did not switch.
+  _dwell=$MIN_SWITCH
+  [ "$1" = day ] && dn_flap_on && [ "$DN_FLAP_HOLD" -gt "$_dwell" ] && _dwell=$DN_FLAP_HOLD
+  if [ -n "$DN_LAST_SWITCH" ] && [ $(( NOW - DN_LAST_SWITCH )) -lt "$_dwell" ]; then
+    # too soon after the last switch (item 21): wait; the counters keep running, so it happens once the time is up
+    [ "$DN_TOO_SOON" = "$DN_LAST_SWITCH" ] || echo "[auto-night] $1 wanted ($2) $(( NOW - DN_LAST_SWITCH )) s after the last switch: waiting ${_dwell} s" > "$CONSOLE"
+    DN_TOO_SOON=$DN_LAST_SWITCH
+    return 1
+  fi
+  dn_flap_switched "$1"
   DN_LAST_SWITCH=$NOW
   if [ "$1" = night ]; then
     echo "[auto-night] Low light detected ($2): Switching to NIGHT mode" > "$CONSOLE"
@@ -212,6 +267,7 @@ dn_switch() {   # $1 = night|day, $2 = what the decision was based on; NOW = the
   fi
   DN_DARK_SINCE=0; DN_BRIGHT_SINCE=0
   LOW_LIGHT_COUNT=0; BRIGHT_LIGHT_COUNT=0
+  return 0
 }
 
 # One decision of the ae / isp source; returns 1 when /tmp/cam_ae cannot be used (the caller falls back to luma).
@@ -301,6 +357,7 @@ dn_step_vendor() {
   read_cut
   dn_awb_check_restart
   dn_awb
+  dn_flap_sample "$DN_LUM"
   _want=
   if [ "$CUR_CUT" = ON ]; then
     [ "$DN_LUM" -gt "$VENDOR_NIGHT_LUM" ] && [ "$DN_AWB_DAY" = 0 ] && _want=night
@@ -320,8 +377,9 @@ dn_step_vendor() {
     echo "[auto-night] switching back within 15 s: locked for ${VENDOR_LOCK} s (lum=$DN_LUM)" > "$CONSOLE"
     return 0
   fi
-  DN_LAST_SW=$NOW; DN_SW_LUM=$DN_LUM
-  dn_switch "$_want" "vendor lum=$DN_LUM awb day=$DN_AWB_DAY visible=$DN_AWB_VIS"
+  if dn_switch "$_want" "vendor lum=$DN_LUM awb day=$DN_AWB_DAY visible=$DN_AWB_VIS"; then
+    DN_LAST_SW=$NOW; DN_SW_LUM=$DN_LUM   # only a real switch starts the 15 s "switching back" check (not a wait)
+  fi
   return 0
 }
 
