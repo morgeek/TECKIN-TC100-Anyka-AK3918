@@ -363,7 +363,33 @@ per flash write.
 - **Test:** On a camera with `awb.state` written after settling in day mode, run `controlscripts/rtsp-h26x restart` and check `/tmp/logs/tc100_rtsp.log` for `white balance: ISP in manual mode from saved gains` at startup, then check a snapshot within the first 5 s.
 - **Pass criteria:** Immediate manual mode from saved gains on restart in the same day/night mode (no 10 s auto color shift); 10 s auto fallback when `awb.state` is removed or stale.
 
-### MEMWATCH Memory log to tell a kernel leak from benign growth (`[memwatch]`) — `to test`
+### AWB-NIGHT AWB-05 hands white balance back to the ISP at night (`[awb-night]`) — `to test` (both cameras)
+
+- **What:** `src/tc100rtsp/tc100_rtsp.c` (`awb_night_pause`, `awb_day_resume`, `post_awb_sample`, `awb_state_load`,
+  `awb_state_save`, `awb_hw_init`). Night = `/tmp/tc100_bw` (written by `night-mode` / `setconf -k v`, the signal the
+  video server already reads for the night parameter set). At night the loop is paused and the ISP gets its automatic
+  white balance back (`AK_ISP_SET_WB_TYPE` auto, neutral extra gains, as after a start at night); the day gains
+  (`rex`, `bex`, MWB base) are kept in memory and applied again at dawn (manual mode at once; without a manual base
+  the usual 10 s warm-up). `awb.state` is never saved at night. A state saved at night, or with `rex` / `bex` above
+  900, is never loaded (3.0.1 / 3.0.2-rc1 left such a state on the .24: `bex` 1228). The bound 900 (x3.5): day
+  gains of a steady scene sit near 256-600 (the .11: 141 by day, 941 at night), the .24 polluted value was 1228, so 900
+  keeps real dusk lamp-light states and drops polluted ones.
+- **Log lines (video log):** `AWB-05 paused (night), ISP auto (day gains kept: rex .. bex ..)`; at dawn
+  `AWB-05 resumed from saved day gains r .. g .. b .. (rex .. bex ..)`; at start `white balance: saved state ignored
+  (saved at night | implausible for day: ...)`.
+- **Switch to turn it off:** `RTSP_AWB_NIGHT=0` in `/mnt/config/rtsp.env` (3.0.1 behaviour: the loop only stops
+  measuring). The state refusal rules stay; `RTSP_AWB_STATE=0` / `RTSP_AWB_MANUAL=0` as before.
+- **Test (each camera):** (1) with the video server running since the day (no restart), note bit rate and the MWB gains
+  (`/tmp/cam_awb`, `rex= bex=`) in the video log shortly before the evening switch to night; after the switch note
+  the two log lines, the bit rate over 30 min and `bex`; (2) next morning `cat /mnt/config/awb.state` (last field is
+  a day timestamp, mode field 0, `bex` below 900) and check the `resumed` line at the switch to day and the colours
+  of a snapshot; (3) a video restart at night (`AWB-05 paused` at start, 650-ish kbit/s), then a day start after
+  a night (manual mode from the saved day gains or the 10 s warm-up, correct colours); (4) with a polluted state
+  left from 3.0.1 (`rex 375 bex 1228`), restart: the `saved state ignored` line.
+- **Pass:** night bit rate about 650-950 kbit/s instead of about 1600 on the .24 after an evening switch without a
+  restart; no blue gain near the cap (1536) at night; correct day colours next morning; `awb.state` has no night
+  content.
+ to tell a kernel leak from benign growth (`[memwatch]`) — `to test`
 
 - **What:** `scripts/memwatch.sh`, called by `health-snapshot.sh` every 5 minutes, writes `memory.csv` (26 columns from
   `/proc/meminfo` and `/proc/vmstat`; kinds `boot` = baseline at 10 min of uptime, `sample`, `hourly`, `drop`) and, once

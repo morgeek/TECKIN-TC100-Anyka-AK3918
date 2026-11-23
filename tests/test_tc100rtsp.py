@@ -2061,8 +2061,11 @@ static int awb_hw_set(void) { hw_writes++; return 0; }
 static void awb_state_save(void) { state_saves++; }
 static void post_luts(void) {}
 static void awb_attr_apply(void) {}
-static int awb_manual, mwb_r;
+static int awb_manual, mwb_r, awb_warm;
 static void awb_manual_start(void) {}
+static int awb_night_on, awb_paused;
+static void awb_night_pause(void) {}
+static void awb_day_resume(void) {}
 #define AWB_MANUAL_AFTER 20
 """ + fn + r"""
 static unsigned char frame[64 * 64 * 3 / 2];
@@ -2145,7 +2148,7 @@ class IspAwbHysteresis(unittest.TestCase):
         self.assertIn('awb_attr_apply();', init)
         # AWB-05: manual white balance steered by our loop, RTSP_AWB_MANUAL=0 keeps the automatic mode
         self.assertIn('getenv("RTSP_AWB_MANUAL")', init)
-        self.assertIn('if (awb_manual && !mwb_r) { static int mn; if (++mn >= AWB_MANUAL_AFTER) awb_manual_start(); }', src)
+        self.assertIn('if (awb_manual && !mwb_r) { if (++awb_warm >= AWB_MANUAL_AFTER) awb_manual_start(); }', src)
         st = src[src.index('static void awb_manual_start(void)'):][:600]
         self.assertIn('awb_manual_on() == 0', st)
         self.assertIn('#define AWB_MANUAL_AFTER 20', src)
@@ -2182,8 +2185,10 @@ class IspAwbHysteresis(unittest.TestCase):
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 static int awb_state_on = 1, awb_max = 1536, ex_r = 256, ex_b = 256;
-static int awb_saved_r = 256, awb_saved_b = 256, bw_want = 0;
+static int awb_saved_r = 256, awb_saved_b = 256, bw_want = 0, awb_paused = 0;
+#define AWB_DAY_EX_MAX 900
 static int awb_manual = 1, mwb_r, mwb_g, mwb_b;
 static int awb_loaded_mr, awb_loaded_mg, awb_loaded_mb, awb_saved_mwb, awb_saved_bw = -1;
 #define AWB_STATE_MAX_AGE (6 * 3600)
@@ -2194,6 +2199,7 @@ static FILE *fopen_wrap(const char *p, const char *m) { (void)p; return fopen(fa
 #define fopen fopen_wrap
 """ + atoi_fn + fn_load + """
 #undef fopen
+static void rst(void) { ex_r = ex_b = awb_saved_r = awb_saved_b = 256; awb_loaded_mr = awb_loaded_mg = awb_loaded_mb = 0; }
 int main(int argc, char **argv) {
     snprintf(fake_path, sizeof fake_path, "%s", argv[1]);
     time_t now = time(NULL);
@@ -2206,6 +2212,7 @@ int main(int argc, char **argv) {
     f = fopen(fake_path, "w");
     fprintf(f, "280 310 350 264 420 1 %lld\\n", (long long)(now - 60));
     fclose(f);
+    rst();
     awb_state_load();
     printf("NIGHT_MISMATCH mr=%d ex=%d/%d\\n", awb_loaded_mr, ex_r, ex_b);
 
@@ -2220,6 +2227,29 @@ int main(int argc, char **argv) {
     fclose(f);
     awb_state_load();
     printf("LEGACY mr=%d ex=%d/%d\\n", awb_loaded_mr, ex_r, ex_b);
+
+    /* AWB-NIGHT: the polluted state of the .24 (bex 1228, saved in day mode by 3.0.1) is not loaded; 900 is */
+    f = fopen(fake_path, "w");
+    fprintf(f, "375 1228 350 264 420 0 %lld\\n", (long long)(now - 60));
+    fclose(f);
+    rst(); awb_state_load();
+    printf("POLLUTED mr=%d ex=%d/%d\\n", awb_loaded_mr, ex_r, ex_b);
+    f = fopen(fake_path, "w");
+    fprintf(f, "375 900 350 264 420 0 %lld\\n", (long long)(now - 60));
+    fclose(f);
+    rst(); awb_state_load();
+    printf("EDGE_OK mr=%d mg=%d mb=%d ex=%d/%d\\n", awb_loaded_mr, awb_loaded_mg, awb_loaded_mb, ex_r, ex_b);
+    unlink(fake_path);
+    /* the save is refused at night and while paused, and written by day */
+    rst(); ex_r = 300; ex_b = 400; mwb_r = 350; mwb_g = 264; mwb_b = 420; bw_want = 1;
+    awb_state_save();
+    printf("SAVE_NIGHT exists=%d\\n", access(fake_path, F_OK) == 0);
+    bw_want = 0; awb_paused = 1;
+    awb_state_save();
+    printf("SAVE_PAUSED exists=%d\\n", access(fake_path, F_OK) == 0);
+    awb_paused = 0;
+    awb_state_save();
+    printf("SAVE_DAY exists=%d\\n", access(fake_path, F_OK) == 0);
     return 0;
 }
 """
@@ -2231,9 +2261,66 @@ int main(int argc, char **argv) {
             subprocess.run(['gcc', '-Wall', '-Wextra', '-o', str(binf), str(cfile)], check=True)
             out = subprocess.run([str(binf), str(statef)], capture_output=True, text=True, check=True).stdout
         self.assertIn('RECENT mr=350 mg=264 mb=420 ex=280/310', out)
-        self.assertIn('NIGHT_MISMATCH mr=0 ex=280/310', out)
+        self.assertIn('NIGHT_MISMATCH mr=0 ex=256/256', out)	# a state saved at night is never loaded
+        self.assertIn('POLLUTED mr=0 ex=256/256', out)
+        self.assertIn('EDGE_OK mr=350 mg=264 mb=420 ex=375/900', out)
+        self.assertIn('SAVE_NIGHT exists=0', out)
+        self.assertIn('SAVE_PAUSED exists=0', out)
+        self.assertIn('SAVE_DAY exists=1', out)
         self.assertIn('STALE mr=0 ex=280/310', out)
         self.assertIn('LEGACY mr=0 ex=275/305', out)
+
+    def test_awb_night_pause_and_day_resume(self):
+        # AWB-NIGHT: the loop hands white balance back to the ISP at night and takes the day gains again at dawn
+        src = (SRC / 'tc100_rtsp.c').read_text()
+        seg = src[src.index('struct isp_awb_ctrl'):src.index('static void awb_manual_start(void)')]
+        self.assertIn('if (awb_night_on) awb_night_pause();', src)
+        self.assertIn('if (awb_hw == 1 && awb_paused) awb_day_resume();', src)
+        self.assertIn('getenv("RTSP_AWB_NIGHT")', src)
+        harness = r"""
+#include <stdio.h>
+#include <string.h>
+#include <errno.h>
+#include <sys/ioctl.h>
+#define LOG(...) do { printf("LOG "); printf(__VA_ARGS__); } while (0)
+static int fake_type = 0, last_mwb_b, ioctls_type, ioctls_ex, ioctls_mwb;
+static int fake_ioctl(int, unsigned long, void *);
+#define ioctl fake_ioctl
+""" + seg + r"""
+static int fake_ioctl(int fd, unsigned long c, void *a)
+{
+	(void)fd;
+	if (c == ISP_SET_WB_TYPE) { fake_type = *(unsigned short *)a; ioctls_type++; }
+	else if (c == ISP_SET_MWB) { last_mwb_b = ((struct isp_mwb *)a)->b; ioctls_mwb++; }
+	else if (c == ISP_SET_AWB_EX) ioctls_ex++;
+	return 0;
+}
+int main(void)
+{
+	awb_fd = 3; awb_manual = 1; mwb_r = 300; mwb_g = 264; mwb_b = 400; ex_r = 300; ex_b = 500;
+	awb_night_pause();
+	printf("PAUSE paused=%d type=%d ex=%d/%d day=%d/%d ex_writes=%d\n", awb_paused, fake_type, ex_r, ex_b, awb_day_r, awb_day_b, ioctls_ex);
+	awb_night_pause();	/* once only */
+	printf("PAUSE2 type_calls=%d\n", ioctls_type);
+	awb_day_resume();
+	printf("RESUME paused=%d type=%d ex=%d/%d mwb_b=%d\n", awb_paused, fake_type, ex_r, ex_b, last_mwb_b);
+	/* a start at night (no manual mode yet, base unknown): the day gains from the saved state wait for the morning */
+	awb_paused = 1; awb_day_r = 280; awb_day_b = 310; ex_r = ex_b = 256; mwb_r = 0; awb_manual = 1;
+	awb_day_resume();
+	printf("RESUME_NOMWB ex=%d/%d warm=%d manual=%d\n", ex_r, ex_b, awb_warm, awb_manual);
+	return 0;
+}
+"""
+        with tempfile.TemporaryDirectory() as t:
+            Path(t, 'n.c').write_text(harness)
+            subprocess.run(['gcc', '-Wall', '-Wextra', '-Wno-unused-variable', '-Wno-unused-parameter', '-Wno-unused-function', '-o', str(Path(t, 'n')), str(Path(t, 'n.c'))], check=True)
+            out = subprocess.run([str(Path(t, 'n'))], capture_output=True, text=True, check=True).stdout
+        self.assertIn('PAUSE paused=1 type=1 ex=256/256 day=300/500 ex_writes=1', out)
+        self.assertIn('LOG AWB-05 paused (night), ISP auto', out)
+        self.assertIn('PAUSE2 type_calls=1', out)
+        self.assertIn('RESUME paused=0 type=0 ex=300/500 mwb_b=781', out)	# 400 * 500 / 256
+        self.assertIn('LOG AWB-05 resumed from saved day gains r 300 g 264 b 400', out)
+        self.assertIn('RESUME_NOMWB ex=280/310 warm=0 manual=1', out)
 
 
 if __name__ == '__main__':

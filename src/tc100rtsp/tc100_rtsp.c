@@ -590,6 +590,13 @@ struct isp_wb_stat { unsigned int R[10], G[10], B[10], cnt[10]; unsigned short r
 static int awb_manual = 1, mwb_r, mwb_g, mwb_b;	/* awb_manual: wanted; mwb_*: the base (the ISP's automatic gains at start) */
 static int awb_loaded_mr, awb_loaded_mg, awb_loaded_mb, awb_saved_mwb, awb_saved_bw = -1;
 #define AWB_STATE_MAX_AGE (6 * 3600)
+/* AWB-NIGHT (2026-11-23): at night (/tmp/tc100_bw, written by night-mode before the IR light and the IR cut) the loop is
+ * paused and the ISP gets its automatic white balance back (AK_ISP_SET_WB_TYPE 1, neutral extra gains), because the ISP
+ * stayed in manual mode across the day -> night parameter set with the gains of the last dusk (the .24: bex 1228 = x4.8,
+ * 1618 kbit/s all night against 650 after a start at night). The day gains are kept and used again at dawn. Nothing is
+ * saved to awb.state at night. RTSP_AWB_NIGHT=0 keeps the 3.0.1 behaviour (the loop only stops measuring). */
+#define AWB_DAY_EX_MAX 900	/* a day state above this extra gain (x3.5) is not loaded: see awb_state_load */
+static int awb_night_on = 1, awb_paused, awb_day_r = 256, awb_day_b = 256, awb_warm;
 static int awb_manual_on(void)
 {
 	struct isp_wb_stat st;
@@ -605,7 +612,7 @@ static int awb_manual_on(void)
 }
 static int awb_hw_set(void)
 {
-	if (awb_manual && mwb_r) {
+	if (awb_manual && mwb_r && !awb_paused) {
 		struct isp_mwb m = { 0 };
 		int r = mwb_r * ex_r / 256, b = mwb_b * ex_b / 256;
 
@@ -623,6 +630,36 @@ static int awb_hw_set(void)
 #ifndef AWB_MANUAL_AFTER
 #define AWB_MANUAL_AFTER 20	/* samples (0.5 s each: 10 s) of the ISP's automatic mode before the manual mode takes over */
 #endif
+static void awb_night_pause(void)
+{
+	unsigned short t = 1;	/* WB_OPS_TYPE_AUTO */
+
+	if (awb_paused) return;
+	awb_day_r = ex_r; awb_day_b = ex_b;
+	awb_paused = 1;
+	ex_r = ex_b = 256;
+	if (awb_manual && mwb_r) ioctl(awb_fd, ISP_SET_WB_TYPE, &t);
+	awb_hw_set();	/* automatic path (awb_paused): the tuning file's own extra gains */
+	LOG("AWB-05 paused (night), ISP auto (day gains kept: rex %d bex %d)\n", awb_day_r, awb_day_b);
+}
+static void awb_day_resume(void)
+{
+	if (!awb_paused) return;
+	awb_paused = 0;
+	ex_r = awb_day_r; ex_b = awb_day_b;
+	awb_warm = 0;
+	if (awb_manual && mwb_r) {
+		if (awb_manual_on() == 0) {
+			awb_hw_set();
+			LOG("AWB-05 resumed from saved day gains r %d g %d b %d (rex %d bex %d)\n", mwb_r, mwb_g, mwb_b, ex_r, ex_b);
+			return;
+		}
+		mwb_r = mwb_g = mwb_b = 0;
+		awb_manual = 0;
+	}
+	awb_hw_set();
+	LOG("AWB-05 resumed from saved day gains rex %d bex %d (ISP automatic mode%s)\n", ex_r, ex_b, awb_manual ? ", manual mode after the warm-up" : "");
+}
 static void awb_manual_start(void)
 {
 	if (awb_manual_on() == 0) {
@@ -697,14 +734,20 @@ static void awb_state_load(void)
 			if (*q) { sbw = atoi_(q); q = awb_next_tok(q); }
 			while (*q >= '0' && *q <= '9') sts = sts * 10 + (*q++ - '0');
 		}
-		if (r >= 128 && r <= awb_max && b >= 128 && b <= awb_max) {
+		/* A state saved at night (sbw 1), or whose extra gain is above AWB_DAY_EX_MAX, is never loaded. The bound comes from the
+		 * readings of 2026-11-18: the .11 sits at bex 141 by day and 941 at night, the .24 had 1228 (x4.8, near the 1536 cap)
+		 * after a night under IR; the day gains of a steady scene stay near 256-600, so 900 keeps every real dusk lamp-light
+		 * state and drops the polluted ones that 3.0.1 / 3.0.2-rc1 left in awb.state. */
+		if (sbw == 1 || r > AWB_DAY_EX_MAX || b > AWB_DAY_EX_MAX) {
+			if (r >= 128 && b >= 128) LOG("white balance: saved state ignored (%s: rex %d bex %d)\n", sbw == 1 ? "saved at night" : "implausible for day", r, b);
+		} else if (r >= 128 && r <= awb_max && b >= 128 && b <= awb_max) {
 			time_t now = time(NULL);
 			int recent = sts > 0 && ((now >= 1700000000L && sts >= 1700000000L && now >= sts && now - sts <= AWB_STATE_MAX_AGE) ||
 			                         (now < 1700000000L && sts >= 1700000000L) ||
 			                         (now < 1700000000L && sts < 1700000000L && now >= sts && now - sts <= AWB_STATE_MAX_AGE));
 			ex_r = awb_saved_r = r;
 			ex_b = awb_saved_b = b;
-			if (mr >= 1 && mr <= 4095 && mg >= 1 && mg <= 4095 && mb >= 1 && mb <= 4095 && sbw == bw_want && recent) {
+			if (mr >= 1 && mr <= 4095 && mg >= 1 && mg <= 4095 && mb >= 1 && mb <= 4095 && sbw == 0 && recent) {
 				awb_loaded_mr = mr; awb_loaded_mg = mg; awb_loaded_mb = mb;
 				awb_saved_mwb = 1; awb_saved_bw = sbw;
 			}
@@ -722,7 +765,7 @@ static void awb_state_save(void)
 	int n, dr = ex_r - awb_saved_r, db = ex_b - awb_saved_b;
 	int need_mwb = awb_manual && mwb_r && (!awb_saved_mwb || awb_saved_bw != bw_want);
 
-	if (!awb_state_on) return;
+	if (!awb_state_on || bw_want || awb_paused) return;	/* AWB-NIGHT: never at night */
 	if (dr < 0) dr = -dr;
 	if (db < 0) db = -db;
 	if (dr < 8 && db < 8 && !need_mwb) return;
@@ -747,6 +790,8 @@ static void awb_hw_init(void)
 	if (em && *em) { int m = atoi_(em); if (m >= 256 && m <= 4096) awb_max = m; }
 	if (eg && eg[0] == '0') awb_grey = 0;
 	if (es && es[0] == '0') awb_state_on = 0;
+	{ const char *en = getenv("RTSP_AWB_NIGHT"); awb_night_on = !(en && en[0] == '0'); }
+	awb_paused = 0; awb_day_r = awb_day_b = 256;
 	{ const char *ea = getenv("RTSP_ISP_AWB_STABLE"); if (ea && *ea) { int n = atoi_(ea); if (n >= 0 && n <= 1000) awb_stable_want = n; } }
 	awb_hw = 0;
 	if (e && e[0] == '0') return;	/* RTSP_ISPAWB=0: software white balance */
@@ -762,10 +807,16 @@ static void awb_hw_init(void)
 	}
 	for (int i = 0; i < 10; i++) if (awb0.c[i].rex <= 0 || awb0.c[i].bex <= 0) { awb0.c[i].rex = 256; awb0.c[i].bex = 256; }
 	awb_state_load();
+	if (bw_want && awb_night_on) {	/* started at night: the ISP stays automatic; the loaded gains are the day gains for the morning */
+		awb_day_r = ex_r; awb_day_b = ex_b; ex_r = ex_b = 256; awb_paused = 1;
+		LOG("AWB-05 paused (night), ISP auto (day gains kept: rex %d bex %d)\n", awb_day_r, awb_day_b);
+	}
 	if (awb_hw_set() < 0) { LOG("white balance: the ISP refused its extra gains: software\n"); close(awb_fd); awb_fd = -1; return; }
 	awb_hw = 1;
 	{ const char *ma = getenv("RTSP_AWB_MANUAL"); if (ma && ma[0] == '0') awb_manual = 0; }
-	if (awb_manual && !mwb_r && awb_loaded_mr) {
+	if (awb_manual && !mwb_r && awb_loaded_mr && awb_paused) {
+		mwb_r = awb_loaded_mr; mwb_g = awb_loaded_mg; mwb_b = awb_loaded_mb;	/* kept for the morning */
+	} else if (awb_manual && !mwb_r && awb_loaded_mr) {
 		mwb_r = awb_loaded_mr; mwb_g = awb_loaded_mg; mwb_b = awb_loaded_mb;
 		if (awb_manual_on() == 0) {
 			awb_hw_set();
@@ -1427,7 +1478,12 @@ static void post_awb_sample(const unsigned char *uv, int bw)
 	if (tune_dirty) { tune_hw_apply(); ispx_apply(); }
 	if (!p_awb) return;
 	if (awb_hw < 0) awb_hw_init();
-	if (awb_hw == 1 && bw) { settled = 0; return; }	/* black and white (night): no colour to measure */
+	if (awb_hw == 1 && bw) {	/* black and white (night): no colour to measure */
+		settled = 0;
+		if (awb_night_on) awb_night_pause();
+		return;
+	}
+	if (awb_hw == 1 && awb_paused) awb_day_resume();
 	for (i = 0; i < W * H / 2 - 2; i += 64) {	/* U V U V: one 32-bit read (capture memory is uncached) gives both samples */
 		uint32_t w = *(const volatile uint32_t *)(uv + i);
 		int u0 = (int)(w & 255), v0 = (int)((w >> 8) & 255);
@@ -1462,7 +1518,7 @@ static void post_awb_sample(const unsigned char *uv, int bw)
 		 * overshot and kept the tint pumping on the .11 (error changing sign at nearly every sample, gains moved 20
 		 * times in 40 s): after a change, wait AWB_HOLD samples, and move half as far (the step below is /512). */
 		{ static int chk; if (++chk >= 20) { chk = 0; awb_attr_apply(); } }	/* every 10 s (AWB-04) */
-		if (awb_manual && !mwb_r) { static int mn; if (++mn >= AWB_MANUAL_AFTER) awb_manual_start(); }	/* AWB-05 */
+		if (awb_manual && !mwb_r) { if (++awb_warm >= AWB_MANUAL_AFTER) awb_manual_start(); }	/* AWB-05 */
 		if (hold > 0) { hold--; return; }
 		/* and decide on the mean of AWB_AVG samples: the error of a still scene wanders by +-4 from one sample to the
 		 * next, more than the +-3 lock below */

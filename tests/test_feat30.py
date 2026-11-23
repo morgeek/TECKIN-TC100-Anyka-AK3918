@@ -833,7 +833,7 @@ class FirstBatchEnhancements(unittest.TestCase):
 
     def test_global_awb_clamp_and_state_in_rtsp(self):
         src = (ROOT / 'src/tc100rtsp/tc100_rtsp.c').read_text(encoding='utf-8')
-        for token in ('awb_max = 1536', 'RTSP_AWB_MAX', 'RTSP_AWB_GREY', 'RTSP_AWB_STATE',
+        for token in ('awb_max = 1536', 'RTSP_AWB_MAX', 'RTSP_AWB_GREY', 'RTSP_AWB_STATE', 'RTSP_AWB_NIGHT',
                       '/mnt/config/awb.state', 'rex=%d bex=%d u=%d v=%d'):
             self.assertIn(token, src)
 

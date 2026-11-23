@@ -17,6 +17,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **T1 QP bench** (`[t1-qp]`): `src/h265enc/qpbench.c` / `qpctl.h` bench tool to test the encoder's `0x4040` tables buffer.
 
 ### Changed
+- **AWB-NIGHT** (`[awb-night]`): `tc100_rtsp` pauses the AWB-05 loop at night and gives white balance back to the ISP's automatic mode
+  (resumes from the day gains at dawn), never saves or loads a night / implausible `awb.state` (`RTSP_AWB_NIGHT=0` turns it off).
 - **AWB-05 saved manual gains** (`[awb]`): `tc100_rtsp` starts ISP manual white balance immediately from `/mnt/config/awb.state`
   when recent (`<= 6 h`) and in the same day/night mode, falling back to 10 s auto warmup otherwise (`AWB-05-SAVED`).
 - **Polish** (`[polish]`): `cfg-persist` uses a single `md5sum`, `AWB_RESTART_IGNORE=30` suppresses false day switches after

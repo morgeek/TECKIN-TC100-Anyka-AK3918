@@ -97,7 +97,7 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
      que si `lum` baisse d'au moins 50 % par rapport à cette valeur ;
   3. en jour, ne pas laisser `AWB_DAY_CNT` retenir le jour quand le gain est au maximum (`idx` > 30 000).
   Test : les relevés `daynight.log` de la .11 entre 22 h et 2 h (journal de nuit `/tmp/log/nightmode.log`).
-- [ ] **AWB-NIGHT, AWB-05 ne doit pas piloter les gains sous IR (.24 : 1618 kbit/s toute la nuit au lieu de ~650).**
+- [x] **AWB-NIGHT (fait 2026-11-23 `[awb-night]`, à tester sur les deux caméras : test-queue `AWB-NIGHT`, coupure `RTSP_AWB_NIGHT=0`), AWB-05 ne doit pas piloter les gains sous IR (.24 : 1618 kbit/s toute la nuit au lieu de ~650).**
   Au passage jour → nuit d'un serveur qui tourne, la boucle grey-world continue sur l'image IR (bleu ×4,8, `bex`
   1228 près du plafond 1536) : bruit de couleur amplifié, débit au plafond. Après un redémarrage de nuit : 650
   kbit/s. Corriger : au passage en nuit (jeu de paramètres de nuit de l'ISP), arrêter la boucle et rendre la main à
