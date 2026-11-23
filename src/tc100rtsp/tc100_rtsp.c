@@ -602,6 +602,7 @@ static int awb_manual_on(void)
 	struct isp_wb_stat st;
 	unsigned short t = 0;
 
+	if (awb_night_on && bw_want) return -1;	/* AWB-NIGHT: nothing puts the ISP in manual mode at night */
 	if (!mwb_r) {
 		memset(&st, 0, sizeof st);
 		if (ioctl(awb_fd, ISP_GET_AWB_STAT, &st) < 0 || !st.r || !st.g || !st.b) return -1;
@@ -630,17 +631,24 @@ static int awb_hw_set(void)
 #ifndef AWB_MANUAL_AFTER
 #define AWB_MANUAL_AFTER 20	/* samples (0.5 s each: 10 s) of the ISP's automatic mode before the manual mode takes over */
 #endif
+/* From the loop (first sample of the night) and from awb_hw_init (a start at night, or the re-init the parameter set switch causes:
+ * isp_bases_reset closes the ISP and awb_hw_init runs again). Idempotent: the day gains kept at the first call survive the
+ * later ones, and the ISP is put in automatic mode every time (the tuning reload and the kernel may have left it manual). */
 static void awb_night_pause(void)
 {
 	unsigned short t = 1;	/* WB_OPS_TYPE_AUTO */
+	int rc;
 
-	if (awb_paused) return;
-	awb_day_r = ex_r; awb_day_b = ex_b;
-	awb_paused = 1;
+	if (!awb_paused) {
+		awb_day_r = ex_r > AWB_DAY_EX_MAX ? AWB_DAY_EX_MAX : ex_r;	/* a dusk gain above the day limit does not come back at dawn */
+		awb_day_b = ex_b > AWB_DAY_EX_MAX ? AWB_DAY_EX_MAX : ex_b;
+		awb_paused = 1;
+	}
 	ex_r = ex_b = 256;
-	if (awb_manual && mwb_r) ioctl(awb_fd, ISP_SET_WB_TYPE, &t);
+	rc = ioctl(awb_fd, ISP_SET_WB_TYPE, &t);
 	awb_hw_set();	/* automatic path (awb_paused): the tuning file's own extra gains */
-	LOG("AWB-05 paused (night), ISP auto (day gains kept: rex %d bex %d)\n", awb_day_r, awb_day_b);
+	if (rc < 0) LOG("AWB-05 paused (night), but the ISP refused its automatic mode (%s) (day gains kept: rex %d bex %d)\n", strerror(errno), awb_day_r, awb_day_b);
+	else LOG("AWB-05 paused (night), ISP auto (day gains kept: rex %d bex %d)\n", awb_day_r, awb_day_b);
 }
 static void awb_day_resume(void)
 {
@@ -692,7 +700,7 @@ static void awb_attr_apply(void)
 	static int logged;
 
 	if (awb_fd < 0) return;
-	if (awb_manual && mwb_r) {	/* AWB-05: the tuning reloaded with a parameter set puts the ISP back in automatic */
+	if (awb_manual && mwb_r && !awb_paused && !(awb_night_on && bw_want)) {	/* AWB-05: the tuning reloaded with a parameter set puts the ISP back in automatic */
 		unsigned short t = 1;
 		if (ioctl(awb_fd, ISP_GET_WB_TYPE, &t) == 0 && t != 0 && awb_manual_on() == 0) awb_hw_set();
 	}
@@ -738,7 +746,7 @@ static void awb_state_load(void)
 		 * readings of 2026-11-18: the .11 sits at bex 141 by day and 941 at night, the .24 had 1228 (x4.8, near the 1536 cap)
 		 * after a night under IR; the day gains of a steady scene stay near 256-600, so 900 keeps every real dusk lamp-light
 		 * state and drops the polluted ones that 3.0.1 / 3.0.2-rc1 left in awb.state. */
-		if (sbw == 1 || r > AWB_DAY_EX_MAX || b > AWB_DAY_EX_MAX) {
+		if ((awb_night_on && sbw == 1) || r > AWB_DAY_EX_MAX || b > AWB_DAY_EX_MAX) {
 			if (r >= 128 && b >= 128) LOG("white balance: saved state ignored (%s: rex %d bex %d)\n", sbw == 1 ? "saved at night" : "implausible for day", r, b);
 		} else if (r >= 128 && r <= awb_max && b >= 128 && b <= awb_max) {
 			time_t now = time(NULL);
@@ -747,7 +755,7 @@ static void awb_state_load(void)
 			                         (now < 1700000000L && sts < 1700000000L && now >= sts && now - sts <= AWB_STATE_MAX_AGE));
 			ex_r = awb_saved_r = r;
 			ex_b = awb_saved_b = b;
-			if (mr >= 1 && mr <= 4095 && mg >= 1 && mg <= 4095 && mb >= 1 && mb <= 4095 && sbw == 0 && recent) {
+			if (mr >= 1 && mr <= 4095 && mg >= 1 && mg <= 4095 && mb >= 1 && mb <= 4095 && sbw == (awb_night_on ? 0 : bw_want) && recent) {
 				awb_loaded_mr = mr; awb_loaded_mg = mg; awb_loaded_mb = mb;
 				awb_saved_mwb = 1; awb_saved_bw = sbw;
 			}
@@ -765,7 +773,7 @@ static void awb_state_save(void)
 	int n, dr = ex_r - awb_saved_r, db = ex_b - awb_saved_b;
 	int need_mwb = awb_manual && mwb_r && (!awb_saved_mwb || awb_saved_bw != bw_want);
 
-	if (!awb_state_on || bw_want || awb_paused) return;	/* AWB-NIGHT: never at night */
+	if (!awb_state_on || (awb_night_on && (bw_want || awb_paused))) return;	/* AWB-NIGHT: never at night */
 	if (dr < 0) dr = -dr;
 	if (db < 0) db = -db;
 	if (dr < 8 && db < 8 && !need_mwb) return;
@@ -791,7 +799,7 @@ static void awb_hw_init(void)
 	if (eg && eg[0] == '0') awb_grey = 0;
 	if (es && es[0] == '0') awb_state_on = 0;
 	{ const char *en = getenv("RTSP_AWB_NIGHT"); awb_night_on = !(en && en[0] == '0'); }
-	awb_paused = 0; awb_day_r = awb_day_b = 256;
+	{ static int first = 1; if (first) { first = 0; awb_paused = 0; awb_day_r = awb_day_b = 256; } }	/* kept across the re-init of a parameter set switch */
 	{ const char *ea = getenv("RTSP_ISP_AWB_STABLE"); if (ea && *ea) { int n = atoi_(ea); if (n >= 0 && n <= 1000) awb_stable_want = n; } }
 	awb_hw = 0;
 	if (e && e[0] == '0') return;	/* RTSP_ISPAWB=0: software white balance */
@@ -807,10 +815,7 @@ static void awb_hw_init(void)
 	}
 	for (int i = 0; i < 10; i++) if (awb0.c[i].rex <= 0 || awb0.c[i].bex <= 0) { awb0.c[i].rex = 256; awb0.c[i].bex = 256; }
 	awb_state_load();
-	if (bw_want && awb_night_on) {	/* started at night: the ISP stays automatic; the loaded gains are the day gains for the morning */
-		awb_day_r = ex_r; awb_day_b = ex_b; ex_r = ex_b = 256; awb_paused = 1;
-		LOG("AWB-05 paused (night), ISP auto (day gains kept: rex %d bex %d)\n", awb_day_r, awb_day_b);
-	}
+	if (bw_want && awb_night_on) awb_night_pause();	/* a start or a re-init at night: ISP automatic, the gains of the day wait for the morning */
 	if (awb_hw_set() < 0) { LOG("white balance: the ISP refused its extra gains: software\n"); close(awb_fd); awb_fd = -1; return; }
 	awb_hw = 1;
 	{ const char *ma = getenv("RTSP_AWB_MANUAL"); if (ma && ma[0] == '0') awb_manual = 0; }
@@ -1480,7 +1485,7 @@ static void post_awb_sample(const unsigned char *uv, int bw)
 	if (awb_hw < 0) awb_hw_init();
 	if (awb_hw == 1 && bw) {	/* black and white (night): no colour to measure */
 		settled = 0;
-		if (awb_night_on) awb_night_pause();
+		if (awb_night_on && !awb_paused) awb_night_pause();
 		return;
 	}
 	if (awb_hw == 1 && awb_paused) awb_day_resume();

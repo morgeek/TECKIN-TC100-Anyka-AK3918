@@ -2188,6 +2188,7 @@ class IspAwbHysteresis(unittest.TestCase):
 #include <unistd.h>
 static int awb_state_on = 1, awb_max = 1536, ex_r = 256, ex_b = 256;
 static int awb_saved_r = 256, awb_saved_b = 256, bw_want = 0, awb_paused = 0;
+static int awb_night_on = 1;
 #define AWB_DAY_EX_MAX 900
 static int awb_manual = 1, mwb_r, mwb_g, mwb_b;
 static int awb_loaded_mr, awb_loaded_mg, awb_loaded_mb, awb_saved_mwb, awb_saved_bw = -1;
@@ -2274,7 +2275,7 @@ int main(int argc, char **argv) {
         # AWB-NIGHT: the loop hands white balance back to the ISP at night and takes the day gains again at dawn
         src = (SRC / 'tc100_rtsp.c').read_text()
         seg = src[src.index('struct isp_awb_ctrl'):src.index('static void awb_manual_start(void)')]
-        self.assertIn('if (awb_night_on) awb_night_pause();', src)
+        self.assertIn('if (awb_night_on && !awb_paused) awb_night_pause();', src)
         self.assertIn('if (awb_hw == 1 && awb_paused) awb_day_resume();', src)
         self.assertIn('getenv("RTSP_AWB_NIGHT")', src)
         harness = r"""
@@ -2284,6 +2285,7 @@ int main(int argc, char **argv) {
 #include <sys/ioctl.h>
 #define LOG(...) do { printf("LOG "); printf(__VA_ARGS__); } while (0)
 static int fake_type = 0, last_mwb_b, ioctls_type, ioctls_ex, ioctls_mwb;
+static int bw_want;
 static int fake_ioctl(int, unsigned long, void *);
 #define ioctl fake_ioctl
 """ + seg + r"""
@@ -2300,8 +2302,9 @@ int main(void)
 	awb_fd = 3; awb_manual = 1; mwb_r = 300; mwb_g = 264; mwb_b = 400; ex_r = 300; ex_b = 500;
 	awb_night_pause();
 	printf("PAUSE paused=%d type=%d ex=%d/%d day=%d/%d ex_writes=%d\n", awb_paused, fake_type, ex_r, ex_b, awb_day_r, awb_day_b, ioctls_ex);
-	awb_night_pause();	/* once only */
-	printf("PAUSE2 type_calls=%d\n", ioctls_type);
+	ex_r = 999; ex_b = 1500;	/* a second call (the re-init of a parameter set switch reloads the saved gains): the day gains stay */
+	awb_night_pause();
+	printf("PAUSE2 type_calls=%d day=%d/%d ex=%d/%d\n", ioctls_type, awb_day_r, awb_day_b, ex_r, ex_b);
 	awb_day_resume();
 	printf("RESUME paused=%d type=%d ex=%d/%d mwb_b=%d\n", awb_paused, fake_type, ex_r, ex_b, last_mwb_b);
 	/* a start at night (no manual mode yet, base unknown): the day gains from the saved state wait for the morning */
@@ -2317,10 +2320,133 @@ int main(void)
             out = subprocess.run([str(Path(t, 'n'))], capture_output=True, text=True, check=True).stdout
         self.assertIn('PAUSE paused=1 type=1 ex=256/256 day=300/500 ex_writes=1', out)
         self.assertIn('LOG AWB-05 paused (night), ISP auto', out)
-        self.assertIn('PAUSE2 type_calls=1', out)
+        self.assertIn('PAUSE2 type_calls=2 day=300/500 ex=256/256', out)
         self.assertIn('RESUME paused=0 type=0 ex=300/500 mwb_b=781', out)	# 400 * 500 / 256
         self.assertIn('LOG AWB-05 resumed from saved day gains r 300 g 264 b 400', out)
         self.assertIn('RESUME_NOMWB ex=280/310 warm=0 manual=1', out)
+
+    def _nightstyle_harness(self):
+        src = (SRC / 'tc100_rtsp.c').read_text()
+        seg = src[src.index('struct isp_awb_ctrl'):src.index('/* The sensor runs at 25 fps')]
+        atoi_fn = src[src.index('static int atoi_(const char *s)'):src.index('static void sscanf_4')]
+        self.assertIn('static int first = 1;', seg)
+        self.assertIn('if (awb_hw == 1 && awb_paused) awb_day_resume();', src)
+        self.assertIn('isp_bases_reset', src)
+        return r"""
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <time.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
+#define LOG(...) do { printf("LOG "); printf(__VA_ARGS__); } while (0)
+#define O_RDWR 2
+static int bw_want, p_du, p_dv, fake_type = 1, type0_at_night, last_type_set = -1;
+static char sfile[256];
+static void post_luts(void) {}
+static int wfile(const char *p, const void *d, size_t n) { (void)p; FILE *f = fopen(sfile, "w"); fwrite(d, 1, n, f); fclose(f); return 0; }
+static FILE *fopen_w(const char *p, const char *m) { (void)p; return fopen(sfile, m); }
+static int fake_open(const char *p, int f) { (void)p; (void)f; return 3; }
+static int fake_close(int fd) { (void)fd; return 0; }
+static int fake_ioctl(int, unsigned long, void *);
+#define fopen fopen_w
+#define open fake_open
+#define close fake_close
+#define ioctl fake_ioctl
+""" + atoi_fn + seg + r"""
+#undef fopen
+static int fake_ioctl(int fd, unsigned long c, void *a)
+{
+	(void)fd;
+	if (c == ISP_GET_AWB_EX) { memset(a, 0, sizeof(struct isp_awb_ex)); return 0; }
+	if (c == ISP_GET_WB_TYPE) { *(unsigned short *)a = (unsigned short)fake_type; return 0; }
+	if (c == ISP_SET_WB_TYPE) { fake_type = *(unsigned short *)a; last_type_set = fake_type; if (!fake_type && bw_want) type0_at_night++; return 0; }
+	if (c == ISP_GET_AWB_STAT) { struct isp_wb_stat *st = a; st->r = 300; st->g = 264; st->b = 400; return 0; }
+	if (c == ISP_GET_AWB) return -1;
+	return 0;
+}
+/* one post_awb_sample step as the loop does it (the checks are asserted on the source text) */
+static void sample(int bw)
+{
+	if (awb_hw < 0) awb_hw_init();
+	if (awb_hw == 1 && bw) { if (awb_night_on && !awb_paused) awb_night_pause(); return; }
+	if (awb_hw == 1 && awb_paused) awb_day_resume();
+	if (awb_hw == 1 && awb_manual && !mwb_r) { if (++awb_warm >= AWB_MANUAL_AFTER) awb_manual_start(); }
+	{ static int chk; if (++chk >= 1) { chk = 0; awb_attr_apply(); } }
+}
+/* isp_bases_reset: the parameter set switch closes the ISP and the next sample runs awb_hw_init again */
+static void bases_reset(void) { awb_fd = -1; awb_hw = -1; }
+static void write_state(const char *txt) { FILE *f = fopen(sfile, "w"); fputs(txt, f); fclose(f); }
+"""
+
+    def test_awb_night_with_nightstyle_reinit(self):
+        # NIGHTSTYLE=1 (the default): style_switch -> isp_bases_reset -> awb_hw_init at every day / night switch
+        harness = self._nightstyle_harness() + r"""
+int main(int argc, char **argv)
+{
+	time_t now = time(NULL);
+	char buf[96];
+	snprintf(sfile, sizeof sfile, "%s", argv[1]);
+	/* a day running in manual mode at rex 300 bex 500 */
+	snprintf(buf, sizeof buf, "300 500 350 264 420 0 %lld\n", (long long)(now - 60)); write_state(buf);
+	sample(0);					/* first init at day: manual mode from the saved gains */
+	printf("DAY manual=%d type=%d mwb=%d ex=%d/%d\n", awb_manual, fake_type, mwb_r, ex_r, ex_b);
+	/* evening: style_switch(1) -> reset -> init at night -> attr_apply must not go manual */
+	bw_want = 1; bases_reset(); sample(1); sample(1); sample(1);
+	printf("NIGHT paused=%d type=%d type0_at_night=%d ex=%d/%d day=%d/%d\n", awb_paused, fake_type, type0_at_night, ex_r, ex_b, awb_day_r, awb_day_b);
+	unlink(sfile);
+	awb_state_save();
+	printf("NIGHT_SAVE exists=%d\n", access(sfile, F_OK) == 0);
+	/* morning: style_switch(0) -> reset -> init -> resume with the kept day gains */
+	bw_want = 0; bases_reset(); sample(0);
+	printf("MORNING paused=%d type=%d ex=%d/%d\n", awb_paused, fake_type, ex_r, ex_b);
+	return 0;
+}
+"""
+        out = self._run_harness(harness)
+        self.assertIn('DAY manual=1 type=0 mwb=350 ex=300/500', out)
+        self.assertIn('NIGHT paused=1 type=1 type0_at_night=0 ex=256/256 day=300/500', out)
+        self.assertIn('NIGHT_SAVE exists=0', out)
+        self.assertIn('MORNING paused=0 type=0 ex=300/500', out)
+        self.assertIn('LOG AWB-05 paused (night), ISP auto', out)
+        self.assertIn('LOG AWB-05 resumed from saved day gains r 350 g 264 b 420 (rex 300 bex 500)', out)
+
+    def test_awb_start_at_night_with_recent_day_mwb(self):
+        harness = self._nightstyle_harness() + r"""
+int main(int argc, char **argv)
+{
+	time_t now = time(NULL);
+	char buf[96];
+	snprintf(sfile, sizeof sfile, "%s", argv[1]);
+	snprintf(buf, sizeof buf, "300 500 350 264 420 0 %lld\n", (long long)(now - 60)); write_state(buf);
+	if (argc > 2) awb_night_on = 0;
+	bw_want = 1; fake_type = 1;
+	if (argc > 2) setenv("RTSP_AWB_NIGHT", "0", 1);
+	sample(1); sample(1); sample(1);
+	printf("START_NIGHT paused=%d type=%d type0_at_night=%d mwb=%d ex=%d/%d\n", awb_paused, fake_type, type0_at_night, mwb_r, ex_r, ex_b);
+	bw_want = 0; bases_reset(); sample(0);
+	printf("START_MORNING paused=%d type=%d ex=%d/%d\n", awb_paused, fake_type, ex_r, ex_b);
+	/* a dusk gain above the day limit does not come back at dawn */
+	awb_paused = 0; ex_r = 1536; ex_b = 1500; awb_night_pause();
+	printf("CLAMP day=%d/%d\n", awb_day_r, awb_day_b);
+	return 0;
+}
+"""
+        out = self._run_harness(harness)
+        self.assertIn('START_NIGHT paused=1 type=1 type0_at_night=0 mwb=350 ex=256/256', out)
+        self.assertIn('START_MORNING paused=0 type=0 ex=300/500', out)
+        self.assertIn('CLAMP day=900/900', out)
+        # RTSP_AWB_NIGHT=0: the 3.0.1 load (an MWB of the other mode is not used) and no pause
+        out = self._run_harness(harness, 'off')
+        self.assertIn('START_NIGHT paused=0 type=1 type0_at_night=0 mwb=0 ex=300/500', out)
+
+    def _run_harness(self, harness, extra=None):
+        with tempfile.TemporaryDirectory() as t:
+            Path(t, 'n.c').write_text(harness)
+            subprocess.run(['gcc', '-Wall', '-Wextra', '-Wno-unused-variable', '-Wno-unused-parameter', '-Wno-unused-function', '-o', str(Path(t, 'n')), str(Path(t, 'n.c'))], check=True)
+            args = [str(Path(t, 'n')), str(Path(t, 'awb.state'))] + ([extra] if extra else [])
+            return subprocess.run(args, capture_output=True, text=True, check=True).stdout
 
 
 if __name__ == '__main__':

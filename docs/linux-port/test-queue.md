@@ -378,7 +378,12 @@ per flash write.
   `AWB-05 resumed from saved day gains r .. g .. b .. (rex .. bex ..)`; at start `white balance: saved state ignored
   (saved at night | implausible for day: ...)`.
 - **Switch to turn it off:** `RTSP_AWB_NIGHT=0` in `/mnt/config/rtsp.env` (3.0.1 behaviour: the loop only stops
-  measuring). The state refusal rules stay; `RTSP_AWB_STATE=0` / `RTSP_AWB_MANUAL=0` as before.
+  measuring; the load / save rules are the 3.0.1 ones too). The only rule that stays with `=0` is the refusal of a
+  saved state with `rex` or `bex` above 900, which only falls back to the ISP's automatic mode. `RTSP_AWB_STATE=0` /
+  `RTSP_AWB_MANUAL=0` as before.
+- **Default configuration (`RTSP_NIGHTSTYLE=1`):** the day / night switch re-runs `awb_hw_init` (`isp_bases_reset`); the
+  paused state and the day gains survive it, nothing puts the ISP in manual mode at night, and the morning goes
+  through `awb_day_resume`. The gains kept are clamped to 900. A refused automatic mode is logged.
 - **Test (each camera):** (1) with the video server running since the day (no restart), note bit rate and the MWB gains
   (`/tmp/cam_awb`, `rex= bex=`) in the video log shortly before the evening switch to night; after the switch note
   the two log lines, the bit rate over 30 min and `bex`; (2) next morning `cat /mnt/config/awb.state` (last field is
