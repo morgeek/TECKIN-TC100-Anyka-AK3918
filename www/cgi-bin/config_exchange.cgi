@@ -215,7 +215,7 @@ _ce_row_table() {
     row("daynight.conf";"flat";"root";"IR_LED_REST";"u:0:999999999";"general";.daynight.ir_led_rest),
     row("daynight.conf";"flat";"root";"DN_FLAP_BACKOFF";"u:0:1";"general";.daynight.dn_flap_backoff),
     row("daynight.conf";"flat";"root";"DN_FLAP_WINDOW_MIN";"u:0:999999999";"general";.daynight.dn_flap_window_min),
-    row("daynight.conf";"flat";"root";"DN_FLAP_MAX_MIN";"u:0:999999999";"general";.daynight.dn_flap_max_min),
+    row("daynight.conf";"flat";"root";"DN_FLAP_MAX_MIN";"u:0:1440";"general";.daynight.dn_flap_max_min),
     row("daynight.conf";"flat";"root";"DN_DAY_RESET_LUM";"u:0:999999999";"general";.daynight.dn_day_reset_lum),
     row("daynight.conf";"flat";"root";"DN_DAY_RESET_MIN";"u:0:999999999";"general";.daynight.dn_day_reset_min),
 

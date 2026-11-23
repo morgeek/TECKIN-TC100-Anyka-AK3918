@@ -540,7 +540,7 @@
         "fr": "Retenue du jour : durée maximale avant le prochain passage en jour (min)"
       },
       "secret": false,
-      "range": [0, 999999999],
+      "range": [0, 1440],
       "ui_field": null,
       "state_json": null,
       "export_json": ".daynight.dn_flap_max_min",

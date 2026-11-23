@@ -310,16 +310,20 @@ class AutoNightParity(unittest.TestCase):
         for t_now, exp, a_gain, w0 in [
             (20, 1000, 9000, 100), (22, 1000, 9000, 101), (24, 1000, 9000, 102),  # switch on at t=24
             (26, 200, 256, 5000),  (28, 200, 256, 5001),  (30, 200, 256, 5002),   # bounce <15s -> lock 900s
-            (32, 200, 256, 5003),  (34, 200, 256, 5004),  (36, 200, 256, 5005),   # stays locked
-        ]:
+            (32, 200, 256, 5003),  (34, 200, 256, 5004),  (36, 200, 256, 5005),
+        ] + [(t, 200, 256, 5000) for t in range(38, 80, 2)]:   # the lock opens at the next decision (lum 30 % away)
             step += 1
             sc_v.add('now', t_now)
             sc_v.add('ae', self.ae(lumi=40, exp=exp, a=a_gain, d=256, i=256, m='1125'))
             sc_v.add('awb', '%d 100 100 100 100 100 100 100 100 100 5000' % (w0 + step))
             sc_v.add('night')
         out_v, calls_v, _, _ = self.compare(sc_v, 'dawn_vendor')
-        self.assertEqual(calls_v.split(), ['on'])
+        # the real behaviour: the lock is set within 15 s of the switch, but the other mode's lum is always more than
+        # 30 % away from the lum of the switch, so it opens at the next decision and the day switch goes through at
+        # about t=42 (18 s after the switch). With the backoff on the lock is practically inert; the backoff is the anti-flap.
+        self.assertEqual(calls_v.split(), ['on', 'off'])
         self.assertIn('switching back within 15 s: locked for 900 s', out_v)
+        self.assertEqual(out_v.count('Switching to DAY'), 1)
 
     # --- DN-FLAP: day held back after a day -> night round trip (vendor source) ---
 
@@ -339,7 +343,7 @@ iter() {
   elif [ "$DAYNIGHT_SOURCE" != luma ]; then SLP=2; dn_step_ae && return 0; fi
   SLP=8; dn_step_luma
 }
-T=1000; END=$((T + %(secs)d)); SUNRISE=%(sunrise)d; SUNSET=%(sunset)d
+T=1000; END=$((T + %(secs)d)); SUNRISE=%(sunrise)d; SUNSET=%(sunset)d; BOUNCE=%(bounce)d
 PREV=1; DAY_T0=$T; CYC=0
 while [ $T -lt $END ]; do
   read -r IC < %(d)s/ircut
@@ -355,6 +359,10 @@ while [ $T -lt $END ]; do
     if [ $((T - DAY_T0)) -lt $D ]; then AWB="$((300000 + B)) 100 100 100 100 100 100 100 100 100 5000"
     else AWB="$((100000 + B)) 100 100 100 100 100 100 100 100 100 5000"; fi
   fi
+  if [ $BOUNCE -eq 1 ]; then   # a scene that wants the other mode at once, in both directions
+    if [ "$IC" = 0 ]; then LUM=1000; AWB="$((5000 + B)) 100 100 100 100 100 100 100 100 100 5000"
+    else LUM=4500; AWB="$((100000 + B)) 100 100 100 100 100 100 100 100 100 5000"; fi
+  fi
   if [ $SUNSET -gt 0 ] && [ $T -ge $SUNSET ]; then LUM=4500; AWB="$((100000 + B)) 100 100 100 100 100 100 100 100 100 5000"
   elif [ $SUNRISE -gt 0 ] && [ $T -ge $SUNRISE ]; then LUM=300; AWB="$((5000 + B)) 100 100 100 100 100 100 100 100 100 5000"; fi
   AE="40 $((LUM * 1125 / 256)) 256 256 256 0 1125"
@@ -367,14 +375,14 @@ while [ $T -lt $END ]; do
 done
 """
 
-    def flap_run(self, conf, secs, sunrise=0, sunset=0, parity=True, step=2):
+    def flap_run(self, conf, secs, sunrise=0, sunset=0, parity=True, step=2, bounce=0):
         """-> (switches [(t - 1000, 'day'|'night')], flap log lines); the same inputs are then replayed by shell and C"""
         self.reset()
         for n in ('sw', 'trace'):
             (self.d / n).unlink(missing_ok=True)
         (self.d / 'daynight.conf').write_text(conf + '\n')
         (self.d / 'harness.sh').write_text(self.FLAP_HARNESS % dict(daemon=str(ROOT / 'scripts/auto-night-daemon.sh'),
-                                           d=str(self.d), secs=secs, sunrise=sunrise, sunset=sunset, step=step))
+                                           d=str(self.d), secs=secs, sunrise=sunrise, sunset=sunset, step=step, bounce=bounce))
         env = dict(self.env, DN_TEST='1', DN_LOG_EVERY='99999999')
         r = subprocess.run(SHELL + [str(self.d / 'harness.sh')], capture_output=True, text=True, env=env, timeout=170)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -395,13 +403,13 @@ done
     FLAP_CONF = 'DAYNIGHT_SOURCE=vendor\nIR_LED_MAX_ON=0\nMIN_SWITCH=180\n'
 
     def test_flap_evening_switches_drop(self):
-        """the field pattern over a 2 h evening: switches to day drop from about 9 to at most 3"""
+        """the field pattern over a 2 h evening: switches to day drop from 6 (3.0.1 behaviour) to at most 3"""
         off, off_log = self.flap_run(self.FLAP_CONF + 'DN_FLAP_BACKOFF=0', 7200, parity=False)
         on, on_log = self.flap_run(self.FLAP_CONF, 7200)
         days_off = [t for t, k in off if k == 'day']
         days_on = [t for t, k in on if k == 'day']
         self.assertEqual(off_log, [])           # the switch off: no hold, no log line
-        self.assertGreaterEqual(len(days_off), 8, off)
+        self.assertGreaterEqual(len(days_off), 5, off)   # 3.0.1 behaviour (the lock holds some of the bounces)
         self.assertLessEqual(len(days_on), 3, on)
         self.assertLessEqual(len(on), 7, on)    # all switches, night ones included
         self.assertTrue(on_log[0].startswith('day held back 15 min after a round trip'), on_log)
@@ -446,11 +454,45 @@ done
             self.assertTrue(nights, (conf, sw))
             self.assertLessEqual(nights[0] - (ss - 1000), 12, (conf, sw))
 
-    def test_flap_switch_off_is_the_old_behaviour(self):
+    def test_flap_switch_off_no_hold_and_no_flap_line(self):
         """DN_FLAP_BACKOFF=0: no hold, no flap line, the round trips go on"""
         sw, log = self.flap_run(self.FLAP_CONF + 'DN_FLAP_BACKOFF=0', 3600)
         self.assertEqual(log, [])
-        self.assertGreaterEqual(len([1 for _, k in sw if k == 'day']), 4)
+        self.assertGreaterEqual(len([1 for _, k in sw if k == 'day']), 3)
+
+    def test_flap_opposite_want_inside_min_switch_both_directions(self):
+        """A scene that wants the other mode at once, MIN_SWITCH=180, 1 h. 3.0.1 (measured by the review): 4 switches,
+        because a want of the other mode inside MIN_SWITCH started the VENDOR_LOCK lock (900 s) in both directions.
+        DN_FLAP_BACKOFF=0 must give exactly that; with the backoff on the lock no longer starts from a wait, the
+        backoff holds the day switch instead."""
+        off, off_log = self.flap_run(self.FLAP_CONF + 'DN_FLAP_BACKOFF=0', 3600, bounce=1)
+        on, on_log = self.flap_run(self.FLAP_CONF, 3600, bounce=1)
+        self.assertEqual(off_log, [])
+        self.assertEqual(len(off), 4, off)
+        self.assertEqual([k for _, k in off], ['night', 'day', 'night', 'day'])
+        self.assertLessEqual(len(on), 7, on)
+        self.assertTrue(on_log, on)
+
+    def test_flap_leading_zeros_in_the_keys(self):
+        """08 is a syntax error and 010 is octal in the shell's $(( )): both are read as decimal, as in C;
+        DN_FLAP_BACKOFF=00 is off"""
+        sw, log = self.flap_run(self.FLAP_CONF + 'DN_FLAP_WINDOW_MIN=08' + chr(10) + 'DN_FLAP_MAX_MIN=010' + chr(10) + 'DN_DAY_RESET_MIN=05', 3600)
+        holds = [int(re.search(r'held back (\d+) min', ln).group(1)) for ln in log if 'held back' in ln]
+        self.assertEqual(holds[:2], [8, 10], log)
+        self.assertEqual([k for _, k in sw][:2], ['night', 'day'])
+        sw, log = self.flap_run(self.FLAP_CONF + 'DN_FLAP_BACKOFF=00', 3600)
+        self.assertEqual(log, [])
+
+    def test_flap_max_cap_also_limits_a_running_hold(self):
+        """a lowered DN_FLAP_MAX_MIN applies to a hold that is already running"""
+        sw, log = self.flap_run(self.FLAP_CONF + 'DN_FLAP_MAX_MIN=20', 3 * 3600, parity=False)
+        holds = [int(re.search(r'held back (\d+) min', ln).group(1)) for ln in log if 'held back' in ln]
+        self.assertEqual(holds[:3], [15, 20, 20], log)
+        n = 0
+        for (t0, k0), (t1, k1) in zip(sw, sw[1:]):
+            if k0 == 'night' and k1 == 'day':
+                if n >= 1: self.assertLessEqual(t1 - t0, 20 * 60 + 300, (t0, t1))
+                n += 1
 
     def test_garbage_and_missing_inputs_fall_back_to_luma(self):
         sc = Scenario(self.d)

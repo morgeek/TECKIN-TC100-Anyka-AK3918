@@ -448,9 +448,23 @@ per flash write.
   same time as before, within a few minutes (a normal sunrise: `lum` falls under 600 and the day switch follows
   5 min later at the latest). No missed switch to night: the switch to night comes within about a minute of the
   picture getting dark (`MIN_SWITCH` aside), also while a hold is running.
-- **Host tests:** `tests/test_supervisord.py` `test_flap_*` (closed loop on the field pattern: 12 day switches in 2 h
-  without the backoff, 3 with it, 7 switches in all; holds 15 / 30 / 60 / 120 / 120; sunrise; sunset; switch off;
-  shell and C compared step by step), `tests/test_daynight_catalog.py` (the five keys everywhere).
+- **The 15 s lock of the vendor source (changed, read this):** in 3.0.1 a want of the other mode that arrived inside
+  `MIN_SWITCH` (180 s) and had to wait started the `VENDOR_LOCK` lock (900 s) by accident, in both directions: that was
+  the only thing that held back the flapping (and it also delayed a night switch by up to ~15 min). With the backoff on,
+  the lock now starts only from a real switch, so a wait no longer locks. `DN_FLAP_BACKOFF=0` restores the 3.0.1 start
+  of the lock exactly. Consequence: with the backoff on and the default thresholds the lock is practically inert (it is
+  set only within 15 s of a real switch with the lum of that switch, and the other mode's lum is always more than 30 %
+  away, 3584 / 1536 = 2.33, so it opens at the next decision, about 18 s after the switch); the backoff is the
+  anti-flap. Reviewer's simulation, 1 h, a scene that wants the other mode at once, `MIN_SWITCH=180`: 3.0.1 and
+  `DN_FLAP_BACKOFF=0` 4 switches; backoff on 7 (15, 30, 60 min holds). The 2 h field pattern: 6 switches to day with
+  3.0.1 behaviour, 3 with the backoff. If a night is worse than before, set `DN_FLAP_BACKOFF=0` and report.
+- **Config values:** leading zeros (`08`, `010`) are read as decimal by the shell daemon too (before, 08 was a syntax
+  error that would have stopped the fallback daemon, 010 octal); `DN_FLAP_MAX_MIN` is at most 1440 and a lowered value
+  also limits a hold already running.
+- **Host tests:** `tests/test_supervisord.py` `test_flap_*` (closed loop on the field pattern: 6 day switches in 2 h
+  with the backoff off, 3 with it; holds 15 / 30 / 60 / 120 / 120; sunrise; sunset; switch off equals 3.0.1 on a scene
+  that bounces inside `MIN_SWITCH`; leading zeros; cap; shell and C compared step by step),
+  `tests/test_daynight_catalog.py` (the five keys everywhere).
 
 ### POLISH-01 Post-3.0.1 safe polish: cfg-persist single md5sum, AWB restart ignore, fe_hw_init guard, native fullconfig/isp_tune (`[polish]`) — `to test`
 

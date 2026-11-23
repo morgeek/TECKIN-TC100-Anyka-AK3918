@@ -131,6 +131,8 @@ read_daynight() {
   VENDOR_LOCK=900; IR_LED_MAX_ON=50400; IR_LED_REST=600; DAYNIGHT_SOURCE=luma; IR_LED_MODE=auto; AWB_RESTART_IGNORE=30
   DN_FLAP_BACKOFF=1; DN_FLAP_WINDOW_MIN=15; DN_FLAP_MAX_MIN=120; DN_DAY_RESET_LUM=600; DN_DAY_RESET_MIN=5
   while IFS='=' read -r _k _v; do
+    # leading zeros: 08 is a syntax error and 010 is octal in $(( )); read them as decimal numbers, like the C daemon
+    case "$_v" in 0?*) case "$_v" in *[!0-9]*) ;; *) _v=${_v#"${_v%%[!0]*}"}; [ -n "$_v" ] || _v=0 ;; esac ;; esac
     case "$_k" in
       LUMA_NIGHT|LUMA_DAY)
         case "$_v" in [0-9]|[0-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5]) ;; *) continue ;; esac
@@ -249,7 +251,10 @@ dn_flap_sample() {
 
 dn_switch() {   # $1 = night|day, $2 = what the decision was based on; NOW = the time of the decision (set by its caller). Returns 1 when it did not switch.
   _dwell=$MIN_SWITCH
-  [ "$1" = day ] && dn_flap_on && [ "$DN_FLAP_HOLD" -gt "$_dwell" ] && _dwell=$DN_FLAP_HOLD
+  if [ "$1" = day ] && dn_flap_on; then
+    _fh=$DN_FLAP_HOLD; [ "$_fh" -le $(( DN_FLAP_MAX_MIN * 60 )) ] || _fh=$(( DN_FLAP_MAX_MIN * 60 ))   # a lowered cap also applies to a running hold
+    [ "$_fh" -gt "$_dwell" ] && _dwell=$_fh
+  fi
   if [ -n "$DN_LAST_SWITCH" ] && [ $(( NOW - DN_LAST_SWITCH )) -lt "$_dwell" ]; then
     # too soon after the last switch (item 21): wait; the counters keep running, so it happens once the time is up
     [ "$DN_TOO_SOON" = "$DN_LAST_SWITCH" ] || echo "[auto-night] $1 wanted ($2) $(( NOW - DN_LAST_SWITCH )) s after the last switch: waiting ${_dwell} s" > "$CONSOLE"
@@ -377,8 +382,15 @@ dn_step_vendor() {
     echo "[auto-night] switching back within 15 s: locked for ${VENDOR_LOCK} s (lum=$DN_LUM)" > "$CONSOLE"
     return 0
   fi
-  if dn_switch "$_want" "vendor lum=$DN_LUM awb day=$DN_AWB_DAY visible=$DN_AWB_VIS"; then
-    DN_LAST_SW=$NOW; DN_SW_LUM=$DN_LUM   # only a real switch starts the 15 s "switching back" check (not a wait)
+  # The 15 s "switching back" check starts from DN_LAST_SW. With the DN-FLAP backoff on it starts only from a real switch
+  # (not from a call that was made to wait). With DN_FLAP_BACKOFF=0 it starts on every call, as in 3.0.1 (accidentally, a
+  # want of the other mode inside MIN_SWITCH then locked for VENDOR_LOCK s: the anti-flap of 3.0.1).
+  # NOTE: with the backoff on the lock is practically inert with the default thresholds: it is set only within 15 s of a
+  # real switch with DN_LOCK_LUM = lum at that switch, and the next want is always more than 30 % away (3584 / 1536 =
+  # 2.33), so it opens at the next decision (about 18 s after the switch). The backoff is the anti-flap.
+  if [ "$DN_FLAP_BACKOFF" = 0 ]; then DN_LAST_SW=$NOW; DN_SW_LUM=$DN_LUM; fi
+  if dn_switch "$_want" "vendor lum=$DN_LUM awb day=$DN_AWB_DAY visible=$DN_AWB_VIS" && [ "$DN_FLAP_BACKOFF" != 0 ]; then
+    DN_LAST_SW=$NOW; DN_SW_LUM=$DN_LUM
   fi
   return 0
 }

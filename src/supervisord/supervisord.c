@@ -479,7 +479,12 @@ static int dn_switch(int night, const char *why)	/* 1 when it switched */
 	const char *argv[3];
 	ll dwell = MIN_SWITCH;
 
-	if (!night && dn_flap_on() && DN_FLAP_HOLD > dwell) dwell = DN_FLAP_HOLD;
+	if (!night && dn_flap_on()) {
+		ll hold = DN_FLAP_HOLD, cap = DN_FLAP_MAX_MIN * 60;
+
+		if (hold > cap) hold = cap;	/* a lowered cap also applies to a hold already running */
+		if (hold > dwell) dwell = hold;
+	}
 	if (have_last_switch && NOW - DN_LAST_SWITCH < dwell) {
 		/* too soon after the last switch: wait; the counters keep running, so it happens once the time is up */
 		if (!have_too_soon || DN_TOO_SOON != DN_LAST_SWITCH)
@@ -640,7 +645,15 @@ static int dn_step_vendor(void)
 		return 0;
 	}
 	snprintf(why, sizeof why, "vendor lum=%lld awb day=%d visible=%d", lum, DN_AWB_DAY, DN_AWB_VIS);
-	if (dn_switch(want, why)) {	/* only a real switch starts the 15 s "switching back" check (not a wait) */
+	/* The 15 s "switching back" check starts from DN_LAST_SW. With the DN-FLAP backoff on it starts only from a real
+	 * switch (not from a call that was made to wait). With DN_FLAP_BACKOFF=0 it starts on every call, as in 3.0.1
+	 * (accidentally, a want of the other mode inside MIN_SWITCH then locked for VENDOR_LOCK s: the anti-flap of 3.0.1).
+	 * NOTE: with the backoff on the lock is practically inert with the default thresholds: it is set only within 15 s
+	 * of a real switch with DN_LOCK_LUM = lum at that switch, and the next want is always more than 30 % away
+	 * (3584 / 1536 = 2.33), so it opens at the next decision (about 18 s after the switch). The backoff is the
+	 * anti-flap; the lock is not redesigned here. */
+	if (!DN_FLAP_BACKOFF) { DN_LAST_SW = NOW; DN_SW_LUM = lum; }
+	if (dn_switch(want, why) && DN_FLAP_BACKOFF) {
 		DN_LAST_SW = NOW;
 		DN_SW_LUM = lum;
 	}

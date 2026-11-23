@@ -616,7 +616,7 @@ _tc_validate_candidate_body()
       tc_check_flat "$_tc_file" IR_LED_REST u:0:999999999 "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" DN_FLAP_BACKOFF u:0:1 "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" DN_FLAP_WINDOW_MIN u:0:999999999 "$_tc_rel" || return 1
-      tc_check_flat "$_tc_file" DN_FLAP_MAX_MIN u:0:999999999 "$_tc_rel" || return 1
+      tc_check_flat "$_tc_file" DN_FLAP_MAX_MIN u:0:1440 "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" DN_DAY_RESET_LUM u:0:999999999 "$_tc_rel" || return 1
       tc_check_flat "$_tc_file" DN_DAY_RESET_MIN u:0:999999999 "$_tc_rel" || return 1
       # the day threshold must lie above the night one (the daemon would flap otherwise)
