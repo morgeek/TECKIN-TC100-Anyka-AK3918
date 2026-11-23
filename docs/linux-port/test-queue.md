@@ -619,6 +619,17 @@ per flash write.
   KB / 5 s was the dawn light, not the code). rc44 stock on the same scene before: about 400 KB / 5 s (its quality
   QP was 27, no `RTSP_VBR_QP`). Still to see: 2 (a busy / noisy night scene rising above 650 kbit/s), 1 with
   `RTSP_FE_SUBBUF=1`, 3 smart=1, 4 over 24 h, 5. Left running on the .24 from 08:17 UTC.
+- **2026-11-23 22:48, .11 updated to 3.0.2-rc2 (web update by the owner, build 1ede3c4; the .24 stays on 3.0.1 as
+  the reference):** version 3.0.2-rc2, video up, new `STAT` tail and `/tmp/tc100_rtsp.counters` present
+  (`starts=1 pic_fail=0 enc_reopen=0 cap_stall=0 dq_err=0 sub_off=0 exit3=0`), `memwatch.pending` written, A-MPDU TX
+  off, AWB-05 in manual mode in day (room lit at 22:49, day correct). **First boot after the update:** two
+  `rtl8xxxu_init_device: Failed power on` (probe -16) before the RTL8188FU came up, and `autorun` at 19.8 s
+  (`rtsp_launched` 31.2 s) instead of 12-13 s (25 s). **Reboot at 22:51:** no Wi-Fi failure, `autorun` 12.8 s,
+  `rtsp_launched` 25.6 s: the first boot after the web update only (the Wi-Fi chip probably left powered by the old
+  firmware across the update's reboot; the .24 on 3.0.1 has no such line). Watch at the next update: if it repeats,
+  reset the USB device (or the chip's power) before the update's reboot. `awb.state` carried over from 3.0.1 in the
+  old 2-number form (`260 744`, extra gains only): accepted. Still to see: AWB-NIGHT at the evening switch, DN-FLAP
+  over two evenings, FAILCOUNT after 24 h, MEMWATCH after 3 days.
 - **2026-11-18 03:00, both cameras on 3.0.1 for 2 days (readings for the project):**
   - **Stable:** no reboot, `tc100_rtsp` up 58.5 h on both, 0 `picture failed` in the logs kept, CPU 23 % busy on
     average since boot (user 6.5 %, system 13 %, softirq 3.6 %), load 1.1-1.6.
