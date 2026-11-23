@@ -2,13 +2,24 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
+## What is new in 3.0.2-rc2 (test build, branch main)
+Everything of 3.0.2-rc1, plus the fixes from the 2-day readings of 3.0.1 and new measurements. Updating keeps the settings.
+- **White balance at night (`AWB-NIGHT`):** the AWB-05 loop is paused at night and the ISP's automatic white balance is back (the .24 sat at 1618 kbit/s all night after an evening switch); the day gains return at dawn; a night or implausible `awb.state` is never loaded (`RTSP_AWB_NIGHT=0` to revert).
+- **Day / night flip-flop (`DN-FLAP`):** in a dimly lit room the camera no longer clacks between day and night all
+  evening: after a quick round trip the next switch to day waits 15, 30, 60, then 120 min (5 min of real daylight
+  resets it). The switch to night is never delayed. `DN_FLAP_BACKOFF=0` in `daynight.conf` restores 3.0.1.
+- **Measurements for long runs:** `memory.csv` / `memory-hourly.csv` next to `stability.csv` (`MEMWATCH`, to settle
+  the slow memory drop), and failure totals since boot at the end of the video `STAT` line (`FAILCOUNT`).
+- **Hardening (`HARDEN`):** stack canaries in the free programs and a read-only GOT in the musl ones (+3.8 KB).
+- **To test:** the test-queue entries `AWB-NIGHT`, `DN-FLAP`, `MEMWATCH`, `FAILCOUNT`, `HARDEN`, plus the rc1 ones
+  still open (`AUDIT-1116-*`, USB, VENCIRQ, RECOVERY).
+
 ## What is new in 3.0.2-rc1 (test build, branch main)
 Pre-release test build gathering everything since 3.0.1 (`AUDIT-1116-*`, `POLISH-01`, `AWB-05-SAVED`, USB/VENC kernel fixes, and initramfs rescue):
 - **Initramfs rescue mode (`[recovery]`):** when `stack` is damaged or offers no access after 5 min, joins saved Wi-Fi and opens a private-LAN telnet rescue shell (`/etc/tc100/rescue help`, `INITRD_RESCUE=0` disables; needs the new initramfs).
 - **Kernel fixes:** USB host unlink of active URB without waiting for an IRQ + ep0/toggle fixes (patch 0024); `ak39_venc` masks late encoder IRQs when disarmed (`irq_unlazy`, patch 0025); `venc` IRQ balance & `mmap` bounds, audio start race, I2C poll timeout, and OSD limits (`[audit-1116]`).
 - **Security & reliability (`[audit-1116]`):** closed web login lockout bypass in `httpfront`, ONVIF anti-replay, atomic `rwconf`, SSH (`dropbear`) restricted to private LANs, monotonic timeouts & capture-stall exit in `tc100_rtsp`, safer flash update/backup checks (`imgcheck.sh`, no reboot during flash writes).
 - **White balance (`AWB-05-SAVED`):** starts ISP manual WB immediately from `/mnt/config/awb.state` when recent (`<= 6 h`) and in the same day/night mode, skipping the 10 s auto warmup (`RTSP_AWB_STATE=0` or `RTSP_AWB_MANUAL=0` to revert).
-- **White balance at night (`AWB-NIGHT`):** the AWB-05 loop is paused at night and the ISP's automatic white balance is back (the .24 sat at 1618 kbit/s all night after an evening switch); the day gains return at dawn; a night or implausible `awb.state` is never loaded (`RTSP_AWB_NIGHT=0` to revert).
 - **Polish (`POLISH-01`):** `cfg-persist` single `md5sum`, `AWB_RESTART_IGNORE=30` to prevent false day switches on video restart, `fe_hw_init` after `VIDIOC_REQBUFS`, native `fullconfig` and `isp_tune` in `httpfront`, faster `step_12b` boot spacing.
 - **Bench:** `qpbench` (`[t1-qp]`, bench tool only, not active in firmware).
 

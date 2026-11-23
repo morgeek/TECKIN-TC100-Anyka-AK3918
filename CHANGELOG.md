@@ -5,6 +5,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [3.0.2-rc2] - 2026-11-23
+
+### Added
+- **Memory watch** (`[memwatch]`): `memory.csv` every 5 min (meminfo, vmstat) and `memory-hourly.csv` every hour
+  (sockets, df, open deleted files, threads, Wi-Fi URBs, buddyinfo) next to `stability.csv`, to tell a kernel leak from
+  benign growth (the ~0.4 MB/day drop of `MemAvailable`). `MEMWATCH=0` in `boot.conf` turns it off;
+  `MEMWATCH_DROP_HOUR=4` adds a daily before/after `drop_caches` pair (off by default). Reading guide in
+  `docs/linux-port/internals.md` "Memory watch". Test-queue entry MEMWATCH.
+- **Failure totals of the video server** (`[failcount]`): the `STAT` line of `tc100_rtsp` ends with totals since boot
+  (`pic_fail`, `enc_reopen`, `cap_stall`, `dq_err`, `sub_off`, `exit3`, `starts`), kept across a restart of the server
+  in `/tmp/tc100_rtsp.counters` and copied hourly to `memory-hourly.csv`. Test-queue entry FAILCOUNT.
+
+### Changed
+- **AWB-NIGHT** (`[awb-night]`): at night `tc100_rtsp` pauses the AWB-05 loop and gives white balance back to the ISP's
+  automatic mode, also on the night parameter set re-init (`RTSP_NIGHTSTYLE=1`, the default); at dawn it resumes from
+  the day gains (clamped to 900). `awb.state` is never saved at night, and a night or implausible state (rex/bex > 900,
+  such as the polluted blue x4.8 of 3.0.1) is never loaded. `RTSP_AWB_NIGHT=0` in `rtsp.env` restores 3.0.1 (the
+  > 900 refusal stays and only falls back to ISP auto). Test-queue entry AWB-NIGHT.
+- **Day/night flip-flop** (`[dn-flap]`): with the `vendor` source, a return to night less than 15 min after a switch to
+  day holds the next day switch back 15, 30, 60, then 120 min; 5 min of real daylight (`lum` < 600) resets it. The
+  switch to night is never held back. `DN_FLAP_BACKOFF=0` in `daynight.conf` restores 3.0.1 exactly. Same logic in
+  `tc100-supervisord` and in the shell fallback. Test-queue entry DN-FLAP.
+- **Hardening** (`[harden]`): `-fstack-protector-strong` in the ten free programs (the freestanding `httpfront`,
+  `tc100-mdnsd` and `isp_flip` get their own guard from `AT_RANDOM`) and full RELRO (`-z relro -z now`) in the musl
+  programs and `libnetacl-musl.so`; +3.8 KB in the `stack` image. `HARDEN=0` at build time turns it off. Test-queue
+  entry HARDEN.
+
+### Fixed
+- **Day/night, vendor source:** a night wanted during the minimum dwell time could be delayed by about 15 min (the
+  15 s lock started on a call that only waited); it now starts only after a real switch (`[dn-flap]`).
+- **Day/night shell fallback:** a numeric key with leading zeros (`08`, `010`) in `daynight.conf` crashed it or was read
+  as octal (`[dn-flap]`).
+- **Local CI:** `test_nr_stretch` no longer captures an ASan program without limit; it took the test run and Docker
+  Desktop down on kernels with `vm.mmap_rnd_bits=32` (`[ci]`).
+
 ## [3.0.2-rc1] - 2026-11-17
 
 ### Added
@@ -17,8 +52,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **T1 QP bench** (`[t1-qp]`): `src/h265enc/qpbench.c` / `qpctl.h` bench tool to test the encoder's `0x4040` tables buffer.
 
 ### Changed
-- **AWB-NIGHT** (`[awb-night]`): `tc100_rtsp` pauses the AWB-05 loop at night and gives white balance back to the ISP's automatic mode
-  (resumes from the day gains at dawn), never saves or loads a night / implausible `awb.state` (`RTSP_AWB_NIGHT=0` turns it off).
 - **AWB-05 saved manual gains** (`[awb]`): `tc100_rtsp` starts ISP manual white balance immediately from `/mnt/config/awb.state`
   when recent (`<= 6 h`) and in the same day/night mode, falling back to 10 s auto warmup otherwise (`AWB-05-SAVED`).
 - **Polish** (`[polish]`): `cfg-persist` uses a single `md5sum`, `AWB_RESTART_IGNORE=30` suppresses false day switches after
