@@ -363,6 +363,26 @@ per flash write.
 - **Test:** On a camera with `awb.state` written after settling in day mode, run `controlscripts/rtsp-h26x restart` and check `/tmp/logs/tc100_rtsp.log` for `white balance: ISP in manual mode from saved gains` at startup, then check a snapshot within the first 5 s.
 - **Pass criteria:** Immediate manual mode from saved gains on restart in the same day/night mode (no 10 s auto color shift); 10 s auto fallback when `awb.state` is removed or stale.
 
+### MEMWATCH Memory log to tell a kernel leak from benign growth (`[memwatch]`) — `to test`
+
+- **What:** `scripts/memwatch.sh`, called by `health-snapshot.sh` every 5 minutes, writes `memory.csv` (26 columns from
+  `/proc/meminfo` and `/proc/vmstat`; kinds `boot` = baseline at 10 min of uptime, `sample`, `hourly`, `drop`) and, once
+  an hour, `memory-hourly.csv` (sockets, `df` of /tmp /mnt /var, open deleted files, threads, rtl8xxxu URBs, buddyinfo,
+  rtsp-h26x restarts). Next to `stability.csv`: `/mnt/sd/logs/` with a card (caps 2016 and 720 rows), else `/mnt/log/` in RAM
+  (caps 1008 rows, about 140 KB, and 168 rows, about 42 KB; lost at reboot). Reading guide and decision table:
+  `internals.md` "Memory watch". Measurement only, no kernel change.
+- **Switches:** `MEMWATCH=0` in `/mnt/config/boot.conf` = nothing new is read or written (default 1, read at every sample).
+  `MEMWATCH_DROP_HOUR=4` = a `drop` row, `sync; echo 3 > /proc/sys/vm/drop_caches; sleep 5`, a second `drop` row, once a day
+  at the first sample of 04:xx (default empty = off; re-reads files through the polled SPI driver, measurement runs only).
+- **Test:** 3 days or more on both cameras (one with a card, one without is the best mix; set `MEMWATCH_DROP_HOUR=4` on one
+  of them from day 2), then read `memory.csv` and apply the table. `top` (or `scripts/cpu-profile.sh 60`) before and after.
+- **Pass criteria:** both files exist, are written hourly and stay under their caps (`wc -l`, `ls -l`); no visible CPU cost
+  (`top` the same within noise, the script is a short burst every 5 min); the data is enough to apply the table
+  (`unaccounted` computable, `SUnreclaim`, `SReclaimable`, `Shmem`, `CmaFree` series without gaps). Verdict per camera:
+  slab leak, page leak, CMA leak, process leak or benign growth.
+- **Next step:** only if `SUnreclaim` grows linearly, an SD test kernel with `CONFIG_SLUB_DEBUG` (`/proc/slabinfo`,
+  `slabtop`) to name the cache. Otherwise close the item in a-faire B2.
+
 ### POLISH-01 Post-3.0.1 safe polish: cfg-persist single md5sum, AWB restart ignore, fe_hw_init guard, native fullconfig/isp_tune (`[polish]`) — `to test`
 
 - **What:**

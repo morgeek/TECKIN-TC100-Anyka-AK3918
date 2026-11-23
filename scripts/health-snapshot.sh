@@ -21,6 +21,8 @@ STABILITY_MAX_SAMPLES="${STABILITY_MAX_SAMPLES:-576}"
 STABILITY_PENDING="${STABILITY_PENDING:-/tmp/log/stability.pending}"
 STABILITY_FLUSH_SAMPLES="${STABILITY_FLUSH_SAMPLES:-12}"
 _stability_elapsed=0
+# memory.csv / memory-hourly.csv (scripts/memwatch.sh): one row per stability sample, MEMWATCH=0 in boot.conf = off
+MEMWATCH_SCRIPT="${MEMWATCH_SCRIPT:-/mnt/scripts/memwatch.sh}"
 
 case "$INTERVAL" in ''|*[!0-9]*) INTERVAL=60 ;; esac
 [ "$INTERVAL" -lt 10 ] && INTERVAL=10
@@ -97,6 +99,7 @@ stability_default_path() {
 
 # Append the RAM samples to the file in one write, then trim it.
 stability_flush() {
+  [ -r "$MEMWATCH_SCRIPT" ] && sh "$MEMWATCH_SCRIPT" flush </dev/null >/dev/null 2>&1
   [ -s "$STABILITY_PENDING" ] || return 0
   _sf="$STABILITY_FILE"
   [ -n "$_sf" ] || stability_default_path
@@ -193,6 +196,7 @@ build_snapshot() {
     if [ -r "$STABILITY_PENDING" ]; then
       while IFS= read -r _pl_l || [ -n "$_pl_l" ]; do _pending_lines=$((_pending_lines + 1)); done < "$STABILITY_PENDING"
     fi
+    [ -r "$MEMWATCH_SCRIPT" ] && sh "$MEMWATCH_SCRIPT" sample </dev/null >/dev/null 2>&1
     [ "$_pending_lines" -ge "$STABILITY_FLUSH_SAMPLES" ] && stability_flush
   fi
 }

@@ -272,6 +272,16 @@ SD_AUTO_REPAIR=1
 # LOG_CAP_KB: a log in RAM (/tmp/log, /tmp/logs) above this size keeps its last 200 lines
 # (scripts/log-cap.sh, every 10 minutes; most logs cap themselves well below it).
 LOG_CAP_KB=64
+
+# MEMWATCH=1 (default): log memory every 5 minutes (/proc/meminfo, vmstat) and once an hour (sockets, df, threads,
+# Wi-Fi URBs, buddyinfo) to memory.csv / memory-hourly.csv next to stability.csv (/mnt/sd/logs with a card, else
+# /mnt/log in RAM; ~180 KB at most), to tell a kernel leak from benign growth. 0 = nothing is read or written.
+# Reading guide: docs/linux-port/internals.md "Memory watch". Test status: test-queue.md MEMWATCH.
+MEMWATCH=1
+# MEMWATCH_DROP_HOUR=: empty (default) = off. A number 0-23 (4 = 04:xx): once a day, at the first sample of that hour,
+# two "drop" rows around `sync; echo 3 > /proc/sys/vm/drop_caches; sleep 5`. It re-reads files from the flash through the
+# polled SPI driver (a short CPU burst), so it is for a measurement run only.
+MEMWATCH_DROP_HOUR=
 # PRIVACY_SCREEN=1: privacy mode (Services page "Privacy Mode", MQTT switch): black picture
 # on every stream, snapshot and recording, no sound, no motion detection. Kept over a restart.
 PRIVACY_SCREEN=0

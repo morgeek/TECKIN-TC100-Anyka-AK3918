@@ -107,8 +107,10 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
   soir, sans redémarrage vidéo.
 - [ ] **Compteur d'échecs sur la journée :** le journal vidéo plafonné ne garde que 2-4 h ; ajouter le total de
   `picture failed` (et des réouvertures) dans `STAT` ou le fichier de stabilité, pour conclure sur 24 h et plus.
-- [ ] **Mémoire :** journaliser `SUnreclaim` et `Shmem` avec `MemAvailable` dans le fichier de stabilité (la baisse de
-  ~0,4 Mo / jour n'est pas l'espace utilisateur ; sans `/proc/slabinfo` on ne sait pas si c'est le cache ou le slab).
+- [ ] **Mémoire :** journal en place (`scripts/memwatch.sh`, `memory.csv` toutes les 5 min et `memory-hourly.csv` toutes les
+  heures, `MEMWATCH=1` ; `MEMWATCH_DROP_HOUR=` pour la paire drop_caches), entrée MEMWATCH du test-queue. Reste : 3 jours
+  sur les deux caméras, lire avec le tableau de `internals.md` "Memory watch" ; noyau SD avec `CONFIG_SLUB_DEBUG`
+  seulement si `SUnreclaim` monte (la baisse de ~0,4 Mo / jour n'est pas l'espace utilisateur).
 
 ### C. Polissage invisible (robustesse, ressources)
 - [x] **Sauvegarde des réglages 5,4 s → ~1 s (`cfg-persist`) :** la boucle par fichier (~180 forks `cmp` / `md5sum` /

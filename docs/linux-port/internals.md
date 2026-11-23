@@ -8,7 +8,7 @@ hardware and flash layout, how it works, where it comes from and the repository 
 Contents: [Full feature list](#full-feature-list) - [How the SD install works, and what protects you](#how-the-sd-install-works-and-what-protects-you) -
 [Recording on the SD card](#recording-on-the-sd-card) - [Wi-Fi, passwords, safety](#wi-fi-passwords-safety) -
 [HTTPS with a reverse proxy](#https-with-a-reverse-proxy) - [Screenshots](#screenshots) - [The hardware, and OpenIPC](#the-hardware-and-openipc) -
-[How it works](#how-it-works) - [Where it comes from](#where-it-comes-from) - [Repository structure](#repository-structure)
+[How it works](#how-it-works) - [Memory watch](#memory-watch) - [Where it comes from](#where-it-comes-from) - [Repository structure](#repository-structure)
 
 ---
 
@@ -428,6 +428,55 @@ Notes, hardware facts, status and how to build: [README.md](README.md).
   remains available as a fallback.
 - Platform notes and bugs fixed during the bring-up: [docs/known-issues.md](../known-issues.md). HTTP API:
   [docs/api.md](../api.md).
+
+---
+
+
+## Memory watch
+
+`scripts/memwatch.sh` (called by `health-snapshot.sh` at every stability sample, every 5 minutes; `MEMWATCH=1` in
+`boot.conf`, `0` = nothing is written) logs enough memory data to tell a kernel leak from benign growth. It measures
+only; nothing is changed or freed (except the optional daily drop_caches below).
+
+- **Where:** next to `stability.csv`: `/mnt/sd/logs/` when a card is mounted read-write, else `/mnt/log/` (RAM in flash
+  mode, never the flash; lost at reboot). Rows wait in `/tmp/log/memwatch.pending` and are written once an hour and at the
+  stop of the health snapshot (a power cut loses at most the last hour).
+- **`memory.csv`:** one row per sample, 26 columns, about 140 bytes: `timestamp,uptime_s,kind,MemTotal,MemFree,
+  MemAvailable,Active_file,Inactive_file,Active_anon,Inactive_anon,Unevictable,Shmem,SReclaimable,SUnreclaim,
+  KernelStack,PageTables,Percpu,VmallocUsed,CmaFree,AnonPages` (KB, from `/proc/meminfo`), then `nr_free_pages,
+  nr_free_cma,compact_stall,compact_fail,cma_alloc_success,cma_alloc_fail` (from `/proc/vmstat`; a field the kernel does
+  not have is empty). `kind` is `boot` (the first sample after 10 minutes of uptime: the baseline), `sample`, `hourly`,
+  or `drop` (see below). Cap: 1008 rows in RAM (3.5 days, about 140 KB), 2016 rows on the card (7 days, about 280 KB);
+  `MEMWATCH_MAX_ROWS` overrides.
+- **`memory-hourly.csv`:** one row per hour, about 250 bytes: `tcp_inuse,tcp_orphan,tcp_tw,tcp_mem` (`/proc/net/sockstat`),
+  `tmp_used_kb,mnt_used_kb,var_used_kb` (`df -k`), `open_deleted` (open files whose name was deleted),
+  `threads` (all kernel scheduling entities, the total of `/proc/loadavg`), `rx_urb_alive,tx_urb_free` (the
+  `/sys/module/rtl8xxxu/parameters/` counters of patch 0020; empty if the driver is not loaded), `rtsp_restarts` (the
+  restart count of `rtsp-h26x` counted by the health snapshot; `tc100_rtsp` has no cheap connect counter, so connects
+  are not logged), `buddyinfo` (`/proc/buddyinfo` as `Zone:n0/n1/...`, free blocks per order). Cap: 168 rows in RAM
+  (7 days, about 42 KB), 720 on the card.
+- **Daily drop_caches pair:** `MEMWATCH_DROP_HOUR=4` in `boot.conf` (empty = off, the default): at the first sample of
+  04:xx the script writes a `drop` row, runs `sync; echo 3 > /proc/sys/vm/drop_caches; sleep 5` and writes a second
+  `drop` row (before, then after). It re-reads files through the polled SPI driver (a CPU burst), so it is for a
+  measurement run only.
+- **Cost:** a `while read` over `/proc/meminfo` and `/proc/vmstat` per sample and the one `sh` that runs the script; an
+  hour adds one `df`, one `ls | grep` and one write.
+
+**Reading it.** `unaccounted = MemTotal - (MemFree + Active_file + Active_anon + Inactive_file + Inactive_anon +
+Unevictable + SReclaimable + SUnreclaim + KernelStack + PageTables + Percpu + VmallocUsed)`. Plot each column against
+`uptime_s`, ignoring the first hour (warm-up) and the rows around a video restart (`CmaFree` moves with it).
+
+| Observation | Meaning |
+|---|---|
+| Shmem rises, then flattens | logs (benign) |
+| SReclaimable rises, reset by drop_caches | dentries (benign) |
+| SUnreclaim rises linearly | slab leak |
+| "unaccounted" rises with CmaFree flat | page leak |
+| CmaFree falls without a video restart | CMA leak |
+| KernelStack or PageTables rise | process leak |
+
+If `SUnreclaim` is the one that grows, the next step is an SD test kernel with `CONFIG_SLUB_DEBUG` (`/proc/slabinfo`).
+Test status: `docs/linux-port/test-queue.md` MEMWATCH.
 
 ---
 
