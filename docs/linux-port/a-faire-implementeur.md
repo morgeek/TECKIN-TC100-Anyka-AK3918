@@ -107,8 +107,10 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
   `awb.state` la nuit (aujourd'hui il garde le bleu ×4,8). Vérifier aussi la 3.0.2-rc1 (AWB-05-SAVED charge les gains
   du même mode : ne doit pas recharger un état de nuit pollué). Test : débit et gains MWB avant / après le passage du
   soir, sans redémarrage vidéo.
-- [ ] **Compteur d'échecs sur la journée :** le journal vidéo plafonné ne garde que 2-4 h ; ajouter le total de
-  `picture failed` (et des réouvertures) dans `STAT` ou le fichier de stabilité, pour conclure sur 24 h et plus.
+- [x] **Compteur d'échecs sur la journée (fait 2026-11-23 `[failcount]`, à lire après 24 h : test-queue `FAILCOUNT`) :**
+  le journal vidéo plafonné ne garde que 2-4 h ; les totaux depuis le démarrage (`pic_fail`, `enc_reopen`, `cap_stall`,
+  `starts`, ...) sont en fin de ligne `STAT`, dans `/tmp/tc100_rtsp.counters` (ils survivent à un redémarrage du
+  serveur) et dans `memory-hourly.csv`, pour conclure sur 24 h et plus.
 - [ ] **Mémoire :** journal en place (`scripts/memwatch.sh`, `memory.csv` toutes les 5 min et `memory-hourly.csv` toutes les
   heures, `MEMWATCH=1` ; `MEMWATCH_DROP_HOUR=` pour la paire drop_caches), entrée MEMWATCH du test-queue. Reste : 3 jours
   sur les deux caméras, lire avec le tableau de `internals.md` "Memory watch" ; noyau SD avec `CONFIG_SLUB_DEBUG`

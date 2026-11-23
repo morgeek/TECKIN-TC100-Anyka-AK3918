@@ -349,6 +349,67 @@ static void wfile(const char *name, const void *d, size_t n)
 	else { close(f); unlink(tmp); }
 }
 
+/* FAILCOUNT: failure counters that outlive a restart of this process (not a reboot). The video log is capped (2-4 h), so
+ * "0 pictures failed over 24 h" cannot be read from it. The totals of this boot are one line in /tmp (RAM: no flash write),
+ * read at start and written again (temp + rename) when a STAT tick finds a change, and at exit. A restart adds 1 to
+ * "starts". RTSP_COUNTERS=<file> moves it (tests). */
+enum { CT_STARTS, CT_PIC_FAIL, CT_ENC_REOPEN, CT_CAP_STALL, CT_DQ_ERR, CT_SUB_OFF, CT_EXIT3, CT_N };
+static const char *const ct_name[CT_N] = { "starts", "pic_fail", "enc_reopen", "cap_stall", "dq_err", "sub_off", "exit3" };
+static unsigned long ct_base[CT_N];	/* totals of the earlier processes of this boot */
+static unsigned long ct_cur[CT_N];	/* this process */
+static const char *ct_path = "/tmp/tc100_rtsp.counters";
+static char ct_last[256];
+
+static unsigned long ct_tot(int i) { return ct_base[i] + ct_cur[i]; }
+
+static int ct_fmt(char *b, size_t n)
+{
+	int o = 0;
+
+	for (int i = 0; i < CT_N && o >= 0 && (size_t)o < n; i++)
+		o += snprintf(b + o, n - (size_t)o, "%s%s=%lu", i ? " " : "", ct_name[i], ct_tot(i));
+	if (o < 0 || (size_t)o + 1 >= n) return -1;
+	b[o++] = '\n';
+	b[o] = 0;
+	return o;
+}
+
+/* write the line when it changed since the last write (every STAT tick calls this: no write while nothing happens) */
+static void ct_save(void)
+{
+	char b[256];
+	int n = ct_fmt(b, sizeof b);
+
+	if (n <= 0 || !strcmp(b, ct_last)) return;
+	wfile(ct_path, b, (size_t)n);
+	memcpy(ct_last, b, (size_t)n + 1);
+}
+
+static void ct_load(void)
+{
+	const char *e = getenv("RTSP_COUNTERS");
+	char b[256], *p;
+	FILE *f;
+	size_t n;
+
+	if (e && *e) ct_path = e;
+	if (!(f = fopen(ct_path, "r"))) return;
+	n = fread(b, 1, sizeof b - 1, f);
+	fclose(f);
+	b[n] = 0;
+	for (p = b; *p; ) {	/* "name=value" words in any order: unknown names and garbage are skipped */
+		char *w = p;
+
+		while (*p && *p != ' ' && *p != '\n') p++;
+		if (*p) *p++ = 0;
+		for (int i = 0; i < CT_N; i++) {
+			size_t l = strlen(ct_name[i]);
+
+			if (!strncmp(w, ct_name[i], l) && w[l] == '=' && w[l + 1] >= '0' && w[l + 1] <= '9') { unsigned long v = 0; for (const char *d = w + l + 1; *d >= '0' && *d <= '9' && v < 400000000UL; d++) v = v * 10 + (unsigned long)(*d - '0'); ct_base[i] = v; }
+		}
+	}
+}
+
 /* The 6.6 ISP driver does not fill the sub-channel of the V4L2 buffer: make the 640x360 picture from the main one
  * (point-sample 1 pixel every 3, instead of 3-sample average with expensive software division). */
 static void sub_scale(const unsigned char *src, unsigned char *dst)
@@ -3760,6 +3821,7 @@ static void sub_off(const char *why)
 	struct strm *s = &S[1];
 
 	if (!s->on) return;
+	ct_cur[CT_SUB_OFF]++;
 	LOG("sub-stream off (%s): the sub-stream paths serve the main stream from now on\n", why);
 	if (s->enc) p_close(s->enc);
 	s->enc = NULL; s->on = 0; s->active = 0;
@@ -4310,6 +4372,9 @@ unsigned char *fpb[2] = { NULL, NULL };
 	}
 	{ const char *e = getenv("RTSP_TALK_NAT"); talk_nat = e && e[0] == '1'; }
 	{ const char *e = getenv("RTSP_CAPTURE_STALL_S"); if (e && *e) { cap_stall_s = num(e); if (cap_stall_s < 0) cap_stall_s = 0; } }
+	ct_load();
+	ct_base[CT_STARTS]++;
+	ct_save();
 #ifdef TC100_HOST_TEST
 	{ const char *e = getenv("TC100_TEST_NO_EXEMPT"); no_exempt = e && e[0] == '1'; }
 #endif
@@ -4359,6 +4424,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 		}
 		if (cap_stall_s > 0 && now_s() - t_cap > cap_stall_s) {
 			LOG("capture: no frame for %d s: the video server stops (status 3), the watchdog starts it again\n", cap_stall_s);
+			ct_cur[CT_CAP_STALL]++;
 			exit_code = 3; run = 0;
 			break;
 		}
@@ -4418,9 +4484,12 @@ unsigned char *fpb[2] = { NULL, NULL };
 				  long thr_us = snd_thr_us - thr_last;
 
 				  if (sndr_on) sndq_stats(&snd_q, &sq_max, &sq_drop, &sq_now);
-				  LOG("STAT cap %lu enc %lu bytes %lu enc_ms %ld snd_ms %ld clients %d dropped %lu sub_enc %lu sub_bytes %lu rec %d pp_ms %ld sub_ms %ld snd_q %d snd_qdrop %lu snd_thr_ms %ld snd_wait %ld\n",
+				  LOG("STAT cap %lu enc %lu bytes %lu enc_ms %ld snd_ms %ld clients %d dropped %lu sub_enc %lu sub_bytes %lu rec %d pp_ms %ld sub_ms %ld snd_q %d snd_qdrop %lu snd_thr_ms %ld snd_wait %ld starts %lu pic_fail %lu enc_reopen %lu cap_stall %lu dq_err %lu sub_off %lu exit3 %lu\n",
 				      ncap, S[0].nfr, S[0].nbytes, enc_us / 1000, snd_us / 1000, np[0] + np[1], dr, S[1].nfr, S[1].nbytes,
-				      rec_active(), pp_us / 1000, sub_us / 1000, sq_max, sq_drop, thr_us / 1000, snd_wait_us / 1000);
+				      rec_active(), pp_us / 1000, sub_us / 1000, sq_max, sq_drop, thr_us / 1000, snd_wait_us / 1000,
+				      ct_tot(CT_STARTS), ct_tot(CT_PIC_FAIL), ct_tot(CT_ENC_REOPEN), ct_tot(CT_CAP_STALL), ct_tot(CT_DQ_ERR),
+				      ct_tot(CT_SUB_OFF), ct_tot(CT_EXIT3));
+				  ct_save();
 				  thr_last += thr_us; snd_wait_us = 0;
 				  abr_tick(drm);
 				  {	/* the same numbers for www/cgi-bin/metrics.cgi (Prometheus): counts over the last interval */
@@ -4545,6 +4614,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 			{ int _dr; PROF(1, _dr = ioctl(fd, VIDIOC_DQBUF, &b));
 			  if (_dr < 0) {
 				if (errno == EAGAIN || errno == EINTR) continue;
+				ct_cur[CT_DQ_ERR]++;
 				if (++dq_fail >= 100) {	/* a real error every time: not a busy loop forever, the watchdog restarts us */
 					LOG("capture: VIDIOC_DQBUF failed %d times in a row (%s): the video server stops (status 3)\n", dq_fail, strerror(errno));
 					exit_code = 3; run = 0;
@@ -4747,6 +4817,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 					int act;
 
 					s->fails++;
+					ct_cur[CT_PIC_FAIL]++;
 					if (k && s->fails >= 50) { sub_off("the encoder gives no frames"); continue; }
 					/* ENC-02: the free encoder gives nothing, several pictures in a row (a picture without interrupt takes 2 s):
 					 * every 5 the core is reset and the encoder opened again; after 30 on the main stream the server leaves
@@ -4758,6 +4829,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 					} else if (act == FE_FAIL_REOPEN) {
 						int row = (int)s->fails;
 
+						ct_cur[CT_ENC_REOPEN]++;
 						LOG("free encoder: %s: %d pictures failed in a row: core reset, encoder closed and opened again\n", s->name, row);
 						fe_hw_init(&fe_env);
 						if (!strm_reopen(s)) {
@@ -4858,5 +4930,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 	aud_close();
 	for (int k = 1; k >= 0; k--) if (S[k].enc) p_close(S[k].enc);
 	LOG("tc100_rtsp: stopped after %lu frames\n", ntot);
+	if (exit_code == 3) ct_cur[CT_EXIT3]++;
+	ct_save();
 	return exit_code;
 }

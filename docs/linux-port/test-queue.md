@@ -356,6 +356,28 @@ per flash write.
 - **Pass:** the login is refused. If it is accepted, keep FTP off and report: chroot it to the card and require the
   password.
 
+### FAILCOUNT Failure totals of the video server over a day: STAT, /tmp file, memory-hourly.csv (`[failcount]`) â€” `to test` (both cameras, 24 h or more)
+
+- **What:** measurement only, no behaviour change. `src/tc100rtsp/tc100_rtsp.c` counts since the process start
+  `pic_fail` (every encoder call without a picture, main and sub), `enc_reopen` (core reset and encoder reopened after
+  5 failures in a row), `cap_stall` (stall exit), `dq_err` (DQBUF errors), `sub_off`, `exit3` (every status-3 exit), and
+  `starts`. The totals of the boot (earlier processes included) are appended to the end of the `STAT` line (old fields
+  unchanged) and kept in `/tmp/tc100_rtsp.counters` (one line, temp + rename, written only when a STAT tick sees a
+  change and at exit; no flash write). `scripts/memwatch.sh` adds the seven values at the end of `memory-hourly.csv`
+  (columns `rtsp_starts,pic_fail,enc_reopen,cap_stall,dq_err,sub_off,exit3`); `stability.csv` is unchanged.
+- **Switch to turn it off:** none needed (a few integer increments, one 100-byte write to RAM when a counter moves);
+  `MEMWATCH=0` stops only the CSV copy.
+- **Test:** (1) after the install, `cat /tmp/tc100_rtsp.counters` shows `starts=1 pic_fail=0 ...` and the last
+  `STAT` line of `/tmp/logs/tc100_rtsp.log` ends with the same numbers. (2) `kill -TERM $(pidof tc100_rtsp)`: the
+  watchdog starts it again; the file then shows `starts=2` and the other totals unchanged (`exit3` stays 0: a TERM is a
+  clean stop, not a status-3 exit). (3) Run 24 h or more on both cameras (.11 and .24), then read the last row of
+  `/mnt/sd/logs/memory-hourly.csv` (and `uptime`): that is the window. Use the numbers as the evidence for the
+  AUDIT-1116-VENCIRQ, AWB-NIGHT and DN-FLAP verdicts over a day.
+- **Pass:** the file and the STAT tail are present and agree; the TERM test gives `starts` +1 with the totals kept; the
+  hourly rows carry the seven columns and grow without gaps over the run; `/tmp/tc100_rtsp.counters` is rewritten only
+  when something changed (its mtime does not move every 5 s on a quiet camera); no change in frame rate, bit rate or CPU.
+- **Results:** (testers write here)
+
 ### AWB-05-SAVED Instant manual white balance from saved gains (`[awb]`) — `to test`
 
 - **What:** `src/tc100rtsp/tc100_rtsp.c` (`awb_state_save`, `awb_state_load`, `awb_hw_init`): `/mnt/config/awb.state` now stores `ex_r ex_b mwb_r mwb_g mwb_b bw_want timestamp` (backwards-compatible with 2-number files). When `awb_hw_init()` finds recent (`<= 6 h`, or pre-NTP boot with wall-clock `awb.state`) manual gains from the same day/night mode (`sbw == bw_want`), it enters ISP manual mode (`ISP_SET_WB_TYPE=0`, `ISP_SET_MWB`) immediately instead of running 10 s of ISP automatic mode (`AWB_MANUAL_AFTER`). Falls back to the 10 s auto warmup when missing, stale, or day/night differs.

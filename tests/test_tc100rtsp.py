@@ -828,6 +828,77 @@ class LogRotation(unittest.TestCase):
                     proc.wait(10)
 
 
+class FailCounters(unittest.TestCase):
+    """FAILCOUNT: cumulative failure counters at the end of the STAT line, kept across restarts in a /tmp file"""
+    PORT = 18567
+
+    @classmethod
+    def setUpClass(cls):
+        build('test_rtsp')
+
+    def run_once(self, tmp, counters):
+        """start the host server, wait for one STAT line, stop it (SIGTERM); return the last STAT line"""
+        log = Path(tmp) / 'tc100_rtsp.log'
+        f = open(log, 'wb')
+        proc = subprocess.Popen([str(SRC / 'test_rtsp'), '-p', str(self.PORT), '-a', '0', '-s', '0'], cwd=tmp,
+                                env=dict(os.environ, RTSP_COUNTERS=str(counters)), stderr=f, stdout=f)
+        f.close()
+        try:
+            for _ in range(150):
+                if b'STAT' in log.read_bytes():
+                    break
+                time.sleep(0.1)
+        finally:
+            proc.terminate()
+            proc.wait(10)
+        stat = [l for l in log.read_text().splitlines() if l.startswith('STAT')]
+        self.assertTrue(stat, log.read_text())
+        return stat[-1]
+
+    def test_stat_line_ends_with_the_new_fields_and_old_ones_keep_their_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stat = self.run_once(tmp, Path(tmp) / 'c')
+            w = stat.split()
+            old = ['cap', 'enc', 'bytes', 'enc_ms', 'snd_ms', 'clients', 'dropped', 'sub_enc', 'sub_bytes', 'rec', 'pp_ms',
+                   'sub_ms', 'snd_q', 'snd_qdrop', 'snd_thr_ms', 'snd_wait']
+            new = ['starts', 'pic_fail', 'enc_reopen', 'cap_stall', 'dq_err', 'sub_off', 'exit3']
+            self.assertEqual(w[1:1 + 2 * len(old):2], old)
+            self.assertEqual(w[1 + 2 * len(old)::2], new)
+            self.assertEqual(w[2 + 2 * len(old)::2], ['1', '0', '0', '0', '0', '0', '0'])
+
+    def test_totals_survive_a_restart_and_starts_counts_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            c = Path(tmp) / 'tc100_rtsp.counters'
+            c.write_text('starts=4 pic_fail=17 enc_reopen=2 cap_stall=1 dq_err=0 sub_off=3 exit3=2\n')
+            stat = self.run_once(tmp, c)
+            self.assertTrue(stat.endswith('starts 5 pic_fail 17 enc_reopen 2 cap_stall 1 dq_err 0 sub_off 3 exit3 2'), stat)
+            self.assertEqual(c.read_text(), 'starts=5 pic_fail=17 enc_reopen=2 cap_stall=1 dq_err=0 sub_off=3 exit3=2\n')
+            stat = self.run_once(tmp, c)        # a kill -TERM and a start again: starts +1, the rest kept
+            self.assertTrue(stat.endswith('starts 6 pic_fail 17 enc_reopen 2 cap_stall 1 dq_err 0 sub_off 3 exit3 2'), stat)
+            self.assertEqual(c.read_text().split()[0], 'starts=6')
+            self.assertFalse(Path(str(c) + '.tmp').exists())
+
+    def test_garbage_in_the_file_is_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            c = Path(tmp) / 'c'
+            c.write_bytes(b'starts=x pic_fail=-5 bogus=9 enc_reopen=3\n\x00\xff')
+            stat = self.run_once(tmp, c)
+            self.assertTrue(stat.endswith('starts 1 pic_fail 0 enc_reopen 3 cap_stall 0 dq_err 0 sub_off 0 exit3 0'), stat)
+
+    def test_every_failure_path_is_counted_where_it_happens(self):
+        src = (SRC / 'tc100_rtsp.c').read_text()
+        i = src.index('s->fails++;')
+        self.assertIn('ct_cur[CT_PIC_FAIL]++', src[i:i + 60])
+        i = src.index('core reset, encoder closed and opened again')
+        self.assertIn('ct_cur[CT_ENC_REOPEN]++', src[i - 120:i])
+        i = src.index('capture: no frame for')
+        self.assertIn('ct_cur[CT_CAP_STALL]++', src[i:i + 200])
+        i = src.index('VIDIOC_DQBUF, &b')
+        self.assertIn('ct_cur[CT_DQ_ERR]++', src[i:i + 300])
+        self.assertIn('if (exit_code == 3) ct_cur[CT_EXIT3]++;', src)
+        self.assertEqual(src.count('ct_save();'), 3)    # at start, at each STAT tick, at exit
+
+
 class MainSize(unittest.TestCase):
     """Item 8: RTSP_WIDTH=1280 RTSP_HEIGHT=720 gives a 720p main picture, only where the kernel scales the main channel
     (ak39_vi.main_scale, patch 0016); elsewhere 1080p is kept (an older kernel crops: a corner of the picture)."""

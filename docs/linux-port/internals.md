@@ -454,7 +454,20 @@ only; nothing is changed or freed (except the optional daily drop_caches below).
   `/sys/module/rtl8xxxu/parameters/` counters of patch 0020; empty if the driver is not loaded), `rtsp_restarts` (the
   restart count of `rtsp-h26x` counted by the health snapshot; `tc100_rtsp` has no cheap connect counter, so connects
   are not logged), `buddyinfo` (`/proc/buddyinfo` as `Zone:n0/n1/...`, free blocks per order). Cap: 168 rows in RAM
-  (7 days, about 42 KB), 720 on the card.
+  (7 days, about 42 KB), 720 on the card. The last seven columns are the **failure totals of `tc100_rtsp`** since boot
+  (below); they are empty when `/tmp/tc100_rtsp.counters` does not exist, and an older file keeps its rows (the header on
+  top is replaced by the current one, the old rows have fewer columns).
+- **Failure totals of the video server (`[failcount]`):** the video log is capped (2-4 h), so it cannot say "0 pictures
+  failed over 24 h". `tc100_rtsp` counts, since boot, `starts` (process starts: a restart adds 1), `pic_fail` (every
+  encoder call that gave no picture, main and sub stream), `enc_reopen` (encoder closed and opened again after 5 failures
+  in a row), `cap_stall` (exits after `RTSP_CAPTURE_STALL_S` without a frame), `dq_err` (`VIDIOC_DQBUF` errors other than
+  EAGAIN / EINTR), `sub_off` (sub stream switched off after an open or frame failure) and `exit3` (every exit with
+  status 3, the watchdog starts it again). They are the last seven fields of the 5-second `STAT` line (the totals, not
+  the last interval; the earlier fields did not move) and the one line `/tmp/tc100_rtsp.counters`
+  (`starts=2 pic_fail=0 ...`, RAM, rewritten by temp + rename only when a STAT tick finds a change, and at exit; read
+  again at start, so the totals survive a restart of the process and are lost at reboot: the uptime is the window).
+  `memory-hourly.csv` copies them every hour, so a multi-day run is read from `/mnt/sd/logs` (`MEMWATCH=0` stops that
+  copy, not the file). `stability.csv` keeps its five columns. `RTSP_COUNTERS=<file>` moves the file (tests).
 - **Daily drop_caches pair:** `MEMWATCH_DROP_HOUR=4` in `boot.conf` (empty = off, the default): at the first sample of
   04:xx the script writes a `drop` row, runs `sync; echo 3 > /proc/sys/vm/drop_caches; sleep 5` and writes a second
   `drop` row (before, then after). It re-reads files through the polled SPI driver (a CPU burst), so it is for a

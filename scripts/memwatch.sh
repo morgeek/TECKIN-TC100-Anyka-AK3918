@@ -20,6 +20,8 @@
 #                            sync + drop_caches + sleep 5 and writes a second "drop" row: before, then after).
 # Fork-free where it can be: /proc is read with `while read`; the forks are one `df`, one `ls | grep` and (drop hour set
 # only) one `date`, once an hour, plus `sh` for the call itself.
+# memory-hourly.csv also carries the failure totals of tc100_rtsp since boot (rtsp_starts, pic_fail, enc_reopen, cap_stall,
+# dq_err, sub_off, exit3: one `read` of /tmp/tc100_rtsp.counters, MEMWATCH_COUNTERS in tests); empty when the file is absent.
 # Test overrides: MEMWATCH_PROC, MEMWATCH_SYS, MEMWATCH_CONF, MEMWATCH_PENDING, MEMWATCH_STATE, MEMWATCH_HOUR_DAY, MEMWATCH_DF, MEMWATCH_HISTORY, MEMWATCH_DROP_WAIT.
 
 MP="${MEMWATCH_PROC:-/proc}"
@@ -28,8 +30,9 @@ CONF="${MEMWATCH_CONF:-/mnt/config/boot.conf}"
 PENDING="${MEMWATCH_PENDING:-/tmp/log/memwatch.pending}"
 STATE="${MEMWATCH_STATE:-/tmp/memwatch.state}"
 HIST="${MEMWATCH_HISTORY:-/tmp/health_history}"
+CTRS="${MEMWATCH_COUNTERS:-/tmp/tc100_rtsp.counters}"
 HDR='timestamp,uptime_s,kind,MemTotal,MemFree,MemAvailable,Active_file,Inactive_file,Active_anon,Inactive_anon,Unevictable,Shmem,SReclaimable,SUnreclaim,KernelStack,PageTables,Percpu,VmallocUsed,CmaFree,AnonPages,nr_free_pages,nr_free_cma,compact_stall,compact_fail,cma_alloc_success,cma_alloc_fail'
-HHDR='timestamp,uptime_s,tcp_inuse,tcp_orphan,tcp_tw,tcp_mem,tmp_used_kb,mnt_used_kb,var_used_kb,open_deleted,threads,rx_urb_alive,tx_urb_free,rtsp_restarts,buddyinfo'
+HHDR='timestamp,uptime_s,tcp_inuse,tcp_orphan,tcp_tw,tcp_mem,tmp_used_kb,mnt_used_kb,var_used_kb,open_deleted,threads,rx_urb_alive,tx_urb_free,rtsp_restarts,buddyinfo,rtsp_starts,pic_fail,enc_reopen,cap_stall,dq_err,sub_off,exit3'
 
 mw_num() { case "$1" in ''|*[!0-9]*) _mwn= ;; *) _mwn="$1" ;; esac; }
 
@@ -64,6 +67,12 @@ mw_append() { # file header cap pendingfile
   [ -s "$4" ] || return 0
   mkdir -p "${1%/*}" 2>/dev/null || true
   [ -s "$1" ] || printf '%s\n' "$2" > "$1" 2>/dev/null || return 0
+  # a file from an older version has a shorter header: put the current one on top (the old rows keep their fewer columns)
+  _h1=; read -r _h1 < "$1" 2>/dev/null
+  if [ "$_h1" != "$2" ]; then
+    _t="$1.$$"
+    { printf '%s\n' "$2"; tail -n +2 "$1"; } > "$_t" && mv "$_t" "$1" || rm -f "$_t"
+  fi
   cat "$4" >> "$1" 2>/dev/null || return 0
   : > "$4"
   _n="$(wc -l < "$1" 2>/dev/null)"; mw_num "$_n"; _n="${_mwn:-0}"
@@ -139,14 +148,25 @@ EOF
     for _x in "$@"; do _j="$_j/$_x"; done
     _bd="${_bd}${_sp}${_bz}:${_j}"; _sp=';'
   done < "$MP/buddyinfo" 2>/dev/null
+  # failure totals of tc100_rtsp since boot (/tmp/tc100_rtsp.counters: one line "name=value ...", written by the server)
+  _c_st=; _c_pf=; _c_er=; _c_cs=; _c_dq=; _c_so=; _c_e3=
+  if [ -r "$CTRS" ]; then
+    read -r _cl < "$CTRS"
+    for _w in $_cl; do
+      case "$_w" in
+        starts=*) _c_st="${_w#*=}" ;; pic_fail=*) _c_pf="${_w#*=}" ;; enc_reopen=*) _c_er="${_w#*=}" ;;
+        cap_stall=*) _c_cs="${_w#*=}" ;; dq_err=*) _c_dq="${_w#*=}" ;; sub_off=*) _c_so="${_w#*=}" ;; exit3=*) _c_e3="${_w#*=}" ;;
+      esac
+    done
+  fi
   mw_dir
   _hcap="${MEMWATCH_MAX_HOURLY:-}"; mw_num "$_hcap"; _hcap="${_mwn:-}"
   [ -n "$_hcap" ] || { [ "$_sdcard" = 1 ] && _hcap=720 || _hcap=168; }
   [ "$_hcap" -ge 24 ] || _hcap=24
   _hp="$PENDING.hourly"
   mkdir -p "${PENDING%/*}" 2>/dev/null || true
-  printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' "$_ts" "$_up_s" "$_ti" "$_to" "$_tw" "$_tm" "$_du1" "$_du2" "$_du3" \
-    "$_del" "$_thr" "$_rx" "$_tx" "$_rr" "$_bd" > "$_hp" 2>/dev/null
+  printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' "$_ts" "$_up_s" "$_ti" "$_to" "$_tw" "$_tm" "$_du1" "$_du2" "$_du3" \
+    "$_del" "$_thr" "$_rx" "$_tx" "$_rr" "$_bd" "$_c_st" "$_c_pf" "$_c_er" "$_c_cs" "$_c_dq" "$_c_so" "$_c_e3" > "$_hp" 2>/dev/null
   mw_append "$_dir/memory-hourly.csv" "$HHDR" "$_hcap" "$_hp"
 }
 

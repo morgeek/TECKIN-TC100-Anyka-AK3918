@@ -68,7 +68,7 @@ class MemWatch(unittest.TestCase):
         self.env = dict(os.environ, MEMWATCH_PROC=str(self.proc), MEMWATCH_SYS=str(t / 'sys'),
                         MEMWATCH_CONF=str(t / 'boot.conf'), MEMWATCH_PENDING=str(t / 'pend/memwatch.pending'),
                         MEMWATCH_STATE=str(t / 'state'), MEMWATCH_DIR=str(self.out), MEMWATCH_HISTORY=str(t / 'hist'),
-                        MEMWATCH_DROP_WAIT='0', MEMWATCH_DF=str(df))
+                        MEMWATCH_DROP_WAIT='0', MEMWATCH_DF=str(df), MEMWATCH_COUNTERS=str(t / 'tc100_rtsp.counters'))
         (t / 'hist').mkdir()
         (t / 'hist/rtsp-h26x').write_text('4\n')
 
@@ -136,6 +136,35 @@ class MemWatch(unittest.TestCase):
         self.assertEqual((h['threads'], h['rx_urb_alive'], h['tx_urb_free'], h['rtsp_restarts']), ('57', '32', '62', '4'))
         self.assertEqual(h['buddyinfo'], 'Normal:10/5/2/1/0')
         self.assertEqual(len(hr[0]), len(hr[1]))
+
+    def test_rtsp_failure_totals_in_the_hourly_row(self):
+        """FAILCOUNT: the totals of /tmp/tc100_rtsp.counters end the hourly row; no file = empty columns, same width"""
+        self.run_mw()
+        self.uptime(700 + 3600)
+        self.run_mw()                       # hourly, no counters file
+        h = dict(zip(*self.rows('memory-hourly.csv')[:2]))
+        self.assertEqual((h['rtsp_starts'], h['pic_fail'], h['exit3']), ('', '', ''))
+        (self.t / 'tc100_rtsp.counters').write_text(
+            'starts=3 pic_fail=17 enc_reopen=2 cap_stall=1 dq_err=0 sub_off=4 exit3=2\n')
+        self.uptime(700 + 7200)
+        self.run_mw()                       # hourly
+        hr = self.rows('memory-hourly.csv')
+        self.assertEqual(hr[0][-7:], ['rtsp_starts', 'pic_fail', 'enc_reopen', 'cap_stall', 'dq_err', 'sub_off', 'exit3'])
+        self.assertEqual(hr[0][14], 'buddyinfo')       # the old columns keep their place
+        self.assertEqual(hr[-1][-7:], ['3', '17', '2', '1', '0', '4', '2'])
+        self.assertEqual({len(r) for r in hr}, {22})
+
+    def test_old_header_is_replaced_and_old_rows_kept(self):
+        self.out.mkdir()
+        old = 'timestamp,uptime_s,tcp_inuse,tcp_orphan,tcp_tw,tcp_mem,tmp_used_kb,mnt_used_kb,var_used_kb,open_deleted,threads,rx_urb_alive,tx_urb_free,rtsp_restarts,buddyinfo'
+        (self.out / 'memory-hourly.csv').write_text(old + '\n1,2,3,4,5,6,7,8,9,10,11,12,13,14,Normal:1/2\n')
+        self.run_mw()
+        self.uptime(700 + 3600)
+        self.run_mw()
+        lines = (self.out / 'memory-hourly.csv').read_text().splitlines()
+        self.assertTrue(lines[0].endswith(',buddyinfo,rtsp_starts,pic_fail,enc_reopen,cap_stall,dq_err,sub_off,exit3'))
+        self.assertEqual(lines[1], '1,2,3,4,5,6,7,8,9,10,11,12,13,14,Normal:1/2')
+        self.assertEqual(len(lines), 3)
 
     def test_open_deleted_files_counted(self):
         fd = self.proc / '12/fd'
