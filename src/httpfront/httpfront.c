@@ -33,6 +33,7 @@
  * build it replaces. Build: arm-linux-gnueabi-gcc -Os -marm -march=armv5te -nostdlib -static -fno-builtin
  *   -fno-pic -no-pie -s -o httpfront httpfront.c
  */
+#include "../ssp-freestanding.h"	/* the canary of -fstack-protector-strong (HARDEN=0: nothing) */
 typedef unsigned int u32;
 typedef unsigned short u16;
 
@@ -577,10 +578,12 @@ int run(int argc, char **argv, char **envp)
 	}
 }
 
-/* entry point: argc at [sp], argv after it, then envp after argv's NULL */
+/* entry point: argc at [sp], argv after it, then envp after argv's NULL; the stack canary first (ssp-freestanding.h) */
 __attribute__((naked, noreturn)) void _start(void)
 {
 	__asm__ volatile (
+		"add r0, sp, #4\n"
+		"bl tc100_ssp_init\n"
 		"ldr r0, [sp]\n"
 		"add r1, sp, #4\n"
 		"add r2, r1, r0, lsl #2\n"

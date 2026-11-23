@@ -39,16 +39,18 @@ run_tests() {
 
 run_cross() {
 	echo "== ARM cross build (arm-linux-gnueabi, as CI)"
-	docker run --rm -v "$SRC:/src:ro" debian:bookworm sh -c '
+	# [harden] HARDEN=0 in the environment builds without the stack protector and full RELRO, as the CI input "harden"
+	docker run --rm -e HARDEN="${HARDEN:-1}" -v "$SRC:/src:ro" debian:bookworm sh -c '
 		apt-get update -qq >/dev/null && apt-get install -y -qq gcc-arm-linux-gnueabi make gcc libc6-dev qemu-user python3 busybox-static curl ca-certificates >/dev/null 2>&1
 		cp -r /src /w && cd /w && rm -rf /w/.claude && set -e
 		# versioned binaries that nothing ships (audit D2): a failed make must not pass on them
 		rm -f src/libakuio/libakuio.so src/tc100rtsp/tc100_rtsp src/mqttd/tc100-mqttd src/supervisord/tc100-supervisord src/onvifd/tc100-onvifd src/rwconf/rwconf src/logfwd/tc100-logfwd src/netacl/libnetacl.so
 		arm-linux-gnueabi-gcc -O2 -Wall -static src/jpegenc/jpegenc.c -o /tmp/jpegenc
-		arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/httpfront/httpfront.c -o /tmp/httpfront
-		arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/mdnsd/mdnsd.c -o /tmp/tc100-mdnsd
+		case "$HARDEN" in 0) FSSP=-fno-stack-protector ;; *) FSSP=-fstack-protector-strong ;; esac
+		arm-linux-gnueabi-gcc -Os -Wall $FSSP -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/httpfront/httpfront.c -o /tmp/httpfront
+		arm-linux-gnueabi-gcc -Os -Wall $FSSP -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/mdnsd/mdnsd.c -o /tmp/tc100-mdnsd
 		# the freestanding ISP tools (audit D3/D9: isp_flip is rebuilt by the release build, isp_fps is a bench tool)
-		arm-linux-gnueabi-gcc -Os -Wall -Werror -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/ispflip/isp_flip.c -o /tmp/isp_flip
+		arm-linux-gnueabi-gcc -Os -Wall -Werror $FSSP -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/ispflip/isp_flip.c -o /tmp/isp_flip
 		arm-linux-gnueabi-gcc -Os -Wall -Werror -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/ispfps/isp_fps.c -o /tmp/isp_fps
 		# item 35: the SRTP bench, its self-test under qemu (the published vectors, on the instruction set of the camera)
 		arm-linux-gnueabi-gcc -O2 -Wall -Wextra -Werror -static -march=armv5te -mtune=arm926ej-s -s -o /tmp/srtp-bench src/whep/srtp_bench.c
@@ -76,6 +78,17 @@ run_cross() {
 		make -C src/netacl CROSS=arm-linux-gnueabi- musl >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }
 		sh tests/check-libc-data-imports.sh src/tc100rtsp src/netacl src/libakuio	# rc27 R3: no libc variable through the stand-in libc
 		python3 -m unittest tests.test_musl_programs_qemu	# the musl programs under qemu with the real musl loader
+		# [harden] the canary and full RELRO in the ARM builds (and a smashed stack caught under qemu); HARDEN=0: absent
+		python3 -m unittest tests.test_harden
+		for b in src/mqttd/tc100-mqttd src/supervisord/tc100-supervisord src/onvifd/tc100-onvifd src/rwconf/rwconf src/logfwd/tc100-logfwd src/netacl/libnetacl-musl.so; do
+			n=$(arm-linux-gnueabi-readelf --dyn-syms -W $b | grep -c " __stack_chk_fail$" || true)
+			if [ "$HARDEN" != 0 ] && [ "$n" = 0 ]; then echo "$b: no stack protector"; exit 1; fi
+			if [ "$HARDEN" = 0 ] && [ "$n" != 0 ]; then echo "$b: stack protector with HARDEN=0"; exit 1; fi
+		done
+		for b in /tmp/httpfront /tmp/tc100-mdnsd /tmp/isp_flip; do
+			if [ "$HARDEN" != 0 ]; then grep -q "stack smashing detected" $b || { echo "$b: no stack protector"; exit 1; }; fi
+		done
+		echo "harden (HARDEN=$HARDEN): ok"
 		test -s src/tc100rtsp/tc100_rtsp && test -s src/libakuio/libakuio.so && test -s src/mqttd/tc100-mqttd && test -s src/supervisord/tc100-supervisord && test -s src/onvifd/tc100-onvifd && test -s src/rwconf/rwconf && test -s src/logfwd/tc100-logfwd && test -s src/netacl/libnetacl.so
 		echo "rwconf (stripped, bytes): $(wc -c < src/rwconf/rwconf)"
 		echo "httpfront (stripped, bytes): $(wc -c < /tmp/httpfront)"

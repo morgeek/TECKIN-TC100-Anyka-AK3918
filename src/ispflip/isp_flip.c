@@ -4,6 +4,7 @@
  * The hardware does it: no CPU cost per frame. Called by bin/setconf -k f (Settings -> Picture -> orientation).
  * Freestanding (no C library: raw ARM EABI system calls), so it runs on any user space of the camera.
  * Build: arm-linux-gnueabi-gcc -Os -nostdlib -static -fno-builtin -o isp_flip isp_flip.c */
+#include "../ssp-freestanding.h"	/* the canary of -fstack-protector-strong (HARDEN=0: nothing) */
 #define AKISP_MAGIC 'I'
 #define IOW(t, n, sz) ((1u << 30) | ((unsigned)(sz) << 16) | ((unsigned)(t) << 8) | (n))
 #define AK_ISP_SET_FLIP_MIRROR IOW(AKISP_MAGIC, 121, sizeof(int))	/* as the driver defines it: _IOW(.., 121, int) */
@@ -43,10 +44,12 @@ int run(int argc, char **argv)
 	return 0;
 }
 
-/* entry point: argc at [sp], argv after it */
+/* entry point: argc at [sp], argv after it; the stack canary first (ssp-freestanding.h) */
 __attribute__((naked, noreturn)) void _start(void)
 {
 	__asm__ volatile (
+		"add r0, sp, #4\n"
+		"bl tc100_ssp_init\n"
 		"ldr r0, [sp]\n"
 		"add r1, sp, #4\n"
 		"bl run\n"

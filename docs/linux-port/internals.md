@@ -539,6 +539,8 @@ src/netacl/         libnetacl: local-network-only filter for musl programs (busy
 src/onvifd/         tc100-onvifd: free ONVIF daemon (discovery, Device / Media / Media2, backchannel)
 src/rwconf/         rwconf: reads and writes keys of the INI-like config files (free replacement of the 2.x binary; built in CI)
 src/supervisord/    tc100-supervisord: day/night, reset button and sound detection loops in one process (SUPERVISOR_IMPL=c)
+src/musl.mk         Build flags of the musl programs (HARDEN=1 default: stack protector, full RELRO; HARDEN=0 without)
+src/ssp-freestanding.h  Stack canary of the freestanding programs (httpfront, tc100-mdnsd, isp_flip), from AT_RANDOM
 src/webui/          Web UI sources: index/ (main script, built by src/webui/build-index.sh), i18n check, CSS and minify build, screenshots
 src/whep/           tc100-whep: WebRTC (WHEP) gateway behind whep.cgi
 www/                Web interface (Pico CSS); www/cgi-bin/ are shell CGIs

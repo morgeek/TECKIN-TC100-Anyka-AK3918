@@ -378,6 +378,50 @@ per flash write.
   when something changed (its mtime does not move every 5 s on a quiet camera); no change in frame rate, bit rate or CPU.
 - **Results:** (testers write here)
 
+### HARDEN Stack protector and full RELRO in the free programs (`[harden]`) — `to test` (one camera, 24 h, then both)
+
+- **What:** build change only, no new setting on the camera. The musl programs (`tc100_rtsp`, `tc100-onvifd`,
+  `tc100-mqttd`, `tc100-supervisord`, `tc100-logfwd`, `rwconf`, `libnetacl-musl.so`; `src/musl.mk`) are built with
+  `-fstack-protector-strong` and `-Wl,-z,relro,-z,now`; the freestanding `httpfront`, `tc100-mdnsd` and `isp_flip`
+  with `-fstack-protector-strong` and their own canary (`src/ssp-freestanding.h`, taken from `AT_RANDOM` in `_start`).
+  A function with a local array now checks a random canary before it returns, and the GOT of the musl programs is
+  read-only after loading. Cost: +3.7 KB in `stack.sqfs` (flash-budget.md "Hardening"); about 4 to 8 instructions per
+  call of an instrumented function. In `tc100_rtsp` that includes per-packet and per-frame functions (`send_nal`,
+  `send_pkt`, `rtp_out`, `sg_pkt`, `pace_udp`, `now_us`, `q_push`, `live_frame`, `mdct`, `aec_process`, `md_frame`,
+  `akuio_wait_irq`), so the CPU check below matters. `_FORTIFY_SOURCE` is not used (musl has no fortified headers).
+- **Switch to turn it off:** a build switch, not a camera setting: the CI input `harden` = off (Actions, "Run
+  workflow" of `build-kernel-linux66.yml`), or `HARDEN=0` for `make` / `sh tests/docker/local-ci.sh cross`. The
+  build of `0f827ec` (the commit before) is the same firmware without it. Install either by web update.
+- **How a hit shows:** a musl program prints nothing and dies of `SIGILL` (musl's `__stack_chk_fail`): "Illegal
+  instruction" in the log of whoever started it (`/tmp/logs/tc100_rtsp.log`, the supervisor log, `logread`), then a
+  restart by the watchdog or the supervisor (`starts` of `/tmp/tc100_rtsp.counters` goes up, FAILCOUNT). The
+  freestanding programs print `*** stack smashing detected ***` to stderr and die of `SIGABRT`.
+- **Test:**
+  1. Before the update, on the camera that will run it: note `top -b -n 1 | head -20` three times one minute apart,
+     the last `STAT` line of `/tmp/logs/tc100_rtsp.log` (frame rate, bit rate) and `/tmp/tc100_rtsp.counters`.
+  2. Install the `[harden]` build by web update; after the reboot the web UI shows the new build.
+  3. Boot: all services up (Services page), `dmesg` without errors.
+  4. Stream 24 h: one RTSP client on the main stream (VLC or Frigate) and the sub stream, with audio (`-a 1`), and a
+     recording on the SD card if one is fitted.
+  5. Web UI: log in, Live (WebRTC and MP4), Settings (save one value), Day/night page, Records, update page (open only).
+  6. ONVIF: discovery from a client (ONVIF Device Manager or Home Assistant), profile, snapshot and one settings
+     read; one wrong password (the lockout path).
+  7. MQTT: the broker sees the health and status messages; Home Assistant entities answer one command (e.g. the IR
+     mode); `tc100-mqttd` keeps its connection over the 24 h.
+  8. ssh from the LAN (dropbear, filtered by `libnetacl-musl.so`), and a refused connection from outside the allowed
+     networks if one can be made; `telnet`/`ftp` if enabled.
+  9. mDNS: `ping <name>.local` from the LAN.
+  10. Picture orientation: Settings -> Picture -> flip on, then off (`isp_flip`).
+  11. After 24 h: `top -b -n 1 | head -20` three times as in step 1, the last `STAT` line, `/tmp/tc100_rtsp.counters`,
+      `grep -ri "stack smashing\|illegal instruction" /tmp/logs /mnt/sd/logs 2>/dev/null; logread | grep -i "smash\|illegal"`.
+- **Pass:** no `stack smashing detected` and no `Illegal instruction` in any log; no crash or restart that was not
+  asked for (`starts` of the counters file and the supervisor's restart counts unchanged over the 24 h, no reboot);
+  every step 3-10 works as before; `top` shows the same CPU for `tc100_rtsp`, `tc100-onvifd`, `tc100-mqttd` and
+  `httpfront` as before the update (within the usual spread of the three readings), same frame rate and bit rate.
+- **If it fails:** a canary hit is a real memory bug that the old build hid: keep the log line and the program name,
+  go back to the `0f827ec` build (or a `harden` = off build), and report the steps that led to it.
+- **Results:** (testers write here)
+
 ### AWB-05-SAVED Instant manual white balance from saved gains (`[awb]`) — `to test`
 
 - **What:** `src/tc100rtsp/tc100_rtsp.c` (`awb_state_save`, `awb_state_load`, `awb_hw_init`): `/mnt/config/awb.state` now stores `ex_r ex_b mwb_r mwb_g mwb_b bw_want timestamp` (backwards-compatible with 2-number files). When `awb_hw_init()` finds recent (`<= 6 h`, or pre-NTP boot with wall-clock `awb.state`) manual gains from the same day/night mode (`sbw == bw_want`), it enters ISP manual mode (`ISP_SET_WB_TYPE=0`, `ISP_SET_MWB`) immediately instead of running 10 s of ISP automatic mode (`AWB_MANUAL_AFTER`). Falls back to the 10 s auto warmup when missing, stale, or day/night differs.

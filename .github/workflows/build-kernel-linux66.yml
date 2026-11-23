@@ -26,6 +26,7 @@ on:
       - 'src/logfwd/**'
       - 'src/netacl/**'
       - 'src/musl.mk'
+      - 'src/ssp-freestanding.h'
       - 'src/whep/**'
       - 'bin/**'
       - 'lib/**'
@@ -43,6 +44,11 @@ on:
         required: false
         type: boolean
         default: false
+      harden:
+        description: 'Stack protector and full RELRO in the free programs (src/musl.mk HARDEN, src/ssp-freestanding.h). Off = the build of before 2026-11-23, to compare CPU or rule out the canary.'
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   base:
@@ -56,6 +62,9 @@ jobs:
     permissions:
       contents: write
       actions: read  # the publish step reads the CI run of the commit (audit D4)
+    env:
+      # [harden] one switch for the free programs: make reads it (src/musl.mk), the freestanding builds below use FSSP
+      HARDEN: ${{ github.event.inputs.harden == 'false' && '0' || '1' }}
 
     steps:
       - name: Checkout Repository
@@ -169,8 +178,10 @@ jobs:
           test -f base-rootfs/rootfs.cpio.gz   # our Buildroot image; no fallback
           sudo sh v3/build-rootfs66.sh base-rootfs/rootfs.cpio.gz $P/oipcrd66.gz
           arm-linux-gnueabi-gcc -O2 -Wall -static src/jpegenc/jpegenc.c -o $P/jpegenc
-          arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/httpfront/httpfront.c -o $P/httpfront
-          arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/mdnsd/mdnsd.c -o $P/tc100-mdnsd
+          # [harden] the freestanding programs carry their own canary (src/ssp-freestanding.h); HARDEN=0 leaves it out
+          case "$HARDEN" in 0) FSSP=-fno-stack-protector ;; *) FSSP=-fstack-protector-strong ;; esac
+          arm-linux-gnueabi-gcc -Os -Wall $FSSP -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/httpfront/httpfront.c -o $P/httpfront
+          arm-linux-gnueabi-gcc -Os -Wall $FSSP -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/mdnsd/mdnsd.c -o $P/tc100-mdnsd
           # 2026-11-07: every program is built against musl 1.2.4, the camera's own libc (src/musl.mk): tc100-mqttd,
           # -supervisord, -onvifd, rwconf, tc100-logfwd, libnetacl-musl.so and, since 3.0.1-rc34, tc100_rtsp itself
           # (libakuio linked in, the free encoder src/h265enc/freeenc.h): no vendor library and no uClibc runtime
@@ -179,6 +190,11 @@ jobs:
           cp src/tc100rtsp/tc100_rtsp-musl $P/tc100_rtsp
           arm-linux-gnueabi-readelf -l $P/tc100_rtsp | grep -q 'ld-musl-arm.so.1' || { echo "tc100_rtsp is not a musl program"; exit 1; }
           if arm-linux-gnueabi-readelf -d $P/tc100_rtsp | grep NEEDED | grep -v '\[libc.so\]'; then echo "tc100_rtsp needs more than libc.so"; exit 1; fi
+          if [ "$HARDEN" != 0 ]; then
+            arm-linux-gnueabi-readelf --dyn-syms -W $P/tc100_rtsp | grep -q ' __stack_chk_fail$' || { echo "tc100_rtsp has no stack protector (HARDEN)"; exit 1; }
+            arm-linux-gnueabi-readelf -d $P/tc100_rtsp | grep -q 'BIND_NOW' || { echo "tc100_rtsp is not linked -z now (HARDEN)"; exit 1; }
+            grep -q 'stack smashing detected' $P/httpfront || { echo "httpfront has no stack protector (HARDEN)"; exit 1; }
+          fi
           make -C src/mqttd CROSS=arm-linux-gnueabi- >/dev/null
           cp src/mqttd/tc100-mqttd $P/
           make -C src/supervisord CROSS=arm-linux-gnueabi- >/dev/null
@@ -212,7 +228,8 @@ jobs:
           set -e
           arm-linux-gnueabi-gcc -Os -Wall -static -march=armv5te -mfloat-abi=soft -o output/envtool v3/install/envtool.c
           # isp_flip ships from its source, not the copy kept in bin/ (audit D3); freestanding like httpfront
-          arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/ispflip/isp_flip.c -o bin/isp_flip
+          case "$HARDEN" in 0) FSSP=-fno-stack-protector ;; *) FSSP=-fstack-protector-strong ;; esac
+          arm-linux-gnueabi-gcc -Os -Wall $FSSP -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/ispflip/isp_flip.c -o bin/isp_flip
           # rwconf (item 53) and tc100-logfwd ship from their source: musl programs like tc100-mqttd (src/musl.mk)
           sh v3/musl/build-musl.sh
           make -C src/rwconf CROSS=arm-linux-gnueabi- >/dev/null

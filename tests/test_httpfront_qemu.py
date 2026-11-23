@@ -29,7 +29,7 @@ class HttpFront(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp()
         cls.bin = os.path.join(cls.tmp, 'httpfront')
-        subprocess.run([CC, '-Os', '-Wall', '-Werror', '-marm', '-march=armv5te', '-nostdlib', '-static', '-fno-builtin',
+        subprocess.run([CC, '-Os', '-Wall', '-Werror', '-fno-stack-protector' if os.environ.get('HARDEN') == '0' else '-fstack-protector-strong', '-marm', '-march=armv5te', '-nostdlib', '-static', '-fno-builtin',
                         '-fno-pic', '-no-pie', '-s', str(ROOT / 'src/httpfront/httpfront.c'), '-o', cls.bin], check=True)
 
     @classmethod

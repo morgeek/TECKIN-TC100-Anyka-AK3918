@@ -122,8 +122,8 @@ class FlashImage(unittest.TestCase):
     def test_httpfront_is_freestanding(self):
         src = (ROOT / 'src/httpfront/httpfront.c').read_text()
         self.assertNotIn('#include <', src)                             # no C library header
-        self.assertEqual(re.findall(r'#include "([^"]+)"', src), ['md5crypt.h', 'status.h', 'dash.h', 'poll.h'])   # its own, freestanding too
-        for h in ('md5crypt.h', 'status.h', 'dash.h', 'poll.h'):
+        self.assertEqual(re.findall(r'#include "([^"]+)"', src), ['../ssp-freestanding.h', 'md5crypt.h', 'status.h', 'dash.h', 'poll.h'])   # its own, freestanding too
+        for h in ('md5crypt.h', 'status.h', 'dash.h', 'poll.h', '../ssp-freestanding.h'):
             self.assertNotIn('#include <', (ROOT / 'src/httpfront' / h).read_text())
         b = ROOT / 'src/httpfront/httpfront'
         if b.exists():

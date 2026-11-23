@@ -253,7 +253,7 @@ class Poll(unittest.TestCase):
     def setUpClass(cls):
         tn.Native.setUpClass.__func__(cls)
         # the flags of the CI plus -Wextra: the new code must stay clean under both
-        subprocess.run([tn.CC] + tn.FLAGS + ['-Wextra', str(ROOT / 'src/httpfront/httpfront.c'), '-o', cls.bin], check=True)
+        subprocess.run([tn.CC] + tn.FLAGS + tn.SSP + ['-Wextra', str(ROOT / 'src/httpfront/httpfront.c'), '-o', cls.bin], check=True)
 
     def ask(self, path):
         for _ in range(3):      # the first connection of a server can be the probe of start()

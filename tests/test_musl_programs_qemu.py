@@ -28,6 +28,7 @@ QEMU = shutil.which('qemu-arm') or shutil.which('qemu-arm-static')
 MUSL = Path(os.environ.get('MUSL', ROOT / 'build/musl'))
 NEED = bool(CC and READELF and QEMU and shutil.which('make') and (MUSL / 'bin/musl-gcc').is_file())
 WHY = 'needs arm-linux-gnueabi-gcc/readelf, make, qemu-arm and the musl sysroot (sh v3/musl/build-musl.sh)'
+HARDENED = os.environ.get('HARDEN') != '0'     # [harden] src/musl.mk HARDEN: the default build has the canary and full RELRO
 
 PROGRAMS = {'mqttd': 'tc100-mqttd', 'onvifd': 'tc100-onvifd', 'supervisord': 'tc100-supervisord',
             'logfwd': 'tc100-logfwd', 'rwconf': 'rwconf'}
@@ -116,6 +117,17 @@ class MuslPrograms(unittest.TestCase):
                        if ' UND ' in l and len(l.split()) >= 8}
                 helpers = sorted(n for n in und if n.startswith(('__aeabi', '__bswap', '__udiv', '__div', '__gnu', '__isoc', '__ctype_b_loc')) or n.endswith('_chk'))
                 self.assertEqual(helpers, [], 'libgcc helpers and glibc-only names must not be left to the loader')
+
+    def test_hardened(self):
+        """[harden] the default build: stack protector (the canary of musl's __stack_chk_guard, __stack_chk_fail on a
+        mismatch) and full RELRO (BIND_NOW, the GOT inside GNU_RELRO); HARDEN=0 builds without both"""
+        from tests.test_harden import relro_covers_got
+        for obj in list(self.bins.values()) + [self.netacl]:
+            with self.subTest(obj.name):
+                syms = self.readelf('--dyn-syms', '-W', str(obj))
+                self.assertEqual(' __stack_chk_fail' in syms, HARDENED)
+                self.assertEqual('BIND_NOW' in self.readelf('-d', str(obj)), HARDENED)
+                self.assertEqual(relro_covers_got(READELF, obj), HARDENED)
 
     def test_every_import_resolves_in_musl(self):
         """each import exists in the libc.so of the sysroot (same version as the camera's): a link check"""
@@ -269,6 +281,8 @@ class Tc100RtspMusl(unittest.TestCase):
         have = {l.split()[-1].split('@')[0] for l in self.readelf('--dyn-syms', '-W', str(MUSL / 'lib/libc.so')).splitlines()
                 if ' UND ' not in l and len(l.split()) >= 8}
         self.assertEqual(sorted(n for n in und if n not in have and not n.startswith(('_ITM', '__gmon'))), [])
+        self.assertEqual(' __stack_chk_fail' in syms, HARDENED)                 # [harden]
+        self.assertEqual('BIND_NOW' in self.readelf('-d', str(self.bin)), HARDENED)
         for name in ('akuio_pmem_init', 'akuio_alloc_pmem', 'akuio_free_pmem', 'akuio_vaddr2paddr', 'akuio_wait_irq',
                      'akuio_map_regs', 'akuio_reset_video'):
             self.assertRegex(syms, r' FUNC +GLOBAL +DEFAULT +\d+ %s\n' % name, name)

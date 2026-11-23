@@ -14,6 +14,7 @@
  *   arm-linux-gnueabi-gcc -Os -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie
  *     -Wl,--build-id=none -s -o tc100-mdnsd mdnsd.c
  */
+#include "../ssp-freestanding.h"	/* the canary of -fstack-protector-strong (HARDEN=0: nothing) */
 typedef unsigned int u32;
 typedef unsigned short u16;
 
@@ -221,9 +222,12 @@ int run(int argc, char **argv)
 	}
 }
 
+/* entry point: argc at [sp], argv after it; the stack canary first (ssp-freestanding.h) */
 __attribute__((naked, noreturn)) void _start(void)
 {
 	__asm__ volatile (
+		"add r0, sp, #4\n"
+		"bl tc100_ssp_init\n"
 		"ldr r0, [sp]\n"
 		"add r1, sp, #4\n"
 		"bl run\n"

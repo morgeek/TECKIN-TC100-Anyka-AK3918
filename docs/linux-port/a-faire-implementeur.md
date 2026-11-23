@@ -38,8 +38,14 @@ les tests caméra `AUDIT-1116-*` de `test-queue.md`. Ce qui reste ouvert, par or
   `IRQ_LEVEL` toutes les lignes du contrôleur (patch 0001), qui change le comportement de tous les pilotes.
 - [ ] I2C (patch 0005) : après un `-ETIMEDOUT` le contrôleur n'est pas remis à zéro avant le message suivant.
   Mineur (10 ms suffisent largement à environ 117 kHz).
-- [ ] Durcissement du code C (`-fstack-protector-strong`, `-z relro,-z now`) : mesurer d'abord le coût en taille
-  par rapport au budget flash.
+- [x] Durcissement du code C (`-fstack-protector-strong`, `-z relro,-z now`) : mesurer d'abord le coût en taille
+  par rapport au budget flash. **Fait le 2026-11-23 (`[harden]`)**, mesure dans `flash-budget.md` (« Hardening ») :
+  +3,7 Ko dans le squashfs xz pour les dix programmes libres (+16 Ko bruts, surtout du remplissage de page), contre au
+  moins 405 Ko libres dans `stack`. Activé par défaut : canari (`-fstack-protector-strong`) dans les programmes musl
+  (`src/musl.mk`) et dans les trois programmes autonomes (`src/ssp-freestanding.h` : canari tiré de `AT_RANDOM`),
+  RELRO complet (`-z now` met la GOT en lecture seule) pour les programmes musl. Pas de `_FORTIFY_SOURCE` (sans effet
+  avec musl, binaires identiques) ni de PIE (+8 Ko xz, code plus lent sur l'ARM926). Interrupteur de build `HARDEN=0`
+  (make, local-ci, entrée CI `harden`). Reste le test caméra **HARDEN** de `test-queue.md` (24 h, CPU identique).
 - [ ] MQTT : les commandes `telnet`, `ftp` et `reboot` ne dépendent que de la confiance accordée au broker (TCP en
   clair). Décision du propriétaire : ajouter un interrupteur, ou documenter les ACL du broker.
 - [ ] CI : épingler les actions par SHA, vérifier les checksums de mbedtls et d'aiortc, rendre les builds reproductibles

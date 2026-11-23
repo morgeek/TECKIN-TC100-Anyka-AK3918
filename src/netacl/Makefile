@@ -23,7 +23,7 @@ musl: libnetacl-musl.so
 include ../musl.mk
 
 libnetacl-musl.dbg.so: netacl.c netacl.h Makefile ../musl.mk | $(MUSL)/bin/musl-gcc
-	$(MUSL_CC) $(filter-out -fno-pie,$(MUSL_CFLAGS)) -fPIC -shared -Wl,-soname,libnetacl.so -Wl,--hash-style=both -o $@ netacl.c
+	$(MUSL_CC) $(filter-out -fno-pie,$(MUSL_CFLAGS)) -fPIC -shared -Wl,-soname,libnetacl.so -Wl,--hash-style=both $(HARDEN_LDFLAGS) -o $@ netacl.c
 
 libnetacl-musl.so: libnetacl-musl.dbg.so
 	$(CROSS)strip --strip-unneeded -R .comment -o $@ $<

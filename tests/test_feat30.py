@@ -855,7 +855,7 @@ class Lot1B(unittest.TestCase):
 
     def test_mdns_daemon_is_freestanding_answer_only_and_off_by_default(self):
         src = (ROOT / 'src/mdnsd/mdnsd.c').read_text()
-        self.assertEqual(re.findall(r'#include\s+(\S+)', src), ['"mdns_pkt.h"'])
+        self.assertEqual(re.findall(r'#include\s+(\S+)', src), ['"../ssp-freestanding.h"', '"mdns_pkt.h"'])   # [harden] the canary
         self.assertIn('(src.addr & mask) != (ip & mask)', src)      # same subnet only
         # DNS-SD and the TXT information only when asked (-s / -v, item 38): off by default
         self.assertIn('int s, on = 1, ttl = 255, loop = 0, svcs = 0, info = 0;', src)

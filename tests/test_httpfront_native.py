@@ -29,6 +29,8 @@ QEMU = shutil.which('qemu-arm') or shutil.which('qemu-arm-static')
 BUSYBOX = shutil.which('busybox')
 FLAGS = ['-Os', '-Wall', '-Werror', '-marm', '-march=armv5te', '-nostdlib', '-static', '-fno-builtin', '-fno-pic',
          '-no-pie', '-Wl,--build-id=none', '-s']
+# [harden] httpfront as CI ships it: with the canary of src/ssp-freestanding.h (HARDEN=0 builds without)
+SSP = ['-fno-stack-protector' if os.environ.get('HARDEN') == '0' else '-fstack-protector-strong']
 # "pass" with salt "abcdefgh" (openssl passwd -1 -salt abcdefgh pass)
 CONF = '/:root:$1$abcdefgh$1s0bv7.OjNizlrMAOIQD7.\n.mp4:video/mp4\n'
 
@@ -189,7 +191,7 @@ class Native(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp()
         cls.bin = os.path.join(cls.tmp, 'httpfront')
-        subprocess.run([CC] + FLAGS + [str(ROOT / 'src/httpfront/httpfront.c'), '-o', cls.bin], check=True)
+        subprocess.run([CC] + FLAGS + SSP + [str(ROOT / 'src/httpfront/httpfront.c'), '-o', cls.bin], check=True)
         Path(cls.tmp, 'fake.c').write_text(FAKE_HTTPD)
         cls.httpd = os.path.join(cls.tmp, 'httpd')
         subprocess.run([CC] + FLAGS + [os.path.join(cls.tmp, 'fake.c'), '-o', cls.httpd], check=True)
