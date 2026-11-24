@@ -20,7 +20,7 @@ on a capture memory that the CPU reads uncached.
 | ISP 3D noise reduction | **on by default (`NR3D=auto`, 3.0.1-rc41/rc42)** via patch 0017 (2025 KiB UV reference plane allocated from the unused tail of `venc@81800000`); `NR3D=0` turns it off in `boot.conf` | quality and bit rate, not CPU |
 | ISP statistics (Y histogram, AE info) | **no**: the light level is a CPU sample of the picture | small |
 | Capture DMA into cached memory (kernel patch 0012, `RTSP_CACHED=1`) | used with the copy path (`RTSP_DIRECT=0`) or the colour tables; direct capture (default) cleans the cache over the buffer instead | every CPU read above becomes a cache-line fill instead of a bus access |
-| Capture straight into the encoder pool (kernel patch 0011, `RTSP_ZEROCOPY=1`) | off by default, superseded by **direct capture** (default since rc2x: the encoder reads the V4L2 capture buffer itself, `RTSP_DIRECT=0` goes back to the copy; `direct_setup` in `tc100_rtsp.c`) | the 3 MB copy itself |
+| Capture straight into the encoder pool (kernel patch 0011, `RTSP_ZEROCOPY=1`, removed from `tc100_rtsp` 2026-11-24, audit: the driver needs at least 3 slots, the code asked 2) | superseded by **direct capture** (default since rc2x: the encoder reads the V4L2 capture buffer itself, `RTSP_DIRECT=0` goes back to the copy; `direct_setup` in `tc100_rtsp.c`) | the 3 MB copy itself |
 
 ## Order of work (quality kept, each step measured with `v3/dev/try-rtsp.sh`)
 
@@ -28,7 +28,7 @@ on a capture memory that the CPU reads uncached.
    off (`config/awb.off`) with the same picture: removes the 1.5 MB chroma pass. Until then, `post_copy` now
    reads and writes 4 bytes at a time and skips identity tables (fewer bus accesses for the same result).
 2. `RTSP_CACHED=1` (kernel with 0012): the copy and the sub picture read cached memory.
-3. `RTSP_ZEROCOPY=1` (kernel with 0011): no copy at all; compare with 2.
+3. `RTSP_ZEROCOPY=1` (kernel with 0011): no copy at all; compare with 2. (Not possible, see below; removed 2026-11-24, audit. Direct capture took its place.)
 4. Live image tuning, masks and black and white through `/dev/isp_char` instead of the CPU.
 5. The ISP sub channel (hardware 640x360), once the variant B crash is understood.
 
@@ -41,7 +41,7 @@ STAT per 5 s (5000 ms = one full core); cap = frames captured in 5 s (15 fps = 7
 | copy, uncached capture (default) | 35-41 | 2240-2410 | 810-1070 | 1100-1270 |
 | `RTSP_CACHED=1` | 36-42 | 1910-2310 | 710-870 | 1130-1340 |
 | `RTSP_CACHED=1` + `config/awb.off` (no software white balance) | 40-52 | 1900-2070 | 320-600 | 1320-1650 |
-| `RTSP_ZEROCOPY=1` | not possible: the driver keeps 4 capture slots (NUM_SLOTS), 4 x 3 MB of the 12 MiB pool; the fallback used to leave a 3 MB pool block taken and the encoder failed to open (fixed) | | | |
+| `RTSP_ZEROCOPY=1` (removed 2026-11-24, audit) | not possible: the driver keeps 4 capture slots (NUM_SLOTS), 4 x 3 MB of the 12 MiB pool; the fallback used to leave a 3 MB pool block taken and the encoder failed to open (fixed) | | | |
 
 - Cached capture: about 10 % less per frame, same picture. Kept on IPCAM2 (`config/rtsp.env`).
 - Without the software white balance, the cost per frame of the copy drops from about 54 to 36 ms (cap goes up

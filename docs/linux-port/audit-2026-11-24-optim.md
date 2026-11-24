@@ -58,12 +58,12 @@ the main session in the code.
 
 | Optimisation | Why remove |
 |---|---|
-| `RTSP_ZEROCOPY` (USERPTR, `tc100_rtsp.c:4183-4214`) | Impossible as written: the driver needs ≥ 3 slots, the code asks 2. |
+| `RTSP_ZEROCOPY` (USERPTR, `tc100_rtsp.c:4183-4214`) | Impossible as written: the driver needs ≥ 3 slots, the code asks 2. **Removed 2026-11-24** (kernel patch 0011 stays: no kernel change). |
 | `RTSP_UDPMMSG` (`sendmmsg`) | P-09: picture artefacts. **Removed 2026-11-24.** |
 | `RTSP_PACING_US` | Reverted (HZ=100); see R4. **Removed 2026-11-24.** |
 | `RTSP_SNDBUF` | Never measured. **Removed 2026-11-24.** |
-| `RTSP_POOLPAD` | Effectively off with the 9600K pool; HW-01b not reproduced. |
-| `/dev/mem` marker search fallback of direct capture (`:3670-3713`) | Patch 0006 provides `AK39_VI_G_PHYS`. |
+| `RTSP_POOLPAD` | Effectively off with the 9600K pool; HW-01b not reproduced. **Removed 2026-11-24.** |
+| `/dev/mem` marker search fallback of direct capture (`:3670-3713`) | Patch 0006 provides `AK39_VI_G_PHYS`. **Removed 2026-11-24**: the ioctl is in 0006 since 2026-10-22 (4bf95cc), before 3.0.0, so every kernel this server runs on has it; the vendor 3.4 kernel never runs it (2.x branch). Without the ioctl: copy mode. |
 | `RTSP_FRAMECOPY=0` and `RTSP_LIVE_DIRECT=0` paths | O-05: no measurable difference; keep the default path only. **Removed 2026-11-24** (the in-place read stays only as the fallback when the copy finds no memory). |
 | Native `fullconfig` (`poll.h` route 7, ~270 lines) | Once per Settings open, already cached 5 s by the CGI; falls back on any value ≥ 24 characters (a Frigate URL already is), small semantic differences (`perf_profile`, Content-Type). |
 | Native `health.cgi` (route 5) | Once per diagnostics visit; the CGI's cache path is already fork-free. Small; keep or remove. |

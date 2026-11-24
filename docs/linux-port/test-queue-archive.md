@@ -412,7 +412,7 @@ switch back to the rc7 behaviour.
 7. **HW-02 test 2 (`ak39_venc.pool=9600K`): the owner says go, in rc8** (card kernel only, built by CI with the parameter in
    its own command line: no U-Boot prompt; kept if it passes, dropped if not). To make it a one-parameter test, `tc100_rtsp` leaves out the start-of-pool
    guard by itself when the pool is smaller than 12 MiB (log `encoder pool: N bytes (ak39_venc.pool), no guard at
-   its start`; `RTSP_POOLPAD=<bytes>` still forces one). With the default 12 MiB pool nothing changes. Steps in R8-02.
+   its start`; `RTSP_POOLPAD=<bytes>` still forces one; the guard and `RTSP_POOLPAD` removed 2026-11-24, audit). With the default 12 MiB pool nothing changes. Steps in R8-02.
 
 ### R8-00 rc8 CI: the kernel workflow FAILS on `645281b` and on `d60cb12` (tester, 2026-10-31 01:10) - nothing to test yet
 - Runs 41146850236 (`645281b`) and 41147148222 (`d60cb12`), workflow "Build Linux 6.6 LTS Kernel ...", job "Compile Linux 6.6 + Anyka AK3918 +
@@ -640,7 +640,7 @@ Order proposed: 2, 7, 9, then 5, then 8 behind switches, then 6. On hold: 3. Dec
 - **What (implementer, after the HW-01 result):** with direct capture `tc100_rtsp` again takes the first 3.4 MB of the
   pool (the old layout, which streamed), now as a guard: filled with `a5a5a5a5` and checked every 10 s. Any write
   into it is logged: `pool guard: written from +0x.. to +0x.. (phys 0x..): w0 w1 w2 w3` (at most 20 reports, the area
-  is re-armed after each). `RTSP_POOLPAD=<bytes>` sets its size, `0` = none (the failing HW-01 layout).
+  is re-armed after each). `RTSP_POOLPAD=<bytes>` sets its size, `0` = none (the failing HW-01 layout). (Guard and `RTSP_POOLPAD` removed 2026-11-24, audit.)
   The log at start: `encoder pool: N-byte guard at its start (phys 0x81800000)`.
 - **Test, in this order** (main H.265 + sub on, one client, 5 min each, STAT bytes per 5 s):
   1. Default: streams normally (about 1 MB per 5 s). Any `pool guard:` line? Write it down: it names the writer's
@@ -2542,7 +2542,7 @@ defaults such as `ak39_venc.pool=9600K` belong in the kernel C defaults. The 960
   `tc100_rtsp` lost the main stream after 5-10 s (HW-01), and after a reboot from that kernel the RTL8188FU stayed in
   `Failed power on` until a power cut (HW-03). Both were reported as blocking.
 - `f9c3d81` (evening, after a power cut): kernel from the card, then **installed in the flash** of IPCAM2 with
-  `update66.sh` (settings kept). **Neither problem came back**: HW-01b passed (no guard report, `RTSP_POOLPAD=0` and
+  `update66.sh` (settings kept). **Neither problem came back**: HW-01b passed (no guard report, `RTSP_POOLPAD=0` (removed 2026-11-24, audit) and
   even the 44558cd binary stream normally), 6 warm reboots after the new kernel all kept the Wi-Fi. MemAvailable
   15.3-15.9 MB (10.8 on rc5), 15 fps, 84 % idle, UI-01 and F-05 passed. IPCAM2 now runs f9c3d81 from its flash.
 

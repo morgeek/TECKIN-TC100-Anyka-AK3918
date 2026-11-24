@@ -570,10 +570,18 @@ per flash write.
      buffer per frame then a copy per viewer). `RTSP_UDPSG=1` sends each packet at once (it always did by default).
      The startup line `rtp scatter-gather N sendmmsg N; pacing N us sndbuf N KB; live direct` is now
      `rtp scatter-gather N`.
+  2. `tc100_rtsp` capture: `RTSP_ZEROCOPY` (USERPTR capture into the encoder pool: impossible, the driver needs at
+     least 3 slots and the code asked 2; kernel patch 0011 stays), `RTSP_POOLPAD` and the HW-01 guard at the start of
+     the encoder pool (off with any pool under 12 MiB, the 9600K default included: the start line `encoder pool:
+     9830400 bytes (ak39_venc.pool), no guard at its start` is gone), and the `/dev/mem` search of the capture buffers
+     when the driver gives no physical address (every kernel of `patches/kernel-6.6/series` has `AK39_VI_G_PHYS`,
+     patch 0006, since 2026-10-22; without it the server now uses the copy mode).
 - **Switch / revert:** none (removal of non-default paths); the previous build. A `/mnt/config/rtsp.env` that still
   sets one of these variables does no harm: they are ignored.
 - **Test (one camera, then both; a normal run):** install the build, leave it 24 h with the usual viewers (VLC or
   Frigate over RTSP, the web live view), and the day / night switches of an evening and a morning.
+  Start of `/tmp/logs/tc100_rtsp.log`: `direct capture: buffer N at 0x... (... bytes, from the driver)` for each
+  buffer and `encoder pool: no picture copy (direct capture and the ISP sub channel)`, as before.
 - **Pass:** the `STAT` lines of `/tmp/logs/tc100_rtsp.log` have the same fields and the same order of magnitude as on
   the previous build (`cap`, `enc`, `snd_ms`, `pp_ms`, `dropped`, `pic_fail` 0, `cap_stall` 0, `exit3` 0); no reboot,
   no oops; RTSP and the web live view play; the day / night switches happen as before.

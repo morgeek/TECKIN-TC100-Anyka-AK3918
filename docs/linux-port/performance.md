@@ -17,7 +17,7 @@ Every optimisation is measured on a camera before it is kept, and stays behind a
 
 1. **Baseline**: `try-rtsp.sh <camera> src/tc100rtsp/tc100_rtsp` with the current build. Tells whether `pp_ms` (the
    3 MB copy of each frame from uncached capture memory) is the main cost.
-2. **Zero copy**: same with `RTSP_ZEROCOPY=1`. Needs the kernel with patch 0011 (USERPTR capture); with an older
+2. **Zero copy** (removed 2026-11-24, audit: impossible with the driver's capture slots; direct capture, the default, removes the copy): same with `RTSP_ZEROCOPY=1`. Needs the kernel with patch 0011 (USERPTR capture); with an older
    kernel the log says `capture: copy` and nothing changes. The ISP then writes straight into the encoder pool;
    it uses about 3 MB more of the 12 MiB pool (watch `ak_venc_open failed` with H.265).
 3. **Cached capture**: same with `RTSP_CACHED=1` (kernel with patch 0012): the log says `capture buffers: cached`.

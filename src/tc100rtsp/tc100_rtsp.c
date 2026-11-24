@@ -1269,36 +1269,6 @@ static void ispx_apply(void)
 	ispx_status();
 }
 
-/* Start of the encoder pool (test queue HW-01): on a TC100 the H.265 stream died after 5-10 s (72 bytes a frame)
- * when the encoders' buffers started at the beginning of the pool, and streamed normally with the 3.4 MB picture copy
- * there, never used with direct capture. Until the cause is known that space stays taken (RTSP_POOLPAD bytes,
- * default the old copy; 0 = none), filled with a pattern and checked every 10 s: a write into it is logged with its
- * extent and first words (a stray DMA writer), no write while a smaller pad fails points at an address limit of the
- * encoder instead. */
-#define PG_PAT 0xa5a5a5a5u
-static uint32_t *pg;
-static unsigned pg_len, pg_phys;
-
-static void pool_guard_check(double tn)
-{
-	static double t;
-	static int reports;
-	unsigned n = pg_len / 4, i, first = ~0u, last = 0;
-
-	if (!pg || tn - t < 10.0 || reports >= 20) return;
-	t = tn;
-	for (i = 0; i < n; i += 64) if (pg[i] != PG_PAT) break;	/* one word every 256 bytes first */
-	if (i >= n) return;
-	for (i = 0; i < n; i++) if (pg[i] != PG_PAT) { first = i; break; }
-	for (i = n; i-- > 0;) if (pg[i] != PG_PAT) { last = i; break; }
-	if (first == ~0u) return;
-	LOG("pool guard: written from +0x%x to +0x%x (phys 0x%08x..0x%08x): %08x %08x %08x %08x\n", first * 4, last * 4 + 3,
-	    pg_phys + first * 4, pg_phys + last * 4 + 3, (unsigned)pg[first], first + 1 < n ? (unsigned)pg[first + 1] : 0,
-	    first + 2 < n ? (unsigned)pg[first + 2] : 0, first + 3 < n ? (unsigned)pg[first + 3] : 0);
-	for (i = first; i <= last; i++) pg[i] = PG_PAT;	/* armed again: does it keep happening? */
-	reports++;
-}
-
 /* R12-01: the tuning file holds two complete parameter sets, day (0) and night (1: no colour, 2.5 x the exposure,
  * its own noise filters, 10 fps). The stock app reloads the whole set at every switch (ak_vi_switch_mode); 3.0 used
  * the day set at night with the colour turned off. RTSP_NIGHTSTYLE=1: AK_ISP_SET_TUNING_STYLE 1 when black and white
@@ -1666,7 +1636,7 @@ static void post_copy(unsigned char *dst, const unsigned char *src)
 	else if (dst != src) memcpy(dst, src, n);
 }
 
-/* zero-copy mode: the same corrections as post_copy, in the capture buffer itself (nothing to do when none is on) */
+/* direct capture: the same corrections as post_copy, in the capture buffer itself (nothing to do when none is on) */
 static void post_inplace(unsigned char *p)
 {
 	post_copy(p, p);	/* same tables, in place (the copies are skipped when dst == src) */
@@ -3616,9 +3586,9 @@ static int rec_watched(void)
 /* ---- direct capture (default; RTSP_DIRECT=0: copy): the encoder and the JPEG engine read the V4L2 capture buffer itself ----------
  * No 3 MB copy per frame: the corrections (white balance, OSD, masks, B/W) are made in place, the data cache is
  * cleaned over the buffer, and libakuio (akuio_map_extra) translates its addresses for the encoder.
- * The capture driver gives the physical address of each buffer (AK39_VI_G_PHYS). Without it (an older kernel) each
- * buffer is found in RAM by a marker written at the start of each of its pages, read back through /dev/mem (pagemap
- * skips device mappings): this also proves that it is contiguous. Done before STREAMON, when the ISP does not write. */
+ * The capture driver gives the physical address of each buffer (AK39_VI_G_PHYS, kernel patch 0006 since 2026-10-22:
+ * every 6.6 kernel this runs on). Without it the server uses the copy mode. (The search of the buffers in RAM through
+ * /dev/mem, for a kernel without the ioctl, was removed on 2026-11-24, audit.) Done before STREAMON. */
 #ifndef TC100_HOST_TEST
 static void dclean(void *a, unsigned long n)	/* ARM cacheflush: cleans the data cache over [a, a + n) */
 {
@@ -3628,18 +3598,6 @@ static void dclean(void *a, unsigned long n)	/* ARM cacheflush: cleans the data 
 	__asm__ volatile ("svc 0" : "+r"(r0) : "r"(r1), "r"(r2), "r"(r7) : "memory");
 }
 
-static unsigned long hexnum(const char **p)	/* no sscanf: glibc headers turn it into a symbol uClibc lacks */
-{
-	unsigned long v = 0;
-
-	for (;; (*p)++) {
-		int c = **p, d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
-
-		if (d < 0) return v;
-		v = v * 16 + (unsigned long)d;
-	}
-}
-
 struct ak39_vi_phys { uint32_t index, phys_y, phys_uv, size; };
 #define AK39_VI_G_PHYS _IOWR('V', BASE_VIDIOC_PRIVATE + 0, struct ak39_vi_phys)
 
@@ -3647,74 +3605,28 @@ static int direct_setup(int vfd, void **vb, unsigned n, unsigned len)
 {
 	int (*mx)(unsigned long, unsigned long, unsigned long) =
 		(int (*)(unsigned long, unsigned long, unsigned long))dlsym(RTLD_DEFAULT, "akuio_map_extra");
-	unsigned long ram[4][2]; int nr = 0, mf, ok = 1;
-	unsigned i, j, np = (len + 4095) / 4096;	/* the last page may be partly used */
-	uint32_t tag = (uint32_t)time(NULL) ^ (uint32_t)getpid() << 16, found[4] = { 0 };
-	FILE *f;
-	char ln[128];
+	uint32_t found[4] = { 0 };
+	unsigned i;
 
 	if (!mx) { LOG("direct capture: libakuio has no akuio_map_extra (copy mode)\n"); return 0; }
 	if (n > 4 || !n) { LOG("direct capture: %u capture buffers (copy mode)\n", n); return 0; }
-	/* the capture driver gives each buffer's physical address (AK39_VI_G_PHYS); the RAM search below is for a
-	 * kernel without it */
 	for (i = 0; i < n; i++) {
 		struct ak39_vi_phys ph = { i, 0, 0, 0 };
+		int r = ioctl(vfd, AK39_VI_G_PHYS, &ph);
 
-		if (ioctl(vfd, AK39_VI_G_PHYS, &ph) < 0 || !ph.phys_y || ph.size < len) break;
+		if (r < 0 || !ph.phys_y || ph.size < len) {
+			LOG("direct capture: buffer %u: %s (copy mode)\n", i, r < 0 ? strerror(errno) : "no usable physical address from the driver");
+			return 0;
+		}
 		found[i] = ph.phys_y;
 	}
-	if (i == n) {
-		for (i = 0; i < n && ok; i++) if (mx((unsigned long)vb[i], found[i], len)) ok = 0;
-		if (ok) {
-			for (i = 0; i < n; i++) LOG("direct capture: buffer %u at %#lx (%u bytes, from the driver)\n", i, (unsigned long)found[i], len);
-			return 1;
+	for (i = 0; i < n; i++)
+		if (mx((unsigned long)vb[i], found[i], len)) {
+			for (i = 0; i < n; i++) mx((unsigned long)vb[i], 0, 0);
+			LOG("direct capture: libakuio refused the capture buffers (copy mode)\n");
+			return 0;
 		}
-		for (i = 0; i < n; i++) mx((unsigned long)vb[i], 0, 0);
-		ok = 1;
-	}
-	memset(found, 0, sizeof found);
-	if ((f = fopen("/proc/iomem", "r"))) {	/* the RAM ranges to search */
-		while (nr < 4 && fgets(ln, sizeof ln, f)) {
-			unsigned long a, b;
-
-			const char *q = ln;
-
-			if (!strstr(ln, "System RAM") || ln[0] == ' ') continue;
-			a = hexnum(&q); if (*q++ != '-') continue;
-			b = hexnum(&q);
-			if (b > a) { ram[nr][0] = a; ram[nr][1] = b + 1; nr++; }
-		}
-		fclose(f);
-	}
-	if ((mf = open("/dev/mem", O_RDONLY | O_SYNC)) < 0) { LOG("direct capture: /dev/mem: %s (copy mode)\n", strerror(errno)); return 0; }
-	for (i = 0; i < n; i++) {
-		for (j = 0; j < np; j++) { uint32_t *w = (uint32_t *)((unsigned char *)vb[i] + j * 4096); w[0] = 0x31434454; w[1] = tag; w[2] = i; w[3] = j; }
-		dclean(vb[i], len);
-	}
-	for (int r = 0; r < nr && ok; r++) {
-		unsigned long sz = ram[r][1] - ram[r][0], o;
-		const uint32_t *m = mmap(NULL, sz, PROT_READ, MAP_SHARED, mf, (off_t)ram[r][0]);
-
-		if (m == MAP_FAILED) continue;
-		for (o = 0; o + np * 4096 <= sz; o += 4096) {
-			const uint32_t *w = (const uint32_t *)((const unsigned char *)m + o);
-
-			if (w[0] != 0x31434454 || w[1] != tag || w[3] != 0 || w[2] >= n || found[w[2]]) continue;
-			i = w[2];
-			for (j = 1; j < np; j++) {
-				const uint32_t *x = (const uint32_t *)((const unsigned char *)m + o + j * 4096);
-
-				if (x[0] != 0x31434454 || x[1] != tag || x[2] != i || x[3] != j) break;
-			}
-			if (j == np) found[i] = (uint32_t)(ram[r][0] + o);
-		}
-		munmap((void *)m, sz);
-	}
-	close(mf);
-	for (i = 0; i < n; i++) if (!found[i]) ok = 0;
-	for (i = 0; i < n && ok; i++) if (mx((unsigned long)vb[i], found[i], len)) ok = 0;
-	if (!ok) { for (i = 0; i < n; i++) mx((unsigned long)vb[i], 0, 0); LOG("direct capture: capture buffers not found in RAM (copy mode)\n"); return 0; }
-	for (i = 0; i < n; i++) LOG("direct capture: buffer %u at %#lx (%u bytes)\n", i, (unsigned long)found[i], len);
+	for (i = 0; i < n; i++) LOG("direct capture: buffer %u at %#lx (%u bytes, from the driver)\n", i, (unsigned long)found[i], len);
 	return 1;
 }
 #else
@@ -4011,7 +3923,7 @@ int main(int argc, char **argv)
 			LOG("RTSP_WIDTH %s: only 1920x1080 or 1280x720, 1920x1080 kept\n", ew);
 	}
 	/* removed 2026-11-24 (audit, section 5), ignored when still set in rtsp.env: RTSP_FRAMECOPY, RTSP_UDPMMSG,
-	 * RTSP_PACING_US, RTSP_SNDBUF, RTSP_LIVE_DIRECT */
+	 * RTSP_PACING_US, RTSP_SNDBUF, RTSP_LIVE_DIRECT, RTSP_ZEROCOPY, RTSP_POOLPAD */
 	{ const char *qt = getenv("RTSP_QTRIM"), *qb = getenv("RTSP_QBURST"), *sgv = getenv("RTSP_UDPSG");
 	  qtrim_on = !(qt && qt[0] == '0'); qburst_on = !(qb && qb[0] == '0'); sg_on = sgv && sgv[0] == '1'; }
 
@@ -4152,12 +4064,11 @@ int main(int argc, char **argv)
 	}	/* !free_enc */
 #endif
 
-unsigned char *fpb[2] = { NULL, NULL };
 	/* the ISP makes the 640x360 sub picture itself when the kernel has ak39_vi.sub_channel=1 (the capture buffers
 	 * are then big enough for it, right after the main frame): it is copied instead of being sampled from the main
 	 * picture by the CPU (about 60 % less CPU for the sub picture). RTSP_HWSUB=0 keeps the CPU sampling. */
-	int hwsub = 0; unsigned vblen = ~0u;	/* RTSP_ZEROCOPY: the capture buffers are encoder pool memory */
-	int zc = 0, dm = 0;	/* dm: RTSP_DIRECT, the encoder reads the capture buffers */
+	int hwsub = 0; unsigned vblen = ~0u;
+	int dm = 0;	/* dm: RTSP_DIRECT, the encoder reads the capture buffers */
 #ifdef TC100_HOST_TEST	/* make test_rtsp: no camera, no encoder: the network, audio and settings code on the build host */
 	int fd;
 	{ int pp[2]; if (pipe(pp)) return 1; fd = pp[0]; }	/* never readable */
@@ -4183,39 +4094,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 	 * stay free (pool_log shows it). */
 	unsigned int flen = W * H * 3 / 2, slen = SW * SH * 3 / 2, ftot = flen + slen;
 	unsigned char *pf = NULL, *psub = NULL;	/* psub: the sub picture the encoder reads when it is not in a capture buffer */
-	if (getenv("RTSP_ZEROCOPY") && getenv("RTSP_ZEROCOPY")[0] == '1') {
-		/* capture straight into the pool: needs the kernel's USERPTR support (patch 0011); any failure -> copy mode */
-		/* the driver keeps NUM_SLOTS (4) buffers queued: as many pool frames are needed, which the 12 MiB pool cannot
-		 * spare next to the encoders; ask first, and only take pool memory when two are enough (no pool free) */
-		memset(&rq, 0, sizeof rq);
-		rq.count = 2; rq.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; rq.memory = V4L2_MEMORY_USERPTR;
-		int rok = ioctl(fd, VIDIOC_REQBUFS, &rq) == 0;
-
-		if (rok && rq.count != 2) LOG("zero-copy: the driver needs %u capture buffers, the encoder pool has room for 2\n", rq.count);
-		else if (!rok) LOG("zero-copy: the kernel has no USERPTR capture\n");
-		else { fpb[0] = pf = (unsigned char *)p_alloc(ftot); fpb[1] = pf ? (unsigned char *)p_alloc(flen) : NULL; }
-		if (rok && fpb[1] && rq.count == 2) {
-			unsigned i;
-
-			zc = 1;
-			for (i = 0; i < 2 && zc; i++) {
-				struct v4l2_buffer b;
-
-				memset(&b, 0, sizeof b);
-				b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; b.memory = V4L2_MEMORY_USERPTR; b.index = i;
-				b.m.userptr = (unsigned long)fpb[i]; b.length = flen;
-				if (ioctl(fd, VIDIOC_QBUF, &b) < 0) { LOG("zero-copy: QBUF: %s\n", strerror(errno)); zc = 0; }
-				vb[i] = fpb[i];
-			}
-		} else if (rok && rq.count == 2) LOG("zero-copy: no pool memory for the second buffer\n");
-		if (!zc) {	/* back to the usual mmap buffers */
-			memset(&rq, 0, sizeof rq);
-			rq.count = 0; rq.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; rq.memory = V4L2_MEMORY_USERPTR;
-			ioctl(fd, VIDIOC_REQBUFS, &rq);
-		}
-		LOG("capture: %s\n", zc ? "zero-copy (the ISP writes into the encoder pool)" : "copy");
-	}
-	if (!zc) {
+	{
 		memset(&rq, 0, sizeof rq);
 		rq.count = 2; rq.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; rq.memory = V4L2_MEMORY_MMAP;
 		/* RTSP_CACHED=1: cached capture buffers (kernel patch 0012), invalidated by the kernel at each frame: the CPU
@@ -4255,36 +4134,17 @@ unsigned char *fpb[2] = { NULL, NULL };
 	{
 		const char *e = getenv("RTSP_HWSUB");
 
-		hwsub = !(e && e[0] == '0') && !zc && vblen != ~0u && vblen >= flen + slen;
+		hwsub = !(e && e[0] == '0') && vblen != ~0u && vblen >= flen + slen;
 		LOG("sub picture: %s\n", hwsub ? "from the ISP sub channel" : e && e[0] == '0' ? "made by the CPU (RTSP_HWSUB=0)" :
 		    "made by the CPU (no ISP sub channel: kernel without ak39_vi.sub_channel=1)");
 	}
-	if (!zc && !(getenv("RTSP_DIRECT") && getenv("RTSP_DIRECT")[0] == '0')) dm = direct_setup(fd, vb, rq.count < 4 ? rq.count : 4, vblen);
-	if (dm) {	/* HW-01: keep the start of the pool taken, as a checked guard (see pool_guard_check) */
-		const char *e = getenv("RTSP_POOLPAD");
-		unsigned pad = e && *e ? (unsigned)num(e) & ~3u : ftot;
-		int (*v2p)(unsigned long) = (int (*)(unsigned long))dlsym(RTLD_DEFAULT, "akuio_vaddr2paddr");
-		unsigned long (*gf)(void) = (unsigned long (*)(void))dlsym(RTLD_DEFAULT, "akuio_get_free_pmem");
-		unsigned long (*gu)(void) = (unsigned long (*)(void))dlsym(RTLD_DEFAULT, "akuio_get_used_pmem");
-		unsigned long tot = gf && gu ? gf() + gu() : 0;
-
-		/* HW-02 test 2: a pool made smaller with ak39_venc.pool= (12 MiB by default) has no room for the guard;
-		 * the HW-01 failure was not reproduced without it (HW-01b), so no guard unless RTSP_POOLPAD asks for one */
-		if (!(e && *e) && tot && tot < 12u << 20) {
-			LOG("encoder pool: %lu bytes (ak39_venc.pool), no guard at its start\n", tot);
-			pad = 0;
-		}
-		if (pad && (pg = (uint32_t *)p_alloc((int)pad))) {
-			pg_len = pad;
-			for (unsigned i = 0; i < pad / 4; i++) pg[i] = PG_PAT;
-			pg_phys = v2p ? (unsigned)v2p((unsigned long)pg) : 0;
-			LOG("encoder pool: %u-byte guard at its start (phys 0x%08x), checked every 10 s (RTSP_POOLPAD)\n", pad, pg_phys);
-		}
-	}
+	if (!(getenv("RTSP_DIRECT") && getenv("RTSP_DIRECT")[0] == '0')) dm = direct_setup(fd, vb, rq.count < 4 ? rq.count : 4, vblen);
+	/* (HW-01's guard at the start of the encoder pool, RTSP_POOLPAD, was removed on 2026-11-24, audit: off with any
+	 * pool under 12 MiB, the 9600K default included, and HW-01b never reproduced the failure without it.) */
 	if (dm && hwsub) LOG("encoder pool: no picture copy (direct capture and the ISP sub channel)\n");
 	else if (dm) { if (!(psub = (unsigned char *)p_alloc(slen))) { LOG("no DMA memory for the sub picture\n"); return 1; } }
 	else {
-		if (!pf && !(pf = (unsigned char *)p_alloc(ftot))) { LOG("no DMA memory for the frame\n"); return 1; }
+		if (!(pf = (unsigned char *)p_alloc(ftot))) { LOG("no DMA memory for the frame\n"); return 1; }
 		psub = pf + flen;
 	}
 	enum v4l2_buf_type bt = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -4605,7 +4465,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 			int k, rec_on, rsi, rec_idr = 0, fail_main = 0;
 
 			memset(&b, 0, sizeof b);
-			b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; b.memory = zc ? V4L2_MEMORY_USERPTR : V4L2_MEMORY_MMAP;
+			b.type = V4L2_BUF_TYPE_VIDEO_CAPTURE; b.memory = V4L2_MEMORY_MMAP;
 			{ int _dr; PROF(1, _dr = ioctl(fd, VIDIOC_DQBUF, &b));
 			  if (_dr < 0) {
 				if (errno == EAGAIN || errno == EINTR) continue;
@@ -4618,7 +4478,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 			  }
 			  dq_fail = 0; }
 			t_frame = t_cap = now_s();
-			unsigned char *cur = zc || dm ? (unsigned char *)vb[b.index] : pf;	/* the main picture the encoder reads */
+			unsigned char *cur = dm ? (unsigned char *)vb[b.index] : pf;	/* the main picture the encoder reads */
 			unsigned char *sp = dm && hwsub ? (unsigned char *)vb[b.index] + flen : psub;	/* and the sub picture */
 			/* frame rate: the sensor gives 25 fps; keep the configured rate (frames come back to the driver at once) */
 			if (!prime) {
@@ -4643,7 +4503,6 @@ unsigned char *fpb[2] = { NULL, NULL };
 				iv = 1.0 / fr;
 				if (tq < due - iv * 0.3) {
 					if (was_idle) md_frame(vb[b.index], tq);	/* the motion check keeps its 4 samples a second */
-					if (zc) { b.m.userptr = (unsigned long)vb[b.index]; b.length = flen; }
 					ioctl(fd, VIDIOC_QBUF, &b);
 					continue;
 				}
@@ -4653,11 +4512,10 @@ unsigned char *fpb[2] = { NULL, NULL };
 			if (prime) {
 				struct video_stream ps;
 
-				if (!zc && !dm) { memcpy(pf, vb[b.index], flen); ioctl(fd, VIDIOC_QBUF, &b); }
+				if (!dm) { memcpy(pf, vb[b.index], flen); ioctl(fd, VIDIOC_QBUF, &b); }
 				memset(&ps, 0, sizeof ps);
 				if (!p_send(S[0].enc, cur, flen, &ps) && ps.data) p_release(S[0].enc, &ps);
-				if (zc) { b.m.userptr = (unsigned long)cur; b.length = flen; ioctl(fd, VIDIOC_QBUF, &b); }
-				else if (dm) ioctl(fd, VIDIOC_QBUF, &b);	/* direct: back to the driver once encoded */
+				if (dm) ioctl(fd, VIDIOC_QBUF, &b);	/* direct: back to the driver once encoded */
 				p_close(S[0].enc);
 				S[0].enc = p_open(&S[0].pa);
 				enc_gen++;
@@ -4771,10 +4629,10 @@ unsigned char *fpb[2] = { NULL, NULL };
 			}
 			md_frame(vb[b.index], tn);
 			cfg_reload(tn);
-			osd_tick(); ispx_ae_report(tn); pool_guard_check(tn);
+			osd_tick(); ispx_ae_report(tn);
 			{ static double t_awb; if (tn - t_awb >= 0.5) { t_awb = tn; post_awb_sample((const unsigned char *)vb[b.index] + W * H, bw); } }
 			double t_pp0 = now_s(), t_pp1;
-			/* zero-copy: the sub picture is made first, from the raw picture; the corrections of the main one then
+			/* direct capture: the sub picture is made first, from the raw picture; the corrections of the main one then
 			 * happen in place. With the copy, the raw picture is untouched and the order does not matter. */
 			if (sub_made) {
 				dirty_reset();
@@ -4788,14 +4646,14 @@ unsigned char *fpb[2] = { NULL, NULL };
 			t_pp1 = now_s();
 			if (S[0].active || d_snap) {
 				dirty_reset();
-				if (zc || dm) post_inplace(cur); else post_copy(pf, vb[b.index]);
+				if (dm) post_inplace(cur); else post_copy(pf, vb[b.index]);
 				post_overlay(cur, W, H, 1);
 				if (bw && !bw_isp) memset(cur + W * H, 128, W * H / 2);
 				if (priv_on) priv_black(cur, W, H);
 				if (dm) dm_clean(cur, W, H, bw && !bw_isp);
 			}
 			sub_us += (long)((t_pp1 - t_pp0) * 1e6); pp_us += (long)((now_s() - t_pp1) * 1e6);
-			if (!zc && !dm) ioctl(fd, VIDIOC_QBUF, &b);	/* zero-copy, direct: the buffer goes back once it has been encoded */
+			if (!dm) ioctl(fd, VIDIOC_QBUF, &b);	/* direct: the buffer goes back once it has been encoded */
 			clock_gettime(CLOCK_MONOTONIC, &t1);
 			ts = (uint32_t)(((t1.tv_sec - t0.tv_sec) * 1000000ULL + (t1.tv_nsec - t0.tv_nsec) / 1000) * 9 / 100);
 			ts_us = (uint64_t)t1.tv_sec * 1000000ULL + (uint64_t)t1.tv_nsec / 1000;
@@ -4914,7 +4772,6 @@ unsigned char *fpb[2] = { NULL, NULL };
 					}
 				}
 			}
-			if (zc) { b.m.userptr = (unsigned long)cur; b.length = flen; ioctl(fd, VIDIOC_QBUF, &b); }	/* encoded and copied out: capture here again */
 			if (dm) PROF(5, ioctl(fd, VIDIOC_QBUF, &b));
 		}
 #endif

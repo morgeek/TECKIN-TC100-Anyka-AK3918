@@ -9,7 +9,8 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 
 # tc100_rtsp switches removed on 2026-11-24
-RTSP_GONE = ['RTSP_UDPMMSG', 'RTSP_PACING_US', 'RTSP_SNDBUF', 'RTSP_FRAMECOPY', 'RTSP_LIVE_DIRECT']
+RTSP_GONE = ['RTSP_UDPMMSG', 'RTSP_PACING_US', 'RTSP_SNDBUF', 'RTSP_FRAMECOPY', 'RTSP_LIVE_DIRECT', 'RTSP_ZEROCOPY',
+             'RTSP_POOLPAD']
 
 # what the camera runs or installs: a line there that sets one of the switches would be dead
 SHIPPED = ['config', 'controlscripts', 'scripts', 'v3', 'www']
@@ -28,6 +29,16 @@ class RemovedSwitches(unittest.TestCase):
             s = c.read_text(encoding='utf-8')
             for k in RTSP_GONE:
                 self.assertNotIn('getenv("%s")' % k, s, '%s reads %s' % (c.name, k))
+
+    def test_direct_capture_takes_the_addresses_from_the_driver_only(self):
+        """the /dev/mem search of the capture buffers is gone: AK39_VI_G_PHYS (kernel patch 0006) or the copy mode"""
+        s = (ROOT / 'src' / 'tc100rtsp' / 'tc100_rtsp.c').read_text(encoding='utf-8')
+        self.assertNotIn('"/dev/mem"', s)
+        self.assertNotIn('V4L2_MEMORY_USERPTR', s)
+        self.assertNotIn('pool_guard_check', s)
+        self.assertIn('AK39_VI_G_PHYS', s)
+        patch = next((ROOT / 'patches' / 'kernel-6.6' / 'series').glob('0006-*.patch')).read_text(encoding='utf-8')
+        self.assertIn('if (cmd != AK39_VI_G_PHYS)', patch, 'the capture driver of patch 0006 answers AK39_VI_G_PHYS')
 
     def test_no_shipped_file_sets_a_removed_switch(self):
         pat = re.compile(r'^\s*(export\s+)?(%s)=' % '|'.join(RTSP_GONE), re.M)

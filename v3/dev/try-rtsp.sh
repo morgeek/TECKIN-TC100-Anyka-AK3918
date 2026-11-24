@@ -5,13 +5,13 @@
 # is stored. Nothing is written to the flash: the test binary and the profiler go to /tmp (RAM), and the stock server
 # is started again at the end (rtsp-launch.sh). The RTSP stream stops for about 40 s.
 #   1. per-thread CPU for 10 s with the running server (scripts/cpu-profile.sh), and its last STAT lines;
-#   2. the test binary with the same arguments, plus the VAR=value given (e.g. RTSP_ZEROCOPY=1): its first log lines
+#   2. the test binary with the same arguments, plus the VAR=value given (e.g. RTSP_CACHED=1): its first log lines
 #      (capture mode), its STAT lines (pp_ms = main picture post-processing, sub_ms = sub picture, per 5 s) and a
 #      second CPU profile;
 #   3. the stock server again.
 # Output on the terminal and in try-rtsp-<camera>-<time>.txt in the current folder.
 #   make -C src/tc100rtsp && sh v3/dev/try-rtsp.sh 192.168.1.11 src/tc100rtsp/tc100_rtsp
-#   sh v3/dev/try-rtsp.sh 192.168.1.11 src/tc100rtsp/tc100_rtsp RTSP_ZEROCOPY=1
+#   sh v3/dev/try-rtsp.sh 192.168.1.11 src/tc100rtsp/tc100_rtsp RTSP_CACHED=1
 CAM=${1:?usage: try-rtsp.sh CAMERA BINARY [VAR=value ...]}; BIN=${2:?binary}; shift 2
 HERE=$(cd "$(dirname "$0")/../.." && pwd)
 [ -f "$BIN" ] || { echo "$BIN: no such file" >&2; exit 1; }
