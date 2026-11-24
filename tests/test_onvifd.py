@@ -637,6 +637,28 @@ class OnvifD(unittest.TestCase):
         sub3 = self.subscribe()
         self.assertEqual({m[3] for m in self.pull(sub3)}, {'true'})
 
+    def test_motion_file_read_only_with_a_subscription(self):
+        """W7 (audit 2026-11-24): no PullPoint subscription, no read of /tmp/rec_control; a new subscription reads it
+        at once, so its Initialized state is the current one (no 500 ms poll to wait for)"""
+        fifo = Path(self.conf, 'rec_control')
+        os.mkfifo(fifo)                       # opening a FIFO with no writer blocks: a read would hang the daemon
+        self.start()
+        time.sleep(1.3)                       # more than two of the old 500 ms polls
+        t = time.time()
+        st, n, _ = self.soap('<tds:GetSystemDateAndTime/>', auth=False)
+        self.assertEqual(st, 200)
+        self.assertLess(time.time() - t, 1.0)
+        fifo.unlink()
+        self.motion(1)                        # motion on just before the subscription: seen at once
+        sub = self.subscribe()
+        self.assertEqual(sorted((m[0], m[2], m[3]) for m in self.pull(sub, 'PT0S')),
+                         [('Initialized', 'IsMotion', 'true'), ('Initialized', 'State', 'true')])
+        st, _, _ = self.soap('<wsnt:Unsubscribe xmlns:wsnt="%s"/>' % NS['wsnt'], sub)
+        self.assertEqual(st, 200)
+        self.motion(0)                        # no subscription left: a new one still starts with the current state
+        sub = self.subscribe()
+        self.assertEqual({m[3] for m in self.pull(sub, 'PT0S')}, {'false'})
+
     def test_pull_does_not_block_the_server(self):
         self.motion(0)
         self.start()

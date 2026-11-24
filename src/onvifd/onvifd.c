@@ -14,7 +14,7 @@
  *     No password in user.pwd: no authentication, as the RTSP server.
  *   - TC100_NET_ALLOW (as src/httpfront): networks that may connect, 127/8 always, empty = no filter.
  * Events service: PullPoint subscriptions (max 4) for tns1:VideoSource/MotionAlarm and tns1:RuleEngine/CellMotionDetector/Motion, from the
- * motion file of tc100_rtsp (/tmp/rec_control, polled every 500 ms). A PullMessages with a Timeout stays pending (max 10 s) without
+ * motion file of tc100_rtsp (/tmp/rec_control, polled every 500 ms while a subscription exists, and once when one is created). A PullMessages with a Timeout stays pending (max 10 s) without
  * blocking the loop. Not implemented: PTZ, imaging, HTTP Digest, setters (answered with a fault).
  *
  * usage (the options of monvifd that controlscripts/onvif passes):
@@ -1399,6 +1399,14 @@ static void subs_sweep(long long t)
 	for (int i = 0; i < MAXSUB; i++) if (subs[i].id && t >= subs[i].expire) subs[i].id = 0;
 }
 
+/* W7 (audit 2026-11-24): the motion file is read only while someone can be told (it was read twice a second for
+ * nobody); a new subscription reads it at once (CreatePullPointSubscription), so its Initialized state is current */
+static int subs_any(void)
+{
+	for (int i = 0; i < MAXSUB; i++) if (subs[i].id) return 1;
+	return 0;
+}
+
 static struct sub *find_sub(int id)
 {
 	for (int i = 0; id && i < MAXSUB; i++) if (subs[i].id == id) return &subs[i];
@@ -1516,6 +1524,7 @@ static int op_events(int svc, const char *act, const char *b, const char *end)
 			subs[i].id = g_subseq;
 			subs[i].expire = now_ms() + secs * 1000LL;
 			subs[i].reported = -1;
+			motion_poll();		/* W7: not read while there was no subscription */
 			iso((long)time(NULL), a, sizeof a);
 			iso(sub_term(&subs[i]), tm, sizeof tm);
 			P("<tev:CreatePullPointSubscriptionResponse><tev:SubscriptionReference><wsa:Address>http://%s:%d/onvif/subscription?id=%d</wsa:Address></tev:SubscriptionReference>"
@@ -1988,7 +1997,6 @@ int main(int argc, char **argv)
 	cfg_poll(NCFG);	/* the state of the settings files first, then what they say (a change in between is seen next time) */
 	load_config();
 	cfg_loaded = 1;
-	motion_poll();
 	parse_allow(getenv("TC100_NET_ALLOW"));
 
 	signal(SIGTERM, on_term);
@@ -2042,8 +2050,8 @@ int main(int argc, char **argv)
 			if (g_ufd >= 0 && FD_ISSET(g_ufd, &rf)) udp_in();
 			for (i = 0; i < MAXCONN; i++) if (cn[i].fd >= 0 && FD_ISSET(cn[i].fd, &rf)) conn_read(&cn[i]);
 		}
-		if (t >= next_motion) { motion_poll(); next_motion = t + 500; }
 		subs_sweep(t);
+		if (t >= next_motion && subs_any()) { motion_poll(); next_motion = t + 500; }	/* W7: no reader, no read */
 		for (i = 0; i < MAXCONN; i++) {
 			struct sub *sb;
 
