@@ -848,6 +848,36 @@ class Daemon(unittest.TestCase):
         self.proc.wait(timeout=5)
 
 
+    def test_a_new_flag_nonce_restarts_the_night_job(self):
+        """audit 2026-11-24 R6: `auto-night-detection restart` removes and re-creates the flag within one tick; the nonce
+        sv_start writes in it makes the daemon reset the job (a DN-FLAP hold). An empty flag never restarts it."""
+        (self.d / 'night.flag').write_text('')
+        self.start()
+
+        def started():                                                                       # the console file is rewritten, not appended
+            c = self.d / 'console'
+            return c.exists() and 'Daemon started' in c.read_text()
+        self.assertTrue(self.wait_for(started))
+        (self.d / 'console').unlink()
+        time.sleep(2.2)
+        self.assertFalse(started())                                                          # empty flag: stable
+        (self.d / 'night.flag').write_text('100 5.00\n')                                     # first nonce: the job restarts
+        self.assertTrue(self.wait_for(started, 5))
+        (self.d / 'console').unlink()
+        time.sleep(2.2)
+        self.assertFalse(started())                                                          # same nonce: nothing
+        (self.d / 'night.flag').unlink()
+        (self.d / 'night.flag').write_text('101 9.00\n')                                     # stop + start inside one tick
+        self.assertTrue(self.wait_for(started, 5))
+        self.assertIsNone(self.proc.poll())
+        self.proc.terminate()
+        self.proc.wait(timeout=5)
+
+    def test_sv_start_writes_a_nonce_and_it_changes_between_starts(self):
+        sup = (ROOT / 'scripts/supervisor.sh').read_text()
+        self.assertIn('echo "$$ $_sv_up" >', sup)
+
+
 # ---------------------------------------------------------------- scripts/supervisor.sh: switch and fallback
 
 @unittest.skipUnless(HAVE_CC, 'needs cc')

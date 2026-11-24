@@ -33,7 +33,7 @@ sv_conf_c()
 
 # any job flag left / remove them all (a daemon that is gone with a flag behind it died)
 sv_flags_any() { [ -e "$SV_RUN/tc100-sv.night" ] || [ -e "$SV_RUN/tc100-sv.button" ] || [ -e "$SV_RUN/tc100-sv.sound" ]; }
-sv_flags_rm() { rm -f "$SV_RUN/tc100-sv.night" "$SV_RUN/tc100-sv.button" "$SV_RUN/tc100-sv.sound"; }
+sv_flags_rm() { rm -f "$SV_RUN/tc100-sv.night" "$SV_RUN/tc100-sv.button" "$SV_RUN/tc100-sv.sound" "$SV_RUN"/tc100-sv.*.new; }
 
 # pid of the live daemon
 sv_daemon_pid()
@@ -60,7 +60,10 @@ sv_start()
     logger -t tc100-v3 "tc100-supervisord died: shell loops for the rest of this boot" 2>/dev/null
     return 1
   fi
-  : > "$SV_RUN/tc100-sv.$_sv_job" || return 1
+  # the flag carries a nonce (pid + uptime): a stop + start faster than the daemon's one-second look still changes the
+  # file, and the daemon restarts the job (night: night_reset). An empty flag (older callers) stays valid.
+  read -r _sv_up _ < /proc/uptime 2>/dev/null
+  echo "$$ $_sv_up" > "$SV_RUN/tc100-sv.$_sv_job.new" && mv -f "$SV_RUN/tc100-sv.$_sv_job.new" "$SV_RUN/tc100-sv.$_sv_job" || return 1
   if [ -z "$_sv_alive" ]; then
     rm -f "$SV_RUN/tc100-supervisord.pid"
     ( exec "$SV_BIN" ) </dev/null >/dev/null 2>&1 &

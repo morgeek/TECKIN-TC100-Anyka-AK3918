@@ -1352,6 +1352,7 @@ int main(int argc, char **argv)
 	const char *pidfile = envs("SV_PIDFILE", "/var/run/tc100-supervisord.pid");
 	struct sigaction sa;
 	int night_on = 0, sound_on = 0, f;
+	char night_nonce[64] = "";
 	ll night_due = 0, sound_due = 0, t, wake;
 
 	if (argc == 3 && !strcmp(argv[1], "-r")) { replay(argv[2]); return 0; }
@@ -1378,10 +1379,14 @@ int main(int argc, char **argv)
 	while (!g_stop) {
 		int n_en = access(nflag, F_OK) == 0, b_en = access(bflag, F_OK) == 0, s_en = access(sflag, F_OK) == 0;
 
+		char nn[64] = "";
+
 		reap();
 		t = mono_ms();
 		if (!n_en && !b_en && !s_en) break;	/* nothing left to do: the service scripts start us again when needed */
-		if (n_en && !night_on) {
+		if (n_en) first_line(nflag, nn, sizeof nn);	/* the nonce sv_start writes; an empty flag file never changes it */
+		if (n_en && (!night_on || strcmp(nn, night_nonce))) {	/* a "restart" within one tick: the flag is new, so is the job */
+			snprintf(night_nonce, sizeof night_nonce, "%s", nn);
 			night_reset();
 			console("[auto-night] Daemon started");
 			night_due = t + SLP * 1000LL / g_div;
