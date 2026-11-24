@@ -2,6 +2,14 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
+## What is new in 3.0.2-rc4 (test build, branch main)
+Everything of 3.0.2-rc3, plus:
+- **Lighter Wi-Fi quality job:** 8 processes a minute instead of 13, same Wi-Fi page and MQTT values.
+- **Safer build chain:** everything the build downloads is checked, and the images are reproducible. The base system
+  (busybox, dropbear, wpa_supplicant, curl, WebRTC gateway) is a fresh build of the same versions: check Wi-Fi, ssh,
+  the web live view, MQTT and a web update once (test-queue CI-PIN).
+- **To test:** `WIFIQ-FORKS`, `CI-PIN` (camera smoke test), plus the rc3 entries.
+
 ## What is new in 3.0.2-rc3 (test build, branch main)
 Everything of 3.0.2-rc2, plus the fixes of the audit of the C optimisation code (24/11). Updating keeps the settings.
 - **Security:** after a password change ONVIF no longer accepts the old password (it did until a restart); a

@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [3.0.2-rc4] - 2026-11-24
+
+### Changed
+- **Wi-Fi quality job lighter** (`[wifiq]`): `wifi-quality.sh` runs every minute with 8 processes instead of 13 and no
+  longer re-reads its 24 h log with awk (a one-hour window file); every output file is byte-identical (checked over 132
+  simulated minutes). `WIFI_QUALITY=0` turns the job off as before. Test-queue WIFIQ-FORKS.
+- **Build chain pinned** (`[ci-pin]`): every GitHub action is pinned by commit, every download is checked (Linux v6.6
+  and Buildroot by commit; mbedTLS, the RTL8188FU firmware, aiortc and esbuild by hash); `SOURCE_DATE_EPOCH` makes the
+  squashfs, initramfs, zip and tar reproducible; a CI gate checks the stack, initramfs and `vendor` images against
+  their partitions. The Buildroot base image is rebuilt once (same versions and config). Test-queue CI-PIN.
+
 ## [3.0.2-rc3] - 2026-11-24
 
 Fixes of the audit of the C optimisation code (`docs/linux-port/audit-2026-11-24-optim.md`). No kernel change since
