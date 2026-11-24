@@ -1,12 +1,17 @@
-/* tc100-mdnsd: answers "<hostname>.local" on the local network (mDNS, RFC 6762), nothing else.
+/* tc100-mdnsd: answers "<hostname>.local" on the local network (mDNS, RFC 6762) and, with -s, the DNS-SD browse.
  *
  * The camera then opens as http://ipcam1.local/ (the name comes from config/hostname.conf, applied by the boot
  * script) without knowing its address. Answer only: no announcements, no SSDP, and only to senders on the same subnet
- * as the camera. By default no services and no version or key in any record. Item 38 of the implementer list, both
- * off unless asked (boot.conf, controlscripts/mdns): -s (MDNS_SERVICES=1) answers the DNS-SD browse for _http._tcp
- * (port 80) and _rtsp._tcp (port 554, path=/video0_unicast), so VLC, Home Assistant or a browser list the camera;
- * -v (MDNS_INFO=1) adds the firmware version, the load and the Wi-Fi level to their TXT records. The packet part is
- * mdns_pkt.h (tested on the build host by src/mdnsd/test_mdns.c).
+ * as the camera; never a key in any record. Item 38 of the implementer list, chosen in boot.conf (controlscripts/mdns
+ * passes the options): -s (MDNS_SERVICES=1) answers the DNS-SD browse for _http._tcp (port 80) and _rtsp._tcp (port
+ * 554, path=/video0_unicast), so VLC, Home Assistant or a browser list the camera; -v (MDNS_INFO=1) adds the model,
+ * the firmware version, the load and the Wi-Fi level to their TXT records. config/boot.conf.dist ships both on: the
+ * TXT records carry model, fw, load and rssi by default. Without the options only the A record is answered. The
+ * packet part is mdns_pkt.h (tested on the build host by src/mdnsd/test_mdns.c).
+ *
+ * Cost (W6, audit 2026-11-24): the host name, address and netmask are kept MDNS_CACHE_S seconds (they were read with
+ * three system calls and two ioctls for every query of the subnet); the TXT strings of -v are read only when a
+ * DNS-SD answer is due.
  *
  * usage: tc100-mdnsd [-i IFACE] [-s] [-v]     (default wlan0)
  *
@@ -64,6 +69,7 @@ struct ts { long sec, nsec; };
 
 #define MDNS_PORT_BE 0xe914	/* 5353 in network order */
 #define MDNS_GROUP_BE 0xfb0000e0u	/* 224.0.0.251 in network order (little-endian CPU) */
+#define MDNS_CACHE_S 5	/* host name, address and netmask kept this long (a new name or address shows within 5 s) */
 
 /* the compiler may call these for structure copies and clears even with -fno-builtin */
 /* (volatile: GCC would otherwise turn these loops back into calls to memset / memcpy themselves) */
@@ -127,7 +133,8 @@ static int first(const char *path, char *b, int max, int word)
 
 static void add(char *d, int *l, int max, const char *s) { while (*s && *l < max - 1) d[(*l)++] = *s++; d[*l] = 0; }
 
-/* -v: "fw=<version>\nload=<1 min>\nrssi=<dBm>" (strings of the TXT records), read at each answer */
+/* -v: "model=TC100\nfw=<version>\nload=<1 min>\nrssi=<dBm>" (strings of the TXT records), read for each DNS-SD
+ * answer and only then (mdns_sd_answer_lazy) */
 static void info_txt(char *t, int max)
 {
 	char b[64], w[16];
@@ -171,8 +178,10 @@ int run(int argc, char **argv)
 	struct timeval tv = { 60, 0 };
 	unsigned char q[1500], out[1500];
 	int s, on = 1, ttl = 255, loop = 0, svcs = 0, info = 0;
-	char txt[160];
+	char txt[160], h[64];
 	struct mdns_ip_rl rl;
+	u32 ip = 0, mask = 0;	/* the cache of W6: h, ip and mask read at c_at (monotonic s), -1 = not read */
+	long c_at = -1;
 
 	memset(&rl, 0, sizeof rl);
 	rl.global.sec = -1;
@@ -193,9 +202,7 @@ int run(int argc, char **argv)
 	join(s);
 	for (;;) {
 		int sl = sizeof src, n, r;
-		u32 ip, mask;
 		long now;
-		char h[64];
 
 		n = (int)sc(SYS_recvfrom, s, (long)q, sizeof q, 0, (long)&src, (long)&sl);
 		if (n == -EAGAIN) { join(s); continue; }	/* quiet minute: join again (Wi-Fi may have come back) */
@@ -204,15 +211,19 @@ int run(int argc, char **argv)
 		if ((q[2] & 0x80) || (q[2] & 0x78) || (q[4] << 8 | q[5]) < 1 || (q[4] << 8 | q[5]) > 16) continue;
 		now = mono();
 		if (now >= 0 && mdns_ip_rl_full(&rl, src.addr, now)) continue;	/* flood: per-IP + total answers/sec cap */
-		ip = ifaddr(s, ifn, SIOCGIFADDR); mask = ifaddr(s, ifn, SIOCGIFNETMASK);
-		if (!ip || !mask || (src.addr & mask) != (ip & mask)) continue;	/* same subnet only */
-		if (!hostname(h, sizeof h)) continue;
+		if (c_at < 0 || now < 0 || now - c_at >= MDNS_CACHE_S) {	/* W6: read again at most every few seconds */
+			c_at = -1;
+			ip = ifaddr(s, ifn, SIOCGIFADDR); mask = ifaddr(s, ifn, SIOCGIFNETMASK);
+			if (!ip || !mask || !hostname(h, sizeof h)) continue;	/* a failed read is not kept: tried again next time */
+			c_at = now;
+		}
+		if ((src.addr & mask) != (ip & mask)) continue;	/* same subnet only */
 		for (int pass = 0; pass < 2; pass++) {	/* the A record, then the DNS-SD records (-s) */
 			if (pass == 0) r = mdns_answer(q, n, h, (const unsigned char *)&ip, src.port != MDNS_PORT_BE, out, sizeof out);
 			else {
 				if (!svcs) break;
-				if (info) info_txt(txt, sizeof txt); else txt[0] = 0;
-				r = mdns_sd_answer(q, n, h, (const unsigned char *)&ip, src.port != MDNS_PORT_BE, svcs, txt, out, sizeof out);
+				r = mdns_sd_answer_lazy(q, n, h, (const unsigned char *)&ip, src.port != MDNS_PORT_BE, svcs,
+							info ? info_txt : 0, txt, sizeof txt, out, sizeof out);
 			}
 			if (r <= 0) continue;
 			if (now >= 0 && !mdns_ip_rl_take(&rl, src.addr, now)) break;

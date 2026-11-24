@@ -7,6 +7,11 @@
 static int fails;
 #define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while (0)
 
+/* the -v strings of the daemon, as info_txt() makes them (W6: counted, they must be made only for an answer) */
+#define TEST_TXT "model=TC100\nfw=3.0.1-rc99\nload=0.52\nrssi=-48"
+static int txt_made;
+static void test_txt(char *t, int max) { snprintf(t, (size_t)max, "%s", TEST_TXT); txt_made++; }
+
 static int query(unsigned char *q, const char *name, int type, int id)
 {
 	int n = 12, l;
@@ -264,6 +269,53 @@ int main(void)
 			for (int k = 0; k < MDNS_RATE; k++)
 				all_got += mdns_ip_rl_take(&t, 0xc0a80200u + peer, 200);
 		CHECK(all_got == MDNS_RL_TOTAL && mdns_ip_rl_full(&t, 0xc0a80299u, 200));
+	}
+
+	/* W6: the TXT strings of -v are made only for a query that is answered, and the answer bytes are those of
+	 * mdns_sd_answer() with the same strings (A and DNS-SD queries, other hosts, legacy, compressed, a long host name,
+	 * a buffer too small for the strings) */
+	{
+		static const struct { const char *name; int type, legacy; } qs[] = {
+			{ "_http._tcp.local", 12, 0 }, { "_rtsp._tcp.local", 12, 0 }, { "_services._dns-sd._udp.local", 12, 0 },
+			{ "IPCAM1._http._tcp.local", 33, 0 }, { "ipcam1._rtsp._tcp.local", 16, 0 }, { "ipcam1._http._tcp.local", 255, 1 },
+			{ "_http._tcp.local", 12, 1 }, { "other._http._tcp.local", 33, 0 }, { "other.local", 1, 0 },
+			{ "ipcam1.local", 1, 0 }, { "_ipp._tcp.local", 12, 0 }, { "_googlecast._tcp.local", 12, 1 } };
+		static const char *hosts[] = { "ipcam1", "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh" };
+		static const int outs[] = { 1500, 700, 300 };
+		unsigned char ref[1500], lz[1500];
+		char tb[160];
+		int answered = 0, made_before = 0;
+
+		for (unsigned hi = 0; hi < 2; hi++)
+			for (unsigned oi = 0; oi < 3; oi++)
+				for (unsigned k = 0; k < sizeof qs / sizeof qs[0]; k++)
+					for (int svcs = 0; svcs <= 3; svcs++) {
+						int rr, rl;
+
+						n = query(q, qs[k].name, qs[k].type, 0x4242);
+						if (k == 1) {	/* plus a compressed second question (pointer to "_tcp.local") */
+							q[5] = 2; q[n++] = 5; memcpy(q + n, "_http", 5); n += 5; q[n++] = 0xc0; q[n++] = 12 + 6;
+							q[n++] = 0; q[n++] = 12; q[n++] = 0; q[n++] = 1;
+						}
+						rr = mdns_sd_answer(q, n, hosts[hi], ip, qs[k].legacy, svcs, TEST_TXT, ref, outs[oi]);
+						made_before = txt_made;
+						memset(lz, 0xee, sizeof lz);
+						rl = mdns_sd_answer_lazy(q, n, hosts[hi], ip, qs[k].legacy, svcs, test_txt, tb, sizeof tb, lz, outs[oi]);
+						CHECK(rl == rr && (rr <= 0 || !memcmp(ref, lz, (size_t)rr)));
+						/* the strings are made only when there is something to answer */
+						if (txt_made != made_before) CHECK(mdns_sd_answer(q, n, hosts[hi], ip, qs[k].legacy, svcs, "", ref, outs[oi]) > 0);
+						else CHECK(mdns_sd_answer(q, n, hosts[hi], ip, qs[k].legacy, svcs, "", ref, outs[oi]) <= 0);
+						if (rr > 0) answered++;
+						/* no strings (MDNS_INFO=0): the same as an empty txt */
+						rr = mdns_sd_answer(q, n, hosts[hi], ip, qs[k].legacy, svcs, "", ref, outs[oi]);
+						rl = mdns_sd_answer_lazy(q, n, hosts[hi], ip, qs[k].legacy, svcs, 0, tb, sizeof tb, lz, outs[oi]);
+						CHECK(rl == rr && (rr <= 0 || !memcmp(ref, lz, (size_t)rr)));
+					}
+		CHECK(answered > 20 && txt_made > 20);
+		/* a query for another host never reads the strings */
+		made_before = txt_made;
+		n = query(q, "other._http._tcp.local", 255, 0);
+		CHECK(mdns_sd_answer_lazy(q, n, "ipcam1", ip, 0, 3, test_txt, tb, sizeof tb, lz, sizeof lz) == 0 && txt_made == made_before);
 	}
 
 	if (!fails) printf("mdns: ok\n");

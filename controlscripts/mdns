@@ -1,8 +1,9 @@
 #!/bin/sh
 # mDNS name on the local network: the camera answers "<hostname>.local" (e.g. http://ipcam1.local/), the name of
-# config/hostname.conf. Answer only (no announcements, no services, no SSDP), same subnet only: src/mdnsd.
-# Off by default; the Services page "Boot" toggle (config/autostart/mdns) starts it at boot (autorun-linux66.sh
-# step 12b), Start/Stop here at once. Needs no reboot.
+# config/hostname.conf. Answer only (no announcements, no SSDP), same subnet only: src/mdnsd. boot.conf
+# MDNS_SERVICES=1 adds the DNS-SD services, MDNS_INFO=1 the model, version, load and Wi-Fi level in their TXT (both
+# on in boot.conf.dist). On by default since 3.0.1-rc23 (config/autostart/mdns, the Services page "Boot" toggle,
+# autorun-linux66.sh step 12b); Start/Stop here at once. Needs no reboot.
 SERVICE_NAME="mDNS name (.local)"
 PIDFILE="/var/run/mdns.pid"
 BIN=/mnt/tc100test/tc100-mdnsd

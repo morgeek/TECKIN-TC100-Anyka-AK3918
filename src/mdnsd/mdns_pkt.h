@@ -304,6 +304,20 @@ static int mdns_sd_answer(const unsigned char *q, int qn, const char *host, cons
 	return an ? n : 0;
 }
 
+/* mdns_sd_answer() with TXT strings that cost something to make (-v: three files read): txt_fn(txt, txtmax) fills
+ * them only when the query is answered (W6, audit 2026-11-24: they were read for every query of the subnet, most of
+ * them for other hosts). A first pass with no strings decides; a packet that fits with the strings fits without them,
+ * so the result is the same bytes as mdns_sd_answer() with those strings. txt_fn NULL: no strings. */
+static int mdns_sd_answer_lazy(const unsigned char *q, int qn, const char *host, const unsigned char *ip, int legacy,
+			       int svcs, void (*txt_fn)(char *, int), char *txt, int txtmax, unsigned char *out, int outmax)
+{
+	int r = mdns_sd_answer(q, qn, host, ip, legacy, svcs, "", out, outmax);
+
+	if (r <= 0 || !txt_fn) return r;
+	txt_fn(txt, txtmax);
+	return mdns_sd_answer(q, qn, host, ip, legacy, svcs, txt, out, outmax);
+}
+
 /* ---- answer rate limit (per source IP + total cap, so one flooder cannot starve other subnet hosts) ---- */
 #define MDNS_RATE 20
 #define MDNS_RL_SLOTS 16
