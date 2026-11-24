@@ -482,6 +482,32 @@ per flash write.
      `ak_venc_open failed`, the picture is clean from the first frame (no green or stale blocks at the first IDR).
 - **Pass:** 1 and 2 clean; the open is faster or the same.
 
+### R2-BUTTON The reset button keeps its timing while night mode or MQTT work runs (`[r2-button]`, audit 2026-11-24 R2) — `to test`
+- **What:** `tc100-supervisord` (`SUPERVISOR_IMPL=c`, the default) runs the button, day / night and sound jobs in one
+  loop, and waited for `nightmode.sh` with no time limit (sound-event MQTT publishes: up to 30 s each). While it waited
+  the button was not read: a hung `nightmode.sh` stopped the button for good (no reboot, no rescue access point), and a
+  hold that overlapped a switch lost the blocked seconds (8 s could become the 3-7 s rescue access point, 20 s a plain
+  reboot; a press that began during the wait could also gain seconds). Every wait for a child now polls every 50 ms and
+  takes the button's one-second samples on time meanwhile (same thresholds: 3-7 s rescue access point, 8-19 s reboot,
+  20 s and more back to the built-in code + reboot; acts on release). `nightmode.sh` is killed after 120 s, with what it
+  started, and the console says `[auto-night] /mnt/scripts/nightmode.sh on did not end within 120 s: killed`.
+  The shell fallback (`SUPERVISOR_IMPL=sh`) is unchanged: `button-watch.sh` was always a process of its own.
+- **Revert:** `SUPERVISOR_IMPL=sh` in `/mnt/config/boot.conf` (shell loops), or the previous build.
+- **Test (RAM only, undone by `umount` or a reboot):** make the switch slow so the hold surely overlaps it:
+  ```
+  cp /mnt/scripts/nightmode.sh /tmp/nm-real.sh
+  printf '#!/bin/sh\nsleep 30\nexec /bin/sh /tmp/nm-real.sh "$@"\n' > /tmp/nm-slow.sh; chmod +x /tmp/nm-*.sh
+  mount --bind /tmp/nm-slow.sh /mnt/scripts/nightmode.sh
+  ```
+  1. Cover the lens until the console shows `Switching to NIGHT mode` (the IR-cut clicks 30 s later). Within those
+     30 s, hold the button 5 s: the rescue access point starts (`logread | grep 'button:'` says `held 5s: rescue access
+     point`) before the IR-cut clicks. Stop it (`/mnt/scripts/wifi-rescue.sh stop-ap` or wait for its timeout).
+  2. Uncover the lens, wait for `Switching to DAY mode`, and within the 30 s hold the button 8-10 s: the camera reboots
+     (`held 8s: reboot` .. `held 10s`), not the rescue access point. (After the reboot the bind mount is gone.)
+  3. Optional, hung switch: as above with `sleep 300`; after 120 s the console shows `did not end within 120 s:
+     killed`, and a 5 s hold still starts the rescue access point during and after the hang.
+- **Pass:** 1 and 2 (and 3 when run); `umount /mnt/scripts/nightmode.sh` if no reboot happened.
+
 ### FAILCOUNT Failure totals of the video server over a day: STAT, /tmp file, memory-hourly.csv (`[failcount]`) â€” `to test` (both cameras, 24 h or more)
 
 - **What:** measurement only, no behaviour change. `src/tc100rtsp/tc100_rtsp.c` counts since the process start

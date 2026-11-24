@@ -6,7 +6,8 @@
     before the next turn, for the four sources (luma, ae, isp, vendor), with garbage lines and missing files too;
   - the reset button: scripts/button-watch.sh in real time on a fake GPIO file, and the C daemon on the same file (and
     tick by tick in replay mode): hold durations -> rescue / reboot / back to the built-in code;
-  - the real daemon: flag files switch the two jobs, SIGTERM, one instance, a refused button job;
+  - the real daemon: flag files switch the two jobs, SIGTERM, one instance, a refused button job; the button keeps its
+    timing while a slow nightmode.sh runs, and a hung one is killed (audit 2026-11-24 R2);
   - scripts/supervisor.sh (the switch and the fallback to the shell loops), the build and the packaging.
 Run: python3 -m unittest tests.test_supervisord -v
 """
@@ -44,6 +45,14 @@ def build():
 def tearDownModule():
     if 'dir' in BIN:
         shutil.rmtree(BIN['dir'], ignore_errors=True)
+
+
+def proc_alive(pid):
+    """a process that exists and is not a zombie (a killed orphan may wait for a reaper in a container)"""
+    try:
+        return Path('/proc/%d/stat' % pid).read_text().split(') ')[1][0] != 'Z'
+    except (OSError, IndexError):
+        return False
 
 
 def fake_nightmode(d):
@@ -749,6 +758,65 @@ class Daemon(unittest.TestCase):
         self.assertEqual(self.nm_calls(), [])
         (self.d / 'rtspserver.conf').write_text('daynight=2\n[0]\n')
         self.assertTrue(self.wait_for(lambda: self.nm_calls() == ['on']))
+
+    def slow_nightmode(self, body):
+        """nightmode.sh that logs its start, runs `body`, then switches and logs its end (in self.d/nmlog)"""
+        self.nm.write_text('#!/bin/sh\necho "start $1" >> %s/nmlog\n%s\n'
+                           'case "$1" in on) echo 0 > %s/ircut ;; off) echo 1 > %s/ircut ;; esac\n'
+                           'echo "end $1" >> %s/nmlog\n' % (self.d, body, self.d, self.d, self.d))
+        self.nm.chmod(0o755)
+
+    def nmlog(self):
+        p = self.d / 'nmlog'
+        return p.read_text().splitlines() if p.exists() else []
+
+    def held(self):
+        return [int(m) for m in re.findall(r'reset button held (\d+)s', '\n'.join(self.rig.calls(False)))]
+
+    def test_a_slow_nightmode_does_not_cut_the_button_hold(self):
+        """audit 2026-11-24 R2: holds made while nightmode.sh runs are measured tick by tick (the wait for the script
+        samples the button): an 8 s hold reboots, a 20 s hold goes back to the built-in code, both before the end of
+        the switch. 250 ms ticks (SV_TICK_DIV=4), the presses half a tick over."""
+        self.slow_nightmode('sleep 12')
+        (self.d / 'luma').write_text('10\n')
+        (self.d / 'night.flag').write_text('')
+        (self.d / 'button.flag').write_text('')
+        self.start(dict(SV_TICK_DIV='4'))
+        self.assertTrue(self.wait_for(lambda: self.nmlog() == ['start on']))
+        self.rig.press(8.5 * 0.25)
+        self.assertTrue(self.wait_for(lambda: self.rig.calls() == ['reboot'], 5))
+        time.sleep(0.5)
+        self.rig.press(20.5 * 0.25)
+        self.assertTrue(self.wait_for(lambda: self.rig.calls() == ['reboot', 'fc clear', 'reboot'], 5))
+        self.assertEqual(self.nmlog(), ['start on'])                                         # still switching
+        held = self.held()
+        self.assertEqual(len(held), 2, self.rig.calls(False))
+        self.assertIn(held[0], (8, 9))
+        self.assertIn(held[1], (20, 21))
+        self.assertTrue(self.wait_for(lambda: self.nmlog() == ['start on', 'end on'], 15))
+        self.assertIsNone(self.proc.poll())
+
+    def test_a_hung_nightmode_is_killed_and_the_button_still_works(self):
+        """a nightmode.sh that never ends is killed with what it started after DN_NIGHTMODE_TIMEOUT s and logged; the
+        button works while it hangs and after"""
+        self.slow_nightmode('sleep 100 &\necho $! > %s/sleep.pid\nwait' % self.d)
+        (self.d / 'luma').write_text('10\n')
+        (self.d / 'night.flag').write_text('')
+        (self.d / 'button.flag').write_text('')
+        self.start(dict(SV_TICK_DIV='4', DN_NIGHTMODE_TIMEOUT='4'))
+        self.assertTrue(self.wait_for(lambda: self.nmlog() == ['start on'] and (self.d / 'sleep.pid').exists()))
+        t0 = time.time()
+        self.rig.press(3.5 * 0.25)                                                           # rescue, during the hang
+        self.assertTrue(self.wait_for(lambda: self.rig.calls() == ['rescue'], 5))
+        self.assertLess(time.time() - t0, 3)
+        self.assertTrue(self.wait_for(lambda: 'did not end within 4 s: killed' in (self.d / 'console').read_text(), 10))
+        (self.d / 'luma').write_text('200\n')                                                # day already: nothing more to switch
+        self.assertEqual(self.nmlog(), ['start on'])                                         # killed before its end
+        sleeper = int((self.d / 'sleep.pid').read_text())
+        self.assertTrue(self.wait_for(lambda: not proc_alive(sleeper), 5))                   # its child too
+        self.rig.press(3.5 * 0.25)
+        self.assertTrue(self.wait_for(lambda: self.rig.calls() == ['rescue', 'rescue'], 5))
+        self.assertIsNone(self.proc.poll())
 
     def test_button_job_refused_without_a_gpio_removes_its_flag(self):
         (self.d / 'night.flag').write_text('')

@@ -16,10 +16,10 @@
  * Every shell loop replaced is one busybox ash process less in RAM (the loops woke up every 1 to 8 s and forked).
  *
  * Environment (same names as the scripts; the shell ones double as test hooks): DN_CONSOLE DN_CONF DN_RTSPCONF CAM_AE
- * CAM_LUMA CAM_AWB DN_IRCUT DN_NIGHTMODE DN_LOG DN_LOG_EVERY, BUTTON_GPIO_DIR BUTTON_L66_FLAG BUTTON_DEV
+ * CAM_LUMA CAM_AWB DN_IRCUT DN_NIGHTMODE DN_NIGHTMODE_TIMEOUT DN_LOG DN_LOG_EVERY, BUTTON_GPIO_DIR BUTTON_L66_FLAG BUTTON_DEV
  * BUTTON_REBOOT_SECONDS BUTTON_RESTORE_SECONDS BUTTON_RESCUE_SECONDS BUTTON_FLASH_CODE BUTTON_REBOOT_CMD BUTTON_RESCUE
  * BUTTON_TRACKER TC100_STORAGE_FILE; SV_NIGHT_FLAG SV_BUTTON_FLAG SV_SOUND_FLAG SV_PIDFILE for the flag and pid files; the sound job: SD_CONF SD_LOG SD_STATE
- * SOUND_LEVEL_FILE SD_SCRIPTS SD_MQTTCONF SD_BOOTCONF SD_VOX SD_ALARM SD_MOTION SD_UPTIME EVENT_COOLDOWN_SECONDS LOG_MAX_BYTES
+ * SOUND_LEVEL_FILE SD_SCRIPTS SD_MQTTCONF SD_BOOTCONF SD_VOX SD_ALARM SD_MOTION SD_UPTIME SD_TIMEOUT EVENT_COOLDOWN_SECONDS LOG_MAX_BYTES
  * LOG_BACKUPS.
  * Test mode: tc100-supervisord -r SCRIPT replays commands (now, write, writen, writeml, rm, cat, echo, night, button, sdreset, sound) with a
  * clock of its own: tests/test_supervisord.py compares it with the shell scripts.
@@ -141,8 +141,14 @@ static void console(const char *fmt, ...)	/* echo ... > $CONSOLE */
 
 /* ---- running the scripts ---- */
 
-/* fork + exec with stdio on /dev/null: the pid, -1 on failure */
-static pid_t spawn(const char *const *argv)
+/* The button job (defined below) runs inside every wait for a child: see wait_child */
+static int g_button_on, g_btn_busy;
+static ll g_button_due;
+static void button_tick(ll t);
+
+/* fork + exec with stdio on /dev/null: the pid, -1 on failure. grp: the child leads a process group of its own, so a
+ * timeout kills the script and what it started (mosquitto_pub, sleep...) together. */
+static pid_t spawn(const char *const *argv, int grp)
 {
 	pid_t pid = fork();
 
@@ -150,6 +156,7 @@ static pid_t spawn(const char *const *argv)
 	if (pid == 0) {
 		int nul = open("/dev/null", O_RDWR);
 
+		if (grp) setpgid(0, 0);
 		if (nul >= 0) { dup2(nul, 0); dup2(nul, 1); dup2(nul, 2); if (nul > 2) close(nul); }
 		signal(SIGTERM, SIG_DFL);
 		signal(SIGINT, SIG_DFL);
@@ -168,37 +175,60 @@ static pid_t spawn(const char *const *argv)
 	return pid;
 }
 
-/* spawn + wait: the exit status (0 at once when not waiting), -1 on failure */
-static int run(const char *const *argv, int wait_it)
+/* Audit 2026-11-24 R2: every job runs in this one loop, so a wait for a child stopped the reset button for as long as
+ * the child ran (a hung nightmode.sh for good; a switch of a few seconds cut those seconds out of a hold: 8 s became the
+ * 3-7 s rescue access point). Every wait now polls in steps of at most 50 ms and runs the button job's ticks on time
+ * meanwhile, so its samples (press and release) are taken when they are due, whatever the other jobs do. Not while the
+ * button job itself is acting (g_btn_busy): its own scripts block it, as before. */
+static int wait_step(ll t)
 {
-	int st = 0, r;
-	pid_t pid = spawn(argv);
+	ll s = 50;
 
-	if (pid < 0) return -1;
-	if (!wait_it) return 0;
-	while ((r = waitpid(pid, &st, 0)) < 0 && errno == EINTR) ;
-	return r < 0 ? -1 : (WIFEXITED(st) ? WEXITSTATUS(st) : -1);
+	if (g_button_on && !g_btn_busy && g_button_due - t < s) s = g_button_due - t;
+	return s < 1 ? 1 : (int)s;
 }
 
-/* the same, but a command that does not end within `secs` seconds is killed: a hung MQTT publish must not stop the
- * other jobs of the daemon (the shell loop it replaces would have waited for ever; only a failure case differs) */
-static int run_to(const char *const *argv, int secs)
+/* the exit status of the child, -1 on failure; secs > 0: a child still running after secs seconds is killed (with
+ * its process group when grp) and the result is -2 */
+static int wait_child(pid_t pid, int secs, int grp)
 {
-	int st = 0, r, n = 0;
-	pid_t pid = spawn(argv);
+	ll end = mono_ms() + secs * 1000LL, t;
+	int st = 0, r;
 
-	if (pid < 0) return -1;
 	for (;;) {
 		r = waitpid(pid, &st, WNOHANG);
 		if (r == pid) return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
 		if (r < 0 && errno != EINTR) return -1;
-		if (n >= secs * 20) break;
-		poll(NULL, 0, 50);
-		n++;
+		t = mono_ms();
+		if (secs > 0 && t >= end) break;
+		button_tick(t);
+		poll(NULL, 0, wait_step(mono_ms()));
 	}
+	if (grp) kill(-pid, SIGKILL);
 	kill(pid, SIGKILL);
 	while ((r = waitpid(pid, &st, 0)) < 0 && errno == EINTR) ;
-	return -1;
+	return -2;
+}
+
+/* spawn + wait: the exit status (0 at once when not waiting), -1 on failure */
+static int run(const char *const *argv, int wait_it)
+{
+	pid_t pid = spawn(argv, 0);
+
+	if (pid < 0) return -1;
+	if (!wait_it) return 0;
+	return wait_child(pid, 0, 0);
+}
+
+/* the same, but a command that does not end within `secs` seconds is killed (-2): a hung MQTT publish or nightmode.sh
+ * must not stop the other jobs of the daemon (the shell loop it replaces would have waited for ever; only a failure
+ * case differs) */
+static int run_to(const char *const *argv, int secs)
+{
+	pid_t pid = spawn(argv, 1);
+
+	if (pid < 0) return -1;
+	return wait_child(pid, secs < 1 ? 1 : secs, 1);
 }
 
 static void reap(void)
@@ -474,9 +504,22 @@ static void dn_flap_sample(ll lum)
 	}
 }
 
-static int dn_switch(int night, const char *why)	/* 1 when it switched */
+/* nightmode.sh on|off. A switch takes a few seconds; one that has not ended after DN_NIGHTMODE_TIMEOUT s (120) is
+ * killed with what it started, and the next turns decide again from the IR-cut state it left (audit 2026-11-24 R2). */
+static void dn_nightmode(const char *arg)
 {
 	const char *argv[3];
+	int secs = env_num("DN_NIGHTMODE_TIMEOUT", 120);
+
+	if (secs < 1) secs = 120;
+	argv[0] = envs("DN_NIGHTMODE", "/mnt/scripts/nightmode.sh");
+	argv[1] = arg;
+	argv[2] = NULL;
+	if (run_to(argv, secs) == -2) console("[auto-night] %s %s did not end within %d s: killed", argv[0], arg, secs);
+}
+
+static int dn_switch(int night, const char *why)	/* 1 when it switched */
+{
 	ll dwell = MIN_SWITCH;
 
 	if (!night && dn_flap_on()) {
@@ -499,10 +542,7 @@ static int dn_switch(int night, const char *why)	/* 1 when it switched */
 	have_last_switch = 1;
 	if (night) console("[auto-night] Low light detected (%s): Switching to NIGHT mode", why);
 	else console("[auto-night] Bright light detected (%s): Switching to DAY mode", why);
-	argv[0] = envs("DN_NIGHTMODE", "/mnt/scripts/nightmode.sh");
-	argv[1] = night ? "on" : "off";
-	argv[2] = NULL;
-	run(argv, 1);
+	dn_nightmode(night ? "on" : "off");
 	DN_DARK_SINCE = DN_BRIGHT_SINCE = 0;
 	LOW_LIGHT_COUNT = BRIGHT_LIGHT_COUNT = 0;
 	return 1;
@@ -670,14 +710,9 @@ static int dn_ir_guard(void)
 	if (!CUR_CUT_ON) {
 		if (DN_NIGHT_SINCE == 0) DN_NIGHT_SINCE = NOW;
 		if (NOW - DN_NIGHT_SINCE >= IR_LED_MAX_ON) {
-			const char *argv[3];
-
 			console("[auto-night] IR LEDs on for %lld s: day mode for %lld s (IR LED protection)",
 				NOW - DN_NIGHT_SINCE, IR_LED_REST);
-			argv[0] = envs("DN_NIGHTMODE", "/mnt/scripts/nightmode.sh");
-			argv[1] = "off";
-			argv[2] = NULL;
-			run(argv, 1);
+			dn_nightmode("off");
 			DN_REST_UNTIL = NOW + IR_LED_REST;
 			DN_NIGHT_SINCE = 0;
 			return 1;
@@ -883,7 +918,14 @@ static void button_sample(int pressed)
 	if (pressed) {
 		if (g_armed) g_down++;
 	} else {
-		if (g_down > 0) bw_action(g_down);
+		if (g_down > 0) {
+			int held = g_down;
+
+			g_down = 0;
+			g_btn_busy = 1;	/* the waits of its own scripts do not sample the button again */
+			bw_action(held);
+			g_btn_busy = 0;
+		}
 		g_down = 0;
 		g_armed = 1;
 	}
@@ -895,6 +937,17 @@ static int button_read(void)	/* 1 = pressed (value 0) */
 
 	snprintf(p, sizeof p, "%s/value", envs("BUTTON_GPIO_DIR", "/sys/class/gpio/gpio522"));
 	return first_line(p, b, sizeof b) >= 0 && !strcmp(b, "0");
+}
+
+/* The button job: one sample a second (1000 / SV_TICK_DIV ms), from the main loop and from every wait for a child
+ * (wait_child). Ticks missed while something else ran (the button's own scripts) take the level read now, ten at most. */
+static void button_tick(ll t)
+{
+	int k = 0;
+
+	if (!g_button_on || g_btn_busy || t < g_button_due) return;
+	while (t >= g_button_due && k++ < 10) { button_sample(button_read()); g_button_due += 1000 / g_div; }
+	if (t >= g_button_due) g_button_due = t + 1000 / g_div;
 }
 
 /* ================= sound detection ================= */
@@ -1305,8 +1358,8 @@ int main(int argc, char **argv)
 	const char *sflag = envs("SV_SOUND_FLAG", "/var/run/tc100-sv.sound");
 	const char *pidfile = envs("SV_PIDFILE", "/var/run/tc100-supervisord.pid");
 	struct sigaction sa;
-	int night_on = 0, button_on = 0, sound_on = 0, f;
-	ll night_due = 0, button_due = 0, sound_due = 0, t, wake;
+	int night_on = 0, sound_on = 0, f;
+	ll night_due = 0, sound_due = 0, t, wake;
 
 	if (argc == 3 && !strcmp(argv[1], "-r")) { replay(argv[2]); return 0; }
 	if (argc != 1) { dprintf(2, "usage: tc100-supervisord [-r SCRIPT]\n"); return 2; }
@@ -1340,20 +1393,15 @@ int main(int argc, char **argv)
 			night_due = t + SLP * 1000LL / g_div;
 		}
 		night_on = n_en;
-		if (b_en && !button_on) {
+		if (b_en && !g_button_on) {
 			button_init();
 			if (!g_btn_ok) { unlink(bflag); b_en = 0; }	/* the service script sees the flag gone: shell fallback */
-			else button_due = t;
+			else g_button_due = t;
 		}
-		button_on = b_en;
+		g_button_on = b_en;
 		if (s_en && !sound_on) { sound_reset(); sound_due = t; }	/* the shell loop ran its first turn at once */
 		sound_on = s_en;
-		if (button_on && t >= button_due) {
-			int k = 0;
-
-			while (t >= button_due && k++ < 10) { button_sample(button_read()); button_due += 1000 / g_div; }
-			if (t >= button_due) button_due = t + 1000 / g_div;
-		}
+		button_tick(t);
 		if (night_on && t >= night_due) {
 			night_iteration();
 			night_due = mono_ms() + SLP * 1000LL / g_div;
@@ -1365,7 +1413,7 @@ int main(int argc, char **argv)
 		wake = 1000 / g_div;
 		t = mono_ms();
 		if (night_on && night_due - t < wake) wake = night_due - t;
-		if (button_on && button_due - t < wake) wake = button_due - t;
+		if (g_button_on && g_button_due - t < wake) wake = g_button_due - t;
 		if (sound_on && sound_due - t < wake) wake = sound_due - t;
 		if (wake < 10) wake = 10;
 		poll(NULL, 0, (int)wake);

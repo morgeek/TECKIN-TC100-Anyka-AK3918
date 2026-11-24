@@ -23,7 +23,10 @@ Rapport : [audit-2026-11-24-optim.md](audit-2026-11-24-optim.md) (lecture seule,
   `W1-PRIVFILL`) : un `memset` par ligne.
 - [x] **W3** double mise à zéro de 7,4 Mo à l'ouverture de l'encodeur (fait 2026-11-24 `[video-fix]`, test-queue
   `W3-ZERO`) : l'encodeur libre garde son `memset` et alloue par `akuio_alloc_pmem_nozero`.
-- [ ] **R2** le bouton reset bloqué pendant `nightmode.sh` / MQTT ; **R3** commande MQTT retenue exécutée à chaque connexion.
+- [x] **R2** le bouton reset bloqué pendant `nightmode.sh` / MQTT (fait 2026-11-24 `[r2-button]`, test-queue
+  `R2-BUTTON`) : chaque attente d'un script interroge toutes les 50 ms et lit le bouton à l'heure ; `nightmode.sh`
+  tué après 120 s (`DN_NIGHTMODE_TIMEOUT`), avec ce qu'il a lancé, et une ligne sur la console.
+- [ ] **R3** commande MQTT retenue exécutée à chaque connexion.
 - [ ] **T1 + B5** faire tourner le test de parité des routes natives de `httpfront`, puis corriger `isp_tune`.
 - [ ] Retirer les optimisations mortes (section 5 du rapport) en un seul nettoyage ; le reste des sections 2 et 4.
 
