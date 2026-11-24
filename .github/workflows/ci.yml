@@ -78,6 +78,13 @@ jobs:
           sh v3/musl/build-musl.sh
           python3 -m unittest -v tests.test_musl_programs_qemu tests.test_uclibc_standin_qemu 2>&1 | tee /tmp/musl.log
           grep -q '^OK' /tmp/musl.log && ! grep -q 'skipped' /tmp/musl.log
+      # audit 2026-11-24 T1: the native routes of httpfront (status line, dash, daynight, hw_state, health, isp_tune)
+      # against their CGIs under busybox ash, as local-ci.sh cross. They skip without qemu-arm (the "Python regressions"
+      # step above runs before it is installed): here a skip fails the step.
+      - name: httpfront under qemu-arm
+        run: |
+          python3 -m unittest -v tests.test_httpfront_qemu tests.test_httpfront_native tests.test_httpfront_dash tests.test_httpfront_poll 2>&1 | tee /tmp/hf.log
+          grep -q '^OK' /tmp/hf.log && ! grep -q 'skipped' /tmp/hf.log
       - name: Frontend tests
         run: node --test tests/frontend.test.js tests/settings-save.test.js tests/live-video.test.js tests/whep-live.test.js tests/records-timeline.test.js
 

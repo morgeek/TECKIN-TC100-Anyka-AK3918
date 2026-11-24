@@ -98,7 +98,10 @@ run_cross() {
 		echo "tc100-logfwd (stripped, bytes): $(wc -c < src/logfwd/tc100-logfwd)"
 		echo "libnetacl.so (stripped, bytes): $(wc -c < src/netacl/libnetacl.so)"
 		make -C src/tc100rtsp test_rtsp >/dev/null 2>&1 && echo "host test build: ok"
-		python3 -m unittest -v tests.test_httpfront_qemu tests.test_httpfront_native tests.test_httpfront_dash tests.test_uclibc_standin_qemu >/tmp/hf.log 2>&1 || { cat /tmp/hf.log; exit 1; }; grep -E "^(Ran|OK)|skipped" /tmp/hf.log
+		# the httpfront native routes against their CGIs under busybox ash (audit 2026-11-24 T1: test_httpfront_poll ran
+		# nowhere); they skip without qemu-arm, which is here: a skip is a failure
+		python3 -m unittest -v tests.test_httpfront_qemu tests.test_httpfront_native tests.test_httpfront_dash tests.test_httpfront_poll tests.test_uclibc_standin_qemu >/tmp/hf.log 2>&1 || { cat /tmp/hf.log; exit 1; }; grep -E "^(Ran|OK)|skipped" /tmp/hf.log
+		! grep -q "skipped" /tmp/hf.log || { echo "httpfront qemu tests skipped"; exit 1; }
 		echo "cross: ok"' || rc=1
 }
 

@@ -529,6 +529,37 @@ per flash write.
   3. Clear the retained message: `mosquitto_pub ... -t <root>/command -r -n`.
 - **Pass:** 1 and 2.
 
+### T1B5-PARITY httpfront `isp_tune` prints what `state.cgi` prints; `fullconfig` back to the CGI (`[parity]`, audit 2026-11-24 B5/T1) — `to test`
+- **What:** the parity test of the native routes (`tests/test_httpfront_poll.py`) never ran: it skips without
+  `arm-linux-gnueabi-gcc` and `qemu-arm`, the GitHub "Python regressions" step runs before qemu is installed and
+  `local-ci.sh cross` did not list it. It now runs in `local-ci.sh cross` and in a GitHub step "httpfront under
+  qemu-arm" (a skip fails both). Once it ran:
+  1. **B5, native `isp_tune` (Settings -> Image, `state.cgi?cmd=isp_tune&format=json`):** it never answered on a
+     camera with a privacy mask (a mask like `10,20,30,40` made it give up and the CGI answered), and when it did
+     answer it normalized the values where `isp-tune.sh` `isp_tune_json` prints them as written: a missing key gave `0`
+     (shell `null`), an out-of-range value `null` (shell prints it), `EXPOSURE_MAX_PCT=0` `null` (shell `0`), a
+     `POWER_HZ` other than 50/60/auto `null` (shell prints it); a line `KEY` without `=` was taken for `KEY=`. It now
+     copies `_isp_num`, `isp_tune_get` (first line starting with `KEY=`) and the mask check (`IFS=,`: a last comma
+     makes no empty field) exactly; a mask with a leading zero (octal in the shell) goes to the CGI. The web UI shows
+     the same sliders as before: `null` and a missing value both put a slider at 0.
+  2. **Route 7, native `fullconfig`, removed:** the CGI answers again (it keeps its answer 5 s). It gave up on any value
+     of 24 characters or more (a Frigate URL), took `perf_profile` from the last match in 11 files with any truthy
+     value (the shell: first match in `boot.conf` / `service_trim.conf`, exactly `1`, 5 s cache), answered
+     `application/json` without `format=json` (the CGI: `text/plain`), and the router took
+     `cmd=daynight&format=json&cmd=fullconfig` too. One load per Settings open was not worth the ~270 lines.
+  3. **Day/night (route 3):** a value of 24 characters or more in `daynight.conf` that is not a number (e.g. a long
+     `DAYNIGHT_SOURCE`) made it give up since 2026-11-15; it reads it again as "not a known word" (as before).
+  4. Route 5 (`health.cgi` from a fresh cache) and 4 (`hw_state`) unchanged; their tests now run.
+- **Switch / revert:** `HTTPFRONT_NATIVE=0` in `/mnt/config/boot.conf` (every request to httpd and the CGIs), or the
+  previous build.
+- **Test (one camera, `U=root:PASSWORD`):**
+  1. Settings -> Image: the sliders, the anti-flicker choice, the exposure cap and the privacy masks show the same values
+     as with `HTTPFRONT_NATIVE=0`; move a slider, wait for "Applied on the camera: ...".
+  2. Same JSON: `REQUEST_METHOD=GET QUERY_STRING='cmd=isp_tune&format=json' STATE_RESPONSE_CACHE_BYPASS=1 sh /mnt/www/cgi-bin/state.cgi | sed '1,/^$/d' > /tmp/it-cgi.json; curl -s -u $U "http://127.0.0.1/cgi-bin/state.cgi?cmd=isp_tune&format=json" > /tmp/it-native.json; diff /tmp/it-cgi.json /tmp/it-native.json`
+     with `ISP_TUNE=1` and `0`, one mask set and none.
+  3. Settings opens and fills every tab as before (`fullconfig` from the CGI: `curl -si -u $U "http://127.0.0.1/cgi-bin/state.cgi?cmd=fullconfig"` says `Content-type: text/plain`).
+- **Pass:** 1 and 3 unchanged, `diff` empty in 2.
+
 ### FAILCOUNT Failure totals of the video server over a day: STAT, /tmp file, memory-hourly.csv (`[failcount]`) â€” `to test` (both cameras, 24 h or more)
 
 - **What:** measurement only, no behaviour change. `src/tc100rtsp/tc100_rtsp.c` counts since the process start
@@ -712,6 +743,7 @@ per flash write.
   2. `src/supervisord/supervisord.c` + `scripts/auto-night-daemon.sh`: ignore `/tmp/cam_awb` counts for `AWB_RESTART_IGNORE` s (default 30) after `tc100_rtsp` starts/restarts (PID change or `/tmp/cam_ae` recovery), preventing false day switches from ISP startup AWB spikes.
   3. `src/tc100rtsp/tc100_rtsp.c`: move `fe_hw_init(&fe_env)` from `fe_setup()` to right after `VIDIOC_REQBUFS` succeeds so a second instance failing `REQBUFS` never resets the running encoder core.
   4. `src/httpfront/poll.h`: native C handlers for `state.cgi?cmd=isp_tune&format=json` and `state.cgi?cmd=fullconfig` (byte-for-byte parity with `state.cgi`, fallback to `httpd` on edge cases).
+     (2026-11-24, `T1B5-PARITY`: the `fullconfig` route is removed and `isp_tune` rewritten; test item 4 with that entry.)
 - **Switches / revert:**
   - `AWB_RESTART_IGNORE=0` in `/mnt/config/daynight.conf` disables the 30 s AWB ignore window.
   - `TC100_NATIVE_STATUS=0` disables all native `httpfront` handlers (falls back to `httpd`).

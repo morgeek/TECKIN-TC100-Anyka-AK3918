@@ -190,7 +190,7 @@ class UnusedBootConfKeys(unittest.TestCase):
     PREFIX = ('CPU_SCALER_', 'RTSP_PROC_', 'STORAGE_CLEANUP_')
     # the places that mention a key without acting on it: reports / exports it, or only checks its value when imported
     ALLOWED = {
-        'LIGHTWEIGHT_MODE': {'www/cgi-bin/state.cgi', 'www/cgi-bin/config_exchange.cgi', 'src/httpfront/poll.h'},
+        'LIGHTWEIGHT_MODE': {'www/cgi-bin/state.cgi', 'www/cgi-bin/config_exchange.cgi'},
         'RTSP_FPS_LOCK': {'scripts/config-transaction.sh'},
     }
 

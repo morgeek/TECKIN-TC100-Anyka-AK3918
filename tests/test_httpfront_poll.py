@@ -1,11 +1,14 @@
-"""Two more native routes of httpfront (src/httpfront/poll.h, TC100_NATIVE_STATUS=1): the Day/night page poll
-GET /cgi-bin/state.cgi?cmd=daynight&format=json and the Hardware page poll GET /cgi-bin/action.cgi?cmd=hw_state&format=json.
+"""Native routes of httpfront (src/httpfront/poll.h, TC100_NATIVE_STATUS=1): the Day/night page poll
+GET /cgi-bin/state.cgi?cmd=daynight&format=json, the Hardware page poll GET /cgi-bin/action.cgi?cmd=hw_state&format=json,
+the Image settings read GET /cgi-bin/state.cgi?cmd=isp_tune&format=json and a fresh health.cgi cache.
 
 Same method as tests/test_httpfront_native.py and test_httpfront_dash.py: the real CGI (state.cgi / action.cgi with
-func.cgi, statelib.cgi, common_functions.sh, event-logger.sh and action.d/hardware.sh) runs under busybox ash against a
-fixture tree; the native handler reads a twin of that tree through TC100_STATUS_ROOT; the two bodies must be identical
-byte for byte. What the native code does not print exactly as the shell does must reach the stub httpd untouched.
-Skipped without the ARM compiler and qemu-arm (`sh tests/docker/local-ci.sh tests` has both).
+func.cgi, statelib.cgi, common_functions.sh, event-logger.sh, isp-tune.sh and action.d/hardware.sh) runs under busybox
+ash against a fixture tree; the native handler reads a twin of that tree through TC100_STATUS_ROOT; the two bodies must
+be identical byte for byte. What the native code does not print exactly as the shell does must reach the stub httpd
+untouched. state.cgi?cmd=fullconfig always goes to the CGI (audit 2026-11-24 T1/B5).
+Skipped without the ARM compiler and qemu-arm: `sh tests/docker/local-ci.sh cross` and the "httpfront under qemu-arm"
+step of the GitHub CI have both, and there a skip fails the run.
 """
 import base64
 import json
@@ -243,6 +246,71 @@ def build_fall(base, over):
     return base
 
 
+IT = '/cgi-bin/state.cgi?cmd=isp_tune&format=json'
+IT_ALL = ('BRIGHTNESS=12\nCONTRAST=-5\nSATURATION=7\nSHARPNESS=-50\nDENOISE=50\nHUE=0\nPOWER_HZ=50\nEXPOSURE_MAX_PCT=80\n'
+          'MASK1=10,20,30,40\nMASK2=\nMASK3=0,0,100,100\nMASK4=\nMASK_COLOR=gray\n')
+STATUS_ALL = ('BRIGHTNESS=12\nCONTRAST=-5\nSATURATION=7\nSHARPNESS=-50\nDENOISE=50\nHUE=0\nPOWER_HZ=50\nEXPOSURE_MAX_PCT=80\n'
+              'MASK1=10,20,30,40\nMASK_COLOR=gray\nEXPOSURE_NOW=1000\nEXPOSURE_ORIG=1125\nPOWER_HZ_BASE=60\nMASKS=2\nMASK_RC=0\n')
+IT_SCEN = {
+    'nothing': {'mnt/config/isp_tune.conf': None, 'var/run/isp_tune.status': None},
+    'all_keys': {'mnt/config/boot.conf': 'ISP_TUNE=1\n', 'mnt/config/isp_tune.conf': IT_ALL, 'var/run/isp_tune.status': STATUS_ALL},
+    # B5: the shell prints the configured values as they are (no isp_tune_norm): missing null, out of range printed, 0 is 0
+    'edges': {'mnt/config/boot.conf': 'SERVICE_TRIM=0\nISP_TUNE=1\n',
+              'mnt/config/isp_tune.conf': 'BRIGHTNESS=99\nCONTRAST=-80\nSATURATION=0\nSHARPNESS=abc\nDENOISE=\nPOWER_HZ=70\n'
+                                          'EXPOSURE_MAX_PCT=0\nMASK1=0,0,100,100\nMASK2=50,50,40,60\nMASK3=1,2,3\nMASK_COLOR=red\n',
+              'var/run/isp_tune.status': 'BRIGHTNESS=12\nCONTRAST=\nPOWER_HZ=auto\nEXPOSURE_NOW=1000\nMASK_RC=-22\n'},
+    'missing_keys': {'mnt/config/isp_tune.conf': 'BRIGHTNESS=4\n'},
+    'out_of_range': {'mnt/config/isp_tune.conf': 'BRIGHTNESS=51\nCONTRAST=-51\nSATURATION=123\nSHARPNESS=-999\nDENOISE=100\n'
+                                                 'HUE=180\nPOWER_HZ=0\nEXPOSURE_MAX_PCT=5\n'},
+    'exposure_values': {'mnt/config/isp_tune.conf': 'EXPOSURE_MAX_PCT=100\nPOWER_HZ=60\n'},
+    'exposure_over': {'mnt/config/isp_tune.conf': 'EXPOSURE_MAX_PCT=1000\nPOWER_HZ=auto\n'},
+    'zeros': {'mnt/config/isp_tune.conf': 'BRIGHTNESS=0\nCONTRAST=-0\nSATURATION=00\nSHARPNESS=0\nDENOISE=0\nHUE=0\nPOWER_HZ=0\n'
+                                          'EXPOSURE_MAX_PCT=0\n'},
+    'negative': {'mnt/config/isp_tune.conf': 'BRIGHTNESS=-1\nCONTRAST=-50\nSATURATION=-7\nHUE=-49\nEXPOSURE_MAX_PCT=-10\n'},
+    'non_numeric': {'mnt/config/isp_tune.conf': 'BRIGHTNESS=abc\nCONTRAST=1.5\nSATURATION= 5\nSHARPNESS=5\r\nDENOISE=+3\n'
+                                                'HUE=1e2\nPOWER_HZ=fifty\nEXPOSURE_MAX_PCT=80%\n'},
+    'auto_anywhere': {'mnt/config/isp_tune.conf': 'BRIGHTNESS=auto\nPOWER_HZ=auto\nEXPOSURE_MAX_PCT=auto\nHUE=AUTO\n'},
+    'odd_numbers': {'mnt/config/isp_tune.conf': 'BRIGHTNESS=--5\nCONTRAST=5-\nSATURATION=007\nSHARPNESS=-\nDENOISE=1-2\n'},
+    'first_wins': {'mnt/config/isp_tune.conf': 'BRIGHTNESS=1\nBRIGHTNESS=2\nCONTRAST\nCONTRAST=3\n SATURATION=4\nSATURATION =5\n'
+                                               'SATURATION=6\nHUEX=7\nHUE=8\n#DENOISE=9\nDENOISE=10\nSHARPNESS=\nSHARPNESS=11\n'},
+    'no_newline': {'mnt/config/isp_tune.conf': 'CONTRAST=3\nBRIGHTNESS=7'},
+    'long_values': {'mnt/config/isp_tune.conf': 'BRIGHTNESS=' + 'x' * 60 + '\nCONTRAST=' + '12-' * 20 + 'x\nMASK1=' + '1,' * 20 +
+                    '\nMASK_COLOR=' + 'g' * 40 + '\n'},
+    'masks': {'mnt/config/isp_tune.conf': 'MASK1=0,0,100,100\nMASK2=10,20,30,40\nMASK3=50,50,40,60\nMASK4=1,2,3\nMASK_COLOR=white\n'},
+    'masks_commas': {'mnt/config/isp_tune.conf': 'MASK1=1,2,3,4,\nMASK2=1,2,3,4,,\nMASK3=,1,2,3,4\nMASK4=1,,2,3\nMASK_COLOR=Gray\n'},
+    'masks_bad': {'mnt/config/isp_tune.conf': 'MASK1=1,2,3,4,5\nMASK2=0,0,101,50\nMASK3=1000,1,2,3\nMASK4=1 2,3,4,5\nMASK_COLOR=\n'},
+    'masks_equal': {'mnt/config/isp_tune.conf': 'MASK1=10,10,10,20\nMASK2=10,10,20,10\nMASK3=-1,2,3,4\nMASK4=0,0,1,1\n'
+                                                'MASK_COLOR=black\n'},
+    'masks_leading_zero_invalid': {'mnt/config/isp_tune.conf': 'MASK1=01,2,3\nMASK2=0,0,0100,1\n'},
+    'masks_first_wins': {'mnt/config/isp_tune.conf': 'MASK1=1,2,3\nMASK1=10,20,30,40\nMASK_COLOR=x\nMASK_COLOR=gray\n'},
+    'enabled_words': {'mnt/config/boot.conf': 'ISP_TUNE=enabled\n'},
+    'enabled_yes': {'mnt/config/boot.conf': 'ISP_TUNE=yes\nISP_TUNE=0\n'},
+    'enabled_upper': {'mnt/config/boot.conf': 'ISP_TUNE=YES\n'},
+    'enabled_blank': {'mnt/config/boot.conf': 'ISP_TUNE= 1\n'},
+    'enabled_cr': {'mnt/config/boot.conf': 'ISP_TUNE=1\r\n'},
+    'enabled_no_equal_first': {'mnt/config/boot.conf': 'ISP_TUNE\nISP_TUNE_X=1\nISP_TUNE=on\n'},
+    'enabled_no_newline': {'mnt/config/boot.conf': 'LOW_CPU_PROFILE=0\nISP_TUNE=true'},
+    'disabled': {'mnt/config/boot.conf': 'ISP_TUNE=0\nISP_TUNE=1\n'},
+    'no_boot_conf': {'mnt/config/boot.conf': None},
+    'boot_conf_dist': {'mnt/config/boot.conf': (ROOT / 'config/boot.conf.dist').read_text()},
+    'status_empty': {'var/run/isp_tune.status': ''},
+    'status_odd': {'var/run/isp_tune.status': 'BRIGHTNESS=abc\nCONTRAST=auto\nSATURATION=--1\nMASKS=\nMASK1=1,2,3,4\n'
+                                              'MASK_COLOR=gray\nMASK_RC=-5\nEXPOSURE_ORIG=1125'},
+    'status_first_wins': {'var/run/isp_tune.status': 'EXPOSURE_NOW=1\nEXPOSURE_NOW=2\nEXPOSURE_NOW\nPOWER_HZ_BASE=0\n'},
+}
+if (ROOT / 'config/isp_tune.conf.dist').exists():
+    IT_SCEN['isp_tune_conf_dist'] = {'mnt/config/isp_tune.conf': (ROOT / 'config/isp_tune.conf.dist').read_text()}
+# printed as they are by _isp_num: not JSON, on both sides
+IT_NOT_JSON = ('odd_numbers', 'zeros', 'status_odd')
+IT_FALL = {
+    'mask_leading_zero': {'mnt/config/isp_tune.conf': 'MASK1=01,2,3,4\n'},        # octal in $(( )): 08 is an error
+    'mask_octal_error': {'mnt/config/isp_tune.conf': 'MASK1=08,1,9,9\n'},
+    'number_long': {'mnt/config/isp_tune.conf': 'BRIGHTNESS=' + '1' * 30 + '\n'},
+    'status_number_long': {'var/run/isp_tune.status': 'EXPOSURE_NOW=' + '9' * 30 + '\n'},
+    'conf_line_long': {'mnt/config/isp_tune.conf': '# ' + 'x' * 3000 + '\nBRIGHTNESS=4\n'},
+    'boot_line_long': {'mnt/config/boot.conf': '# ' + 'x' * 3000 + '\nISP_TUNE=1\n'},
+}
+
 @unittest.skipUnless(tn.CC and tn.QEMU, 'needs arm-linux-gnueabi-gcc and qemu-arm')
 class Poll(unittest.TestCase):
     port = 18840
@@ -470,7 +538,7 @@ class Poll(unittest.TestCase):
                 RW.sub(lambda m: str(fb) + '/' + m.group(1) + '/', (ROOT / 'www/cgi-bin/health.cgi').read_text()))
             self.start(fb)
             # Fresh cache -> byte-for-byte identical to health.cgi
-            expected = cgi(fb, '/cgi-bin/health.cgi')
+            expected = cgi(fb, '/cgi-bin/health.cgi').encode()
             self.assertEqual(self.native('/cgi-bin/health.cgi', '/cgi-bin/health.cgi'), expected)
             self.assertEqual(self.native('/cgi-bin/health.cgi?_=123', '/cgi-bin/health.cgi?_=123'), expected)
             # Expired cache -> falls through to httpd
@@ -493,26 +561,68 @@ class Poll(unittest.TestCase):
         self.assertIn('"cgi-bin/state.cgi?cmd=daynight&format=json&_="', (ROOT / 'src/webui/index/80-camera-controls.js').read_text())
         self.assertIn("'cgi-bin/action.cgi?cmd=hw_state&format=json&_='", (ROOT / 'www/hardware.html').read_text())
 
-    def test_isp_tune_and_fullconfig_parity(self):
-        over = {
-            'mnt/config/boot.conf': 'ISP_TUNE=1\nSERVICE_TRIM=0\nINTEGRATION_PROFILE=default\n',
-            'mnt/config/isp_tune.conf': 'BRIGHTNESS=12\nCONTRAST=-5\nPOWER_HZ=50\nEXPOSURE_MAX_PCT=80\nMASK1=10,20,30,40\nMASK_COLOR=gray\n',
-            'var/run/isp_tune.status': 'BRIGHTNESS=12\nPOWER_HZ=50\nEXPOSURE_NOW=1000\n',
-            'mnt/config/hostname.conf': 'CAM-TEST\n',
-            'mnt/config/timezone.conf': 'CET-1\n',
-            'mnt/config/ntp_srv.conf': 'pool.ntp.org\n',
-            'proc/net/route': 'Iface\tDestination\tGateway\tFlags\nwlan0\t00000000\t0101A8C0\t0003\n',
-            'sys/class/leds/blue_led/brightness': '1\n',
-            'sys/class/leds/red_led/brightness': '0\n',
-        }
-        with tempfile.TemporaryDirectory() as b:
-            fb = build(b, over)
-            self.start(fb)
-            it_path = '/cgi-bin/state.cgi?cmd=isp_tune&format=json'
-            self.assertEqual(self.native(it_path, it_path), cgi(fb, it_path))
-            fc_path = '/cgi-bin/state.cgi?cmd=fullconfig&_=1'
-            self.assertEqual(self.native(fc_path, fc_path), cgi(fb, fc_path))
+    # ---- isp_tune
+    def test_isp_tune_parity_with_the_cgi(self):
+        for name, over in IT_SCEN.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+                fa, fb = build(a, over), build(b, over)
+                self.start(fb)
+                for step in range(2):
+                    if step == 1:       # tc100_rtsp reported what it applied, the user moved a slider
+                        for f in (fa, fb):
+                            (f / 'var/run').mkdir(parents=True, exist_ok=True)
+                            (f / 'var/run/isp_tune.status').write_text('BRIGHTNESS=3\nPOWER_HZ_BASE=0\nMASKS=1\n')
+                            conf = f / 'mnt/config/isp_tune.conf'
+                            conf.write_bytes(b'HUE=-7\n' + (conf.read_bytes() if conf.exists() else b''))
+                    want = cgi(fa, IT)
+                    body = self.native(IT + '&_=%d' % step, (name, step))
+                    self.assertEqual(body.decode(), want, (name, step))
+                    if name not in IT_NOT_JSON:
+                        json.loads(body)
+                self.assertEqual(sorted(p.name for p in (fb / 'tmp').glob('state-response*')), [])   # nothing written
 
+    def test_isp_tune_values_are_what_the_fixture_says(self):
+        """B5: the values as isp-tune.sh _isp_num prints them, not normalized: a missing key is null (the slider shows
+        its default), an out-of-range value is printed, an exposure cap of 0 is 0"""
+        with tempfile.TemporaryDirectory() as b:
+            fb = build(b, IT_SCEN['edges'])
+            self.start(fb)
+            d = json.loads(self.native(IT, 'edges'))
+            self.assertEqual(d['enabled'], 1)
+            self.assertEqual(d['conf'], {'BRIGHTNESS': 99, 'CONTRAST': -80, 'SATURATION': 0, 'SHARPNESS': None, 'DENOISE': None,
+                                         'HUE': None, 'POWER_HZ': 70, 'EXPOSURE_MAX_PCT': 0, 'MASK1': '0,0,100,100',
+                                         'MASK2': '', 'MASK3': '', 'MASK4': '', 'MASK_COLOR': ''})
+            self.assertEqual(d['applied'], {'BRIGHTNESS': 12, 'POWER_HZ': 'auto', 'EXPOSURE_NOW': 1000, 'MASK_RC': -22})
+        with tempfile.TemporaryDirectory() as b:
+            fb = build(b, {'mnt/config/isp_tune.conf': None, 'var/run/isp_tune.status': None, 'mnt/config/boot.conf': None})
+            self.start(fb)
+            d = json.loads(self.native(IT, 'nothing'))
+            conf = dict.fromkeys(('BRIGHTNESS', 'CONTRAST', 'SATURATION', 'SHARPNESS', 'DENOISE', 'HUE', 'POWER_HZ',
+                                  'EXPOSURE_MAX_PCT'))
+            conf.update(dict.fromkeys(('MASK1', 'MASK2', 'MASK3', 'MASK4', 'MASK_COLOR'), ''))
+            self.assertEqual(d, {'enabled': 0, 'conf': conf, 'applied': None})
+
+    def test_isp_tune_falls_through_when_it_cannot_answer_exactly(self):
+        for name, over in IT_FALL.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as b:
+                fb = build(b, over)
+                self.start(fb)
+                resp, req = self.ask(IT)
+                self.assertEqual(resp, b'HTTPD:' + req, name)
+
+    def test_fullconfig_is_left_to_the_cgi(self):
+        """route 7 removed (audit 2026-11-24): once per Settings open, kept 5 s by state.cgi; the CGI always answers"""
+        with tempfile.TemporaryDirectory() as b:
+            fb = build(b, {'mnt/config/boot.conf': 'ISP_TUNE=1\n'})
+            self.start(fb)
+            for q in ('cmd=fullconfig', 'cmd=fullconfig&_=1', 'cmd=fullconfig&format=json', 'format=json&cmd=fullconfig',
+                      'cmd=isp_tune', 'cmd=isp_tune&format=plain', 'cmd=isp_tune&format=json&cmd=fullconfig'):
+                with self.subTest(q):
+                    resp, req = self.ask('/cgi-bin/state.cgi?' + q)
+                    self.assertEqual(resp, b'HTTPD:' + req, q)
+            resp, req = self.ask('/cgi-bin/action.cgi?cmd=isp_tune&format=json')
+            self.assertEqual(resp, b'HTTPD:' + req)
+        self.assertNotIn('fc_json', (ROOT / 'src/httpfront/poll.h').read_text())
 
 if __name__ == '__main__':
     unittest.main()

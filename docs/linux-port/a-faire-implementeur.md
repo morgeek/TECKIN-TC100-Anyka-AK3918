@@ -29,7 +29,10 @@ Rapport : [audit-2026-11-24-optim.md](audit-2026-11-24-optim.md) (lecture seule,
 - [x] **R3** commande MQTT retenue exécutée à chaque connexion (fait 2026-11-24 `[r3-mqtt]`, test-queue `R3-MQTT`) :
   `tc100-mqttd` et le pont shell (écouteur persistant, abonnement par fenêtre) ignorent une commande reçue avec le
   drapeau RETAIN, une ligne de journal sans le contenu ; le mode flux curl hérité ne voit pas le drapeau.
-- [ ] **T1 + B5** faire tourner le test de parité des routes natives de `httpfront`, puis corriger `isp_tune`.
+- [x] **T1 + B5** test de parité des routes natives de `httpfront` (fait 2026-11-24 `[parity]`, test-queue
+  `T1B5-PARITY`) : il tourne dans `local-ci.sh cross` et dans l'étape GitHub « httpfront under qemu-arm » (un saut
+  = échec) ; `isp_tune` natif recopie `_isp_num` / `isp_tune_get` exactement ; la route native `fullconfig` (7) est
+  retirée (le CGI répond, cache 5 s) ; `health.cgi` (5) gardée, sans écart.
 - [ ] Retirer les optimisations mortes (section 5 du rapport) en un seul nettoyage ; le reste des sections 2 et 4.
 
 ## Audit du 2026-11-16 (`[audit-1116]`)

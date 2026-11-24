@@ -27,7 +27,8 @@
  * without httpd and sh; anything it cannot answer exactly goes to httpd as before. Same for "GET /cgi-bin/dash.cgi" (the
  * dashboard poll, dash.h).
  * Same again for "GET /cgi-bin/state.cgi?cmd=daynight&format=json" and "GET /cgi-bin/action.cgi?cmd=hw_state&format=json"
- * (the Day/night and Hardware page polls, poll.h).
+ * (the Day/night and Hardware page polls), "GET /cgi-bin/state.cgi?cmd=isp_tune&format=json" and a fresh health.cgi
+ * cache (poll.h).
  *
  * Freestanding (no C library: raw ARM EABI system calls), a few KB instead of 630 KB for the static glibc
  * build it replaces. Build: arm-linux-gnueabi-gcc -Os -marm -march=armv5te -nostdlib -static -fno-builtin
