@@ -619,6 +619,25 @@ per flash write.
   KB / 5 s was the dawn light, not the code). rc44 stock on the same scene before: about 400 KB / 5 s (its quality
   QP was 27, no `RTSP_VBR_QP`). Still to see: 2 (a busy / noisy night scene rising above 650 kbit/s), 1 with
   `RTSP_FE_SUBBUF=1`, 3 smart=1, 4 over 24 h, 5. Left running on the .24 from 08:17 UTC.
+- **2026-11-24 08:05, first night of 3.0.2-rc2 on the .11 (up 9.2 h since the 22:51 reboot; the .24 on 3.0.1 as the
+  reference):**
+  - **FAILCOUNT:** `starts=1 pic_fail=0 enc_reopen=0 cap_stall=0 dq_err=0 sub_off=0 exit3=0`, the same in every
+    `memory-hourly.csv` row (9 rows), no `picture failed` / AKUIO_WAIT_IRQ, `tc100_rtsp` up since boot.
+  - **AWB-NIGHT:** night 00:11 -> 07:51 (local); night bit rate 650-890 kbit/s at 10 fps over the hours the log
+    still holds (05:00-07:00), never the ceiling (the .24 on 3.0.1 reached 1618 kbit/s on 17-18/11); at the morning
+    switch `AWB-05 resumed from saved day gains r 426 g 256 b 376 (rex 173 bex 326)`; `awb.state` written at 08:03
+    with day gains (193 318 ... day flag 0): no night state saved. The evening hand-over line itself had rotated
+    out of the log (log cap): to read at the next evening switch. Passed so far; one more night with the server
+    running across the evening switch to close it.
+  - **DN-FLAP:** one night entry (00:11) and one exit (07:51), no round trip (the .11 had 4-9 a night on 3.0.1); the
+    room was not necessarily dim-lit long enough to trigger the old fault: two more evenings. The .24 (3.0.1, no
+    fix) kept single round trips (22/11 23:45 -> 23:57, 23/11 23:03 -> 23:11).
+  - **MEMWATCH:** `/mnt/log/memory.csv` (no card: RAM) and `memory-hourly.csv` written every hour. 9 h:
+    `MemAvailable` 17.5-18.2 MB with no trend, `SUnreclaim` 3.45-3.64 MB flat, `Shmem` 1.28-1.46 MB, `CmaFree` 2.3 MB,
+    46 threads, 7 TCP sockets, no open deleted file, buddyinfo steady. The .24 (3.0.1): 17.1 MB after 4 d 15 h.
+  - **Wi-Fi:** .11 -36 dBm, 0 TX URB error, 0 RX URB lost, `txq_stops` 122, TCP retransmits 0.08 %, no
+    `Failed power on` since the reboot. The .24: SSH timed out once at 08:04 (ping 75 % lost for a few seconds, then
+    fine; -52 dBm instead of -43 on 18/11), 0 URB error, video up 111 h: a radio dip, not the firmware.
 - **2026-11-23 22:48, .11 updated to 3.0.2-rc2 (web update by the owner, build 1ede3c4; the .24 stays on 3.0.1 as
   the reference):** version 3.0.2-rc2, video up, new `STAT` tail and `/tmp/tc100_rtsp.counters` present
   (`starts=1 pic_fail=0 enc_reopen=0 cap_stall=0 dq_err=0 sub_off=0 exit3=0`), `memwatch.pending` written, A-MPDU TX
