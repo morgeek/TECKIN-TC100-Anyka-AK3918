@@ -406,18 +406,35 @@ per flash write.
   3. Hue -20 in the Image page: within 3 s the status shows `HUE=-20`; no frame turned twice as far (snapshot burst
      or VLC recording around the save).
   4. `pp_ms` of the STAT lines with hue 20 is the same as with hue 0 (no CPU table while the ISP takes the hue).
-- **Pass:** 1 to 4.
+  5. Night parameter set on (`RTSP_NIGHTSTYLE=1`, the default) and hue +20: two full day / night cycles (real dusk
+     and dawn, or `nightmode.sh on` / `off` twice, 30 s apart). After each return to day the colours are the same as
+     before the first night (same snapshot of the same scene), never turned further. Why: every parameter-set switch
+     runs `isp_bases_reset`, which reads the ISP's hue table again (`hue0`) and turns it by the setting. Kernel patch
+     0006 loads the tuning file's hue again on a style switch, so the hue should not stack, but only if the tuning
+     file has a hue block for each set; before B4 the hue went back to 0 at the first switch, so this was never
+     exercised.
+- **Pass:** 1 to 5. If 5 fails (the hue grows at each dawn): report it; the fix is to read `hue0` once per video
+  start instead of at every parameter-set switch.
 
-### R1-MDENC Encoder motion detection starts its mean again after a rate change (`[video-fix]`, audit 2026-11-24 R1) — `to test`
+### R1-MDENC Encoder motion detection follows the budget per picture (`[video-fix]`, audit 2026-11-24 R1) — `to test`
 - **What:** `RTSP_MD_ENC` (on by default) compares each main-stream P frame with a running mean of the P frame
-  sizes, and the mean learns calm frames only. When the free encoder's per-picture budget changes (the capture rate
-  in use: night parameter set 10 fps, low-light rate, idle rate; or an ABR bit rate step) the P frames change size
-  for a reason that is not motion: after a step up, every frame stayed above the old mean, which never learned again
-  (motion "on" all night in CBR with a high sensitivity, false events every ~10 s with `IDLE_FPS`). Now the mean
-  and the hit count start again (`md_enc_restart`) when the main free encoder's `fe->fps_now` changes, on an ABR
-  step, when the main encoder is (re)opened (back at the configured bit rate) and when the smart floor is released
-  without motion (as before); the first `MD_ENC_WARM` (16) P frames after a restart only teach the mean (every
-  frame, 1/4 weight: the rate control needs several pictures to reach the new budget), they never trigger.
+  sizes, and the mean learns calm frames only. When the free encoder's per-picture budget grows (the capture rate in
+  use going down: night parameter set 10 fps, low-light rate, idle rate; an ABR step up) the P frames grow for a
+  reason that is not motion, every frame stayed above the old mean, which never learned again (motion "on" all
+  night in CBR with a high sensitivity, false events every ~10 s with `IDLE_FPS`). `md_enc_track` now follows the
+  main free encoder's budget per picture (`rc.budget`) at every picture, which covers the capture rate, the ABR
+  steps and a reopened encoder (compared with the last one's budget):
+  - **budget bigger:** the mean starts again (`md_enc_restart`); its warm-up teaches it every P frame at 1/4 weight
+    and never triggers, for at least `MD_ENC_WARM_N` (6) P frames and `MD_ENC_WARM_S` (1.5 s). At an idle rate of
+    1-2 fps that is 3-6 s without this detector after each drop to the idle rate (the luma grid still watches);
+    at 10 fps and above, 1.5 s.
+  - **budget smaller** (idle -> full rate when someone walks in, night -> day, ABR step down): no restart (a
+    restart taught the mean the frames of the person who walked in: the rest of that walk and a second one soon
+    after were missed). In CBR the mean is scaled by new / old budget, then a hold of 6 P frames and 0.5 s neither
+    triggers nor learns while the rate control comes down. In VBR the mean is kept (a calm picture sits under the
+    ceiling, its size does not follow the budget).
+  - the smart floor released without motion restarts it, as before.
+  - the vendor encoder has no budget to follow: unchanged there.
 - **Revert:** `RTSP_MD_ENC=0` in `/mnt/config/rtsp.env` turns the whole detector off (as before); the previous build
   for the reset alone.
 - **Test:**
@@ -428,7 +445,11 @@ per flash write.
      that time. Same after `nightmode.sh off`. Old build for comparison: with these settings it stays at 1.
   2. Walk in front of the camera 30 s after the switch: motion is still seen.
   3. One night with `REC_WHEN=motion`: no all-night series of motion files in the recordings.
-- **Pass:** 1 to 3.
+  4. `IDLE_FPS` on, motion zones covering only part of the picture, a still scene at the idle rate. Walk in outside
+     the zones (only the encoder detector sees it), stay 10 s, leave, come back 5 s later: motion (`/tmp/rec_control`
+     = 1, MQTT event) for the first walk, kept while you stay after the `capture rate 25 fps` line, and again for the
+     second walk.
+- **Pass:** 1 to 4.
 
 ### W1-PRIVFILL Privacy mode paints the chroma with memset (`[video-fix]`, audit 2026-11-24 W1) — `to test`
 - **What:** `fill()` (privacy mode, CPU masks, the CPU clock box) wrote the chroma rows two bytes per loop turn into

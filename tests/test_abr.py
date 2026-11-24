@@ -18,7 +18,6 @@ static struct strm S[2];
 static int (*p_set_br)(void *, int);
 static int refuse;
 static int fake_br(void *h, int k) { (void)h; printf("SET %d\n", k); return refuse ? -1 : 0; }
-static void md_enc_restart(void) { printf("MD_ENC_RESTART\n"); }	/* R1: the encoder motion mean starts again */
 @BLOCK@
 int main(void)
 {
@@ -55,8 +54,6 @@ class Abr(unittest.TestCase):
         self.assertEqual(cur[-1], 2000)                  # back to the setting, never above
         self.assertTrue(all(600 <= c <= 2000 for c in cur))
         self.assertEqual(sets[0], 1400)
-        # R1: every accepted step restarts the encoder motion mean, a refused one does not
-        self.assertEqual(out.count('MD_ENC_RESTART'), len(sets) - 1)
         self.assertIn('ON 0', out)                       # a refusal turns the regulation off
         self.assertIn('regulation off', out)
 

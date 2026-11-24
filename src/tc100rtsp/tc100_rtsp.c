@@ -3513,15 +3513,50 @@ static void md_frame(const unsigned char *sy, double tn)
  * 60, count as motion (as the grid: /tmp/rec_control, MQTT, recording, idle frame rate). The motion zones do not apply
  * to it (the whole picture). In CBR the encoder evens the frame sizes out: it stays nearly silent there. No pixel is
  * read: no CPU cost. Off by default until checked on the camera (test-queue [md-enc]).
- * R1 (audit 2026-11-24): the mean learns calm frames only, so a new budget per picture (the capture rate in use:
- * night set, low light, idle rate; an ABR step; a new main encoder) that makes every P frame bigger without motion
- * left it below them for good: motion all night. md_enc_restart() then starts it again, and the first MD_ENC_WARM P
- * frames only teach it (every one, 1/4 weight: the rate control takes several pictures to reach a new budget). */
-#define MD_ENC_WARM 16
-static int md_enc_on, md_enc_hits, md_enc_warm;
+ * R1 (audit 2026-11-24): the mean learns calm frames only, so a new budget per picture that makes every P frame
+ * bigger without motion (the capture rate in use going down: night set, low light, idle rate; an ABR step up; a main
+ * encoder reopened at the configured rate after ABR lowered it) left it below them for good: motion all night.
+ * md_enc_track() follows the main free encoder's budget per picture (bytes, rc.budget) at every picture:
+ * - bigger: md_enc_restart(), the mean starts again; its warm-up (at least MD_ENC_WARM_N P frames and MD_ENC_WARM_S
+ *   seconds: the rate control takes several pictures to reach a new budget) teaches it every frame at 1/4 weight and
+ *   never triggers. At an idle rate of 1-2 fps that is 3-6 s without this detector.
+ * - smaller (rate up: idle -> full on motion, night -> day; an ABR step down): no restart, which would teach the
+ *   mean the frames of the person who just walked in. In CBR the P frames follow the budget: the mean is scaled by
+ *   new / old, and a hold (MD_ENC_WARM_N P frames and MD_ENC_HOLD_S) neither triggers nor learns while the rate
+ *   control comes down to the new budget (the first pictures keep the old size). In VBR a calm picture sits under
+ *   the ceiling and its size does not follow the budget: the mean is kept as it is.
+ * The smart floor released without motion also restarts it (below). The vendor encoder has no budget to follow. */
+#define MD_ENC_WARM_N 6
+#define MD_ENC_WARM_S 1.5
+#define MD_ENC_HOLD_S 0.5
+static int md_enc_on, md_enc_hits;
 static uint32_t md_enc_base;	/* running mean of the P frame sizes, x16 */
+static int md_enc_warm, md_enc_learn;	/* P frames left of a warm-up (learn 1) or a hold (learn 0) */
+static double md_enc_wend, md_enc_wlen;	/* it also lasts md_enc_wlen s from its first P frame, until md_enc_wend */
+static uint32_t md_enc_bud;	/* the main free encoder's budget per picture last seen, bytes (0: none yet) */
 
-static void md_enc_restart(void) { md_enc_base = 0; md_enc_hits = 0; md_enc_warm = MD_ENC_WARM; }
+static void md_enc_window(int learn, double len) { md_enc_warm = MD_ENC_WARM_N; md_enc_learn = learn; md_enc_wend = 0; md_enc_wlen = len; }
+
+static void md_enc_restart(void) { md_enc_base = 0; md_enc_hits = 0; md_enc_window(1, MD_ENC_WARM_S); }
+
+/* the budget per picture goes from old_b to new_b (bytes); cbr: the encoder fills its budget */
+static void md_enc_budget(uint32_t old_b, uint32_t new_b, int cbr)
+{
+	if (!old_b || !new_b || new_b == old_b) return;
+	if (new_b > old_b) { md_enc_restart(); return; }
+	md_enc_hits = 0;
+	if (!cbr || !md_enc_base) return;
+	md_enc_base = (uint32_t)((uint64_t)md_enc_base * new_b / old_b);
+	if (!md_enc_base) md_enc_base = 1;
+	md_enc_window(0, MD_ENC_HOLD_S);
+}
+
+static void md_enc_track(uint32_t budget, int cbr)
+{
+	if (budget == md_enc_bud) return;
+	md_enc_budget(md_enc_bud, budget, cbr);
+	md_enc_bud = budget;
+}
 
 static void md_enc_frame(uint32_t len, int idr, double tn)
 {
@@ -3529,11 +3564,13 @@ static void md_enc_frame(uint32_t len, int idr, double tn)
 
 	if (!md_enc_on || !md_on || priv_on || idr || len < 16) return;
 	if (!md_enc_base) { md_enc_base = len << 4; return; }
-	if (md_enc_warm > 0) {	/* after a restart: learn, never trigger */
-		md_enc_warm--;
-		md_enc_base += (uint32_t)(((int32_t)(len << 4) - (int32_t)md_enc_base) / 4);
+	if (md_enc_warm > 0 || tn < md_enc_wend) {	/* warm-up (learn) or hold: never triggers */
+		if (md_enc_wend == 0) md_enc_wend = tn + md_enc_wlen;
+		if (md_enc_warm > 0) md_enc_warm--;
+		if (md_enc_learn) md_enc_base += (uint32_t)(((int32_t)(len << 4) - (int32_t)md_enc_base) / 4);
 		return;
 	}
+	md_enc_wend = 0;
 	thr = 20 + (uint32_t)(100 - md_sens) * 40 / 99;			/* x10: 20 (x2) .. 60 (x6) */
 	if ((uint64_t)len * 160 > (uint64_t)md_enc_base * thr) md_enc_hits++;
 	else {
@@ -3770,7 +3807,7 @@ static void abr_tick(unsigned long dropped)
 	if (want == abr_cur) return;
 	r = p_set_br(S[0].enc, want);
 	LOG("ABR: %lu frames skipped in 5 s: main bit rate %d -> %d kbit/s (ak_venc_set_br: %d)\n", d, abr_cur, want, r);
-	if (r == 0) { abr_cur = want; md_enc_restart(); }	/* R1: a new budget per picture */
+	if (r == 0) abr_cur = want;	/* R1: md_enc_track sees the new budget per picture at the next picture */
 	else { abr_on = 0; LOG("ABR: the encoder refused the bit rate, regulation off\n"); }
 }
 
@@ -3836,7 +3873,7 @@ static int strm_reopen(struct strm *s)
 {
 	if (s->enc) p_close(s->enc);
 	s->enc = p_open(&s->pa);
-	if (s == &S[0]) { enc_gen++; md_enc_restart(); }	/* R1: back at the configured bit rate (ABR) */
+	if (s == &S[0]) enc_gen++;	/* R1: md_enc_track compares the new encoder's budget with the last one */
 	smart_setup(s);
 	s->nsent = 0; s->fails = 0;
 	if (!s->enc) pool_log(s);
@@ -4742,11 +4779,11 @@ unsigned char *fpb[2] = { NULL, NULL };
 					int was_fps = fe->fps_now;
 
 					fe_set_fps(fe, enc_rate);
-					if (fe->fps_now != was_fps) {
+					if (fe->fps_now != was_fps)
 						LOG("free encoder %s: capture rate %d fps (configured %d): %ld bytes per picture\n", s->name, fe->fps_now, fe->fps, (long)fe->rc.budget);
-						if (!k) md_enc_restart();	/* R1: a new budget per picture is not motion */
-					}
 				}
+				/* R1: a new budget per picture (capture rate, ABR step, a new encoder) is not motion */
+				if (!k) md_enc_track((uint32_t)fe->rc.budget, !fe->rc.vbr);
 				if (s->smart) {
 					/* the fixed GOP stays on the recorded stream while recording is configured (rec.c starts and rotates
 					 * files on keyframes, 128 samples a fragment, one thumbnail per GOP) and while the browser live

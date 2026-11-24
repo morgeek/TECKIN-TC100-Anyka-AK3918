@@ -16,8 +16,9 @@ Rapport : [audit-2026-11-24-optim.md](audit-2026-11-24-optim.md) (lecture seule,
 - [x] **B4 teinte (HUE) perdue** après la première bascule jour / nuit (fait 2026-11-24 `[video-fix]`, test-queue
   `B4-HUE`) : réglage (`hue_cfg`) séparé de la table CPU (`p_hue`).
 - [x] **R1** détection de mouvement par l'encodeur bloquée « en mouvement » après un changement de cadence (fait
-  2026-11-24 `[video-fix]`, test-queue `R1-MDENC`) : moyenne remise à zéro au changement de cadence ou de débit ABR,
-  16 images P d'apprentissage.
+  2026-11-24 `[video-fix]`, test-queue `R1-MDENC`) : la moyenne suit le budget par image de l'encodeur principal ;
+  budget plus grand : moyenne remise à zéro, apprentissage d'au moins 6 images P et 1,5 s ; budget plus petit : moyenne
+  mise à l'échelle en CBR (gardée en VBR), sans réapprendre la personne qui vient d'entrer.
 - [x] **W1** mode confidentialité : chroma peinte octet par octet (fait 2026-11-24 `[video-fix]`, test-queue
   `W1-PRIVFILL`) : un `memset` par ligne.
 - [x] **W3** double mise à zéro de 7,4 Mo à l'ouverture de l'encodeur (fait 2026-11-24 `[video-fix]`, test-queue
