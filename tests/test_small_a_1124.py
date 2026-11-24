@@ -68,10 +68,59 @@ class FifoRecords(unittest.TestCase):
                 self.assertEqual(len(payload), 2800)
                 self.assertEqual(set(payload), {ord('A') if head.endswith(b'a') else ord('B')})
 
+    @unittest.skipUnless(hasattr(os, 'mkfifo'), 'needs mkfifo')
+    def test_subshells_of_one_shell_do_not_share_a_file(self):
+        """review of R5: subshells share $$; their records must still arrive whole and once each"""
+        with tempfile.TemporaryDirectory() as t:
+            fifo = os.path.join(t, 'pub')
+            os.mkfifo(fifo)
+            pidf = os.path.join(t, 'pid')
+            Path(pidf).write_text('%d\n' % os.getpid())
+            fns = shfunc('scripts/mqtt-bridge.sh', '_mqtt_daemon_alive') + '\n' + shfunc('scripts/mqtt-bridge.sh', '_mqtt_sink_send')
+            code = fns + ('\nMQTT_SINK=; MQTT_DAEMON_FIFO="%s"; MQTT_DAEMON_PIDFILE="%s"\n'
+                          'pub() { big=$(printf "%%2800s" "" | tr " " "$1"); i=0; while [ $i -lt 40 ]; do '
+                          '_mqtt_sink_send P 0 "t/$1" "$big" || echo fail >&2; i=$((i+1)); done; }\n'
+                          '( pub A ) & ( pub B ) & wait\n') % (fifo, pidf)
+            got = bytearray()
+            stop = threading.Event()
+
+            def reader():
+                fd = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+                while not stop.is_set():
+                    try:
+                        b = os.read(fd, 65536)
+                    except BlockingIOError:
+                        b = b''
+                    if b:
+                        got.extend(b)
+                    else:
+                        stop.wait(0.01)
+                os.close(fd)
+            th = threading.Thread(target=reader)
+            th.start()
+            r = subprocess.run(SH + ['-c', code], capture_output=True, timeout=120)
+            n = 0
+            while n < 50 and len(got) < 2 * 40 * 2810:
+                stop.wait(0.1)
+                n += 1
+            stop.set()
+            th.join()
+            self.assertEqual(r.stderr, b'')
+            parts = bytes(got).split(b'\0')
+            self.assertEqual(parts.pop(), b'')
+            self.assertEqual(len(parts), 2 * 2 * 40, len(parts))
+            for i in range(0, len(parts), 2):
+                head, payload = parts[i], parts[i + 1]
+                self.assertEqual(len(payload), 2800)
+                self.assertEqual(set(payload), {ord('A') if head.endswith(b'A') else ord('B')})
+            self.assertFalse([f for f in os.listdir('/tmp') if f.startswith('.mqtt_rec.')])
+
     def test_record_limit_and_one_write_are_kept(self):
         fn = shfunc('scripts/mqtt-bridge.sh', '_mqtt_sink_send')
         self.assertIn('-lt 3000', fn)
         self.assertIn('bs=4096 count=1', fn)
+        self.assertIn('mktemp /tmp/.mqtt_rec.XXXXXX', fn)          # review of R5: one file per call
+        self.assertIn('-eq "$_ss_len" ] 2>/dev/null && [ "$_ss_len" -le 4096 ]; } || {', fn)   # a cut record is never sent
 
 
 class LogCapDaynight(unittest.TestCase):

@@ -655,8 +655,14 @@ _mqtt_sink_send()
   _mqtt_daemon_alive || return 1
   # One write() of the whole record (BusyBox printf may split 1-3 KB into several; two publishers would interleave and
   # mqttd drops the buffer): built in a file, handed over by one dd read and one write, <= PIPE_BUF (atomic).
-  _ss_tmp="/tmp/.mqtt_rec.$$"
+  # The file is unique (mktemp: subshells of one shell share $$), and it is sent only when it holds the whole record
+  # (review of R5): a full /tmp could leave it cut, and a cut record without its final NUL would merge with the next
+  # one in mqttd; a multibyte payload longer than its character count may not exceed one dd block either.
+  _ss_tmp=$(mktemp /tmp/.mqtt_rec.XXXXXX 2>/dev/null) || return 1
+  _ss_len=$((${#1} + ${#2} + ${#3} + ${#4} + 2))
   printf '%s%s%s\000%s\000' "$1" "$2" "$3" "$4" > "$_ss_tmp" 2>/dev/null || { rm -f "$_ss_tmp"; return 1; }
+  _ss_got=$(wc -c < "$_ss_tmp" 2>/dev/null)
+  { [ "${_ss_got:-x}" -eq "$_ss_len" ] 2>/dev/null && [ "$_ss_len" -le 4096 ]; } || { rm -f "$_ss_tmp"; return 1; }	# fails closed
   dd if="$_ss_tmp" bs=4096 count=1 > "$MQTT_DAEMON_FIFO" 2>/dev/null
   _ss_rc=$?
   rm -f "$_ss_tmp"
