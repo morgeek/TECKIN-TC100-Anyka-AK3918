@@ -55,7 +55,7 @@ jobs:
         if: steps.base.outputs.cache-hit != 'true'
         run: |
           set -e
-          # reproducible base image (BR2_REPRODUCIBLE=y in tc100_defconfig): the time of the pinned Buildroot commit, not
+          # base image file times (BR2_REPRODUCIBLE is left off for now, review of CI-PIN): the time of the pinned Buildroot commit, not
           # ours, so the image keeps the same bytes while its cache key does (the key is the external tree, not the commit)
           export SOURCE_DATE_EPOCH=$(git -C buildroot-src log -1 --format=%ct)
           mkdir -p dl

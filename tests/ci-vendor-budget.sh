@@ -13,5 +13,5 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 mkdir "$W/root"
 head -c "$ISP_MAX" /dev/urandom > "$W/root/isp.conf"
-mksquashfs "$W/root" "$W/vendor.sqfs" -comp xz -b 256K -noappend -all-root -quiet -processors 1 -mem 8M >/dev/null
+mksquashfs "$W/root" "$W/vendor.sqfs" -comp xz -b 256K -noappend -all-root -quiet -processors 1 >/dev/null	# no -mem 8M: below 16M only our patched mksquashfs (SQUASHFS_LOWMEM 32) accepts it
 python3 "$REPO/scripts/flash_budget.py" --vendor "$W/vendor.sqfs" "$@"

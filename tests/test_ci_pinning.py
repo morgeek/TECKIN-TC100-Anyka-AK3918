@@ -171,7 +171,10 @@ class Reproducible(unittest.TestCase):
         self.assertLess(k.index('SOURCE_DATE_EPOCH=$(git log'), k.index('Compile zImage'))
         b = text('.github/workflows/build-base-rootfs.yml')
         self.assertIn('export SOURCE_DATE_EPOCH=', b)
-        self.assertRegex(text('v3/buildroot/configs/tc100_defconfig'), r'(?m)^BR2_REPRODUCIBLE=y$')
+        # BR2_REPRODUCIBLE is left off (review of CI-PIN: it changes the build flags of every base binary)
+        self.assertNotRegex(text('v3/buildroot/configs/tc100_defconfig'), r'(?m)^BR2_REPRODUCIBLE=y$')
+        self.assertIn('sudo env SOURCE_DATE_EPOCH=', text('.github/workflows/build-kernel-linux66.yml'))
+        self.assertNotIn('-mem 8M', text('tests/ci-vendor-budget.sh'))
 
     def test_image_tools_get_the_time(self):
         self.assertRegex(text('v3/build-stack.sh'), r'-mkfs-time \$SOURCE_DATE_EPOCH -all-time \$SOURCE_DATE_EPOCH')

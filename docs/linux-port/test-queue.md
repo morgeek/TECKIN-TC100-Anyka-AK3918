@@ -629,15 +629,19 @@ per flash write.
   (`cap`, `enc`, `snd_ms`, `pp_ms`, `dropped`, `pic_fail` 0, `cap_stall` 0, `exit3` 0); no reboot, no oops.
 
 ### CI-PIN Pinned CI inputs, reproducible builds, vendor budget gate (`[ci-pin]`, audit 2026-11-16) — `to test` (owner, next GitHub runs)
-- **What:** no change to the camera image except its timestamps. (1) every action of `.github/workflows` is pinned by commit
+- **What:** no change of content in our own image pieces (timestamps only), but **the Buildroot base image is rebuilt**
+  (its cache key includes the pinned workflow and `ci-pins.sh`): busybox, dropbear, wpa_supplicant, curl, mbedTLS,
+  tc100-whep and the camera's mksquashfs are new builds of the same versions and config. (1) every action of `.github/workflows` is pinned by commit
   SHA; (2) every download is checked: `.github/ci-pins.sh` holds the Linux v6.6 and Buildroot 2024.02.9 commits, the
   mbedTLS 2.28.9 and RTL8188FU firmware SHA-256 (clones are compared with `git rev-parse HEAD`), `npm ci` uses
   `src/webui/package-lock.json`, the WHEP test installs `tests/docker/requirements-whep-interop.txt` with
   `--require-hashes`; (3) `SOURCE_DATE_EPOCH` (commit time) and `KBUILD_BUILD_*` in the kernel job, passed to mksquashfs,
-  the initramfs cpio, the zip and tar packages, gzip `-n`; Buildroot with `BR2_REPRODUCIBLE=y` (the first run rebuilds
-  the base image: about 40 min, the cache key changes); (4) a new CI step `Flash budget gate` checks the stack,
+  the initramfs cpio (passed through `sudo env`), the zip and tar packages, gzip `-n`; `BR2_REPRODUCIBLE` stays off
+  (the first run rebuilds the base image: about 40 min); (4) a new CI step `Flash budget gate` checks the stack,
   initramfs and a worst-case stand-in of the `vendor` image against their partitions (`tests/ci-vendor-budget.sh`).
-- **Switch / revert:** the previous commit; nothing runs on the camera.
+- **Switch / revert:** the previous commit (the previous release on the camera).
+- **Camera smoke test of the rebuilt base (first build after this commit):** Wi-Fi joins, ssh from the LAN, the web
+  live view (WebRTC / tc100-whep), an MQTT publish (curl), and a web update or `install66` (its vendor mksquashfs).
 - **Test (owner, on GitHub):** the next runs of `ci.yml`, `build-kernel-linux66.yml` and `build-base-rootfs.yml` are
   green. Reproducibility: run `build-kernel-linux66.yml` twice on the same commit (workflow_dispatch) and compare
   `sha256sum tc100-*-update.tar` of the two `tc100-3-release` artifacts.
