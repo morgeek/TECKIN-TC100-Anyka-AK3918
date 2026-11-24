@@ -219,8 +219,6 @@ HW_FALL = {
     'token_empty': {'tmp/csrf_token': ''},
     'token_unclean': {'tmp/csrf_token': 'abc-123\n'},
     'no_hardware_script': {'mnt/scripts/action.d/hardware.sh': None},
-    'no_log_dir': {'tmp/log/audit.log': None, 'tmp/log': 'not a directory'},
-    'log_to_rotate': {'tmp/log/audit.log': '1700000000 cmd=hw_state ip=192.0.2.7\n' * 2000},
     'pid_empty': {'var/run/auto-night-detection.pid': ''},         # busybox kill takes "" as 0: its own group
     'pid_newline_only': {'var/run/auto-night-detection.pid': '\n'},
     'pid_text': {'var/run/auto-night-detection.pid': 'abc\n'},
@@ -421,10 +419,9 @@ class Poll(unittest.TestCase):
                     self.assertEqual(body, want.encode(), (name, step))
                     if name not in ('sound_needs_escaping', 'sound_utf8'):       # printed as they are: not JSON, on both sides
                         json.loads(body)
-                # the audit log of action.cgi: one line per request on both sides (the address is each client's own)
-                la, lb = (fa / 'tmp/log/audit.log').read_text(), (fb / 'tmp/log/audit.log').read_text()
-                self.assertEqual(la, '1700086400 cmd=hw_state ip=192.0.2.7\n' * 2, name)
-                self.assertEqual(lb, la.replace('192.0.2.7', '127.0.0.1'), name)
+                # W5 (owner 2026-11-24): a read-only query leaves no audit line, on either side
+                for f in (fa, fb):
+                    self.assertFalse((f / 'tmp/log/audit.log').exists(), name)
                 self.assertEqual(sorted(p.name for p in (fa / 'tmp/log').iterdir()), sorted(p.name for p in (fb / 'tmp/log').iterdir()))
 
     def test_hw_state_values_are_what_the_fixture_says(self):
@@ -523,8 +520,8 @@ class Poll(unittest.TestCase):
             time.sleep(0.3)
             self.assertEqual(Path(self.lock, 'fail').stat().st_size % 4, 0)     # failed logins still noted for the lockout
             self.assertGreaterEqual(Path(self.lock, 'fail').stat().st_size, 4)
-            # only the right login left a line in the audit log
-            self.assertEqual((fb / 'tmp/log/audit.log').read_text().count('\n'), 1)
+            # W5: hw_state is read-only, no audit line whatever the login
+            self.assertFalse((fb / 'tmp/log/audit.log').exists())
 
     def test_health_cache_hit_and_fallback(self):
         sample = '{"ok":true,"ts":1700000090,"services":{"rtsp-h26x":"running"},"system":{"uptime_sec":100}}\n'

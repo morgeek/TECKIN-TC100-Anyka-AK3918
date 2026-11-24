@@ -560,6 +560,16 @@ per flash write.
   3. Settings opens and fills every tab as before (`fullconfig` from the CGI: `curl -si -u $U "http://127.0.0.1/cgi-bin/state.cgi?cmd=fullconfig"` says `Content-type: text/plain`).
 - **Pass:** 1 and 3 unchanged, `diff` empty in 2.
 
+### W5-AUDIT Read-only queries no longer noted in the audit log (`[w5-audit]`, audit 2026-11-24 W5, owner's decision) — `to test`
+- **What:** `action.cgi` noted every command in `/tmp/log/audit.log`, the read-only ones too (`ACTION_GET_READS`:
+  `hw_state`, `showlog`, `wifi_scan`, ...); the Hardware page polls `hw_state` every 2 s, which filled the 64 KB log in
+  about an hour and its 100-line rotation erased the real entries. Read-only queries are no longer noted, in the CGI
+  and in httpfront's native `hw_state` (its audit-line code is gone). Every other command is noted as before.
+- **Revert:** the previous build (no switch: the owner does not want these lines).
+- **Test:** open the Hardware page 10 min, then reboot from the web UI: `/tmp/log/audit.log` (before the reboot, or
+  the persisted copy) holds the reboot line and no `cmd=hw_state` line.
+- **Pass:** as described.
+
 ### CLEANUP-1124 Dead or never-paid optimisations removed (`[cleanup]`, audit 2026-11-24 section 5) — `to test`
 - **What:** code paths that were off by default (or impossible) are gone; the default path is unchanged, byte for byte
   on the host tests (RTP packets over UDP and TCP, the live view's fMP4). The `STAT` line is not touched.

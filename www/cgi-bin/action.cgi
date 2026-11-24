@@ -1160,7 +1160,12 @@ if [ -n "$F_cmd" ]; then
   if [ -z "$F_val" ]; then
     F_val=100
   fi
-  [ "${ACTION_AUDIT_SKIP:-0}" = 1 ] || audit_log "$F_cmd"
+  # read-only queries are not noted (W5, owner 2026-11-24): the Hardware page polls hw_state every 2 s and filled the
+  # 64 KB log in about an hour, its 100-line rotation then erasing the real entries (reboot, password change, saves)
+  case " $ACTION_GET_READS " in
+    *" $F_cmd "*) ;;
+    *) [ "${ACTION_AUDIT_SKIP:-0}" = 1 ] || audit_log "$F_cmd" ;;
+  esac
   # Enforce CSRF for all state-changing commands. Read-only queries are whitelisted.
   case "$F_cmd" in
     showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|wifi_rescue_info|wifi_country_info|local_rec_status|sd_card_info|md_zones_info|motion_heatmap|rtsp_server_info|events_info|hw_state|mem_budget|ha_discovery_info|presence_info) ;;

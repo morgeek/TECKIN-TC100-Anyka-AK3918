@@ -17,11 +17,11 @@
  *   - a query whose cmd or format is not plain text (%XX, +), or no format=json (the Accept header is left to the CGI);
  *   - a number the shell would read as octal, or a product that would wrap its 64 bits; a value ending in '='; a line or a value
  *     longer than the buffers;
- *   - hw_state: a missing or unclean /tmp/csrf_token (csrf_guard creates it), an audit log to create or to rotate
- *     (/tmp/log/audit.log over 64 KB), a pid file holding anything but one number, a control character in the level.
+ *   - hw_state: a missing or unclean /tmp/csrf_token (csrf_guard creates it), a pid file holding anything but one
+ *     number, a control character in the level.
  * daynight: state.cgi keeps its answer 1 s in /tmp/state-response-daynight-json.cache; here the same files are read at
- * each request and nothing is written. hw_state: action.cgi notes every command in /tmp/log/audit.log, this one
- * included; the same line is appended here (same clock: btime + uptime, same address as httpd's REMOTE_ADDR). */
+ * each request and nothing is written. hw_state: a read-only query, not noted in /tmp/log/audit.log by action.cgi
+ * (W5, owner 2026-11-24), so nothing is written here either. */
 #ifndef HF_POLL_H
 #define HF_POLL_H
 
@@ -31,7 +31,6 @@
 #define SYS_lseek 19
 #define SYS_kill 37
 
-static u32 pl_ip;	/* the client (host order): REMOTE_ADDR of the audit line */
 
 static int pl_is(const char *s, int n, const char *w) { return slen(w) == n && !cred_cmp(s, w, n); }
 
@@ -270,25 +269,6 @@ static int hs_alive(const char *path)
 	return sc(SYS_kill, num(b), 0, 0, 0, 0) == 0;
 }
 
-/* the line audit_log of action.cgi appends: "<btime + uptime> cmd=hw_state ip=<address>". 0 = left to the shell (no
- * /tmp/log yet, or a log to rotate: more than 64 KB) */
-static int hs_audit(void)
-{
-	char ln[96];
-	int l = fmt_u(ln, st_now);
-	long fd, sz;
-
-	cat(ln, &l, sizeof ln, " cmd=hw_state ip=");
-	for (int i = 3; i >= 0; i--) { l += fmt_u(ln + l, pl_ip >> (8 * i) & 255); ln[l++] = i ? '.' : '\n'; }
-	fd = sc(SYS_open, (long)P("/tmp/log/audit.log"), O_WRONLY | O_CREAT | O_APPEND, 0644, 0, 0);
-	if (fd < 0) return 0;
-	sz = sc(SYS_lseek, fd, 0, 2 /* SEEK_END */, 0, 0);
-	if (sz >= 0 && sz <= 65536) sz = sc(SYS_write, fd, (long)ln, l, 0, 0) == l;
-	else sz = 0;
-	sc(SYS_close, fd, 0, 0, 0, 0);
-	return (int)sz;
-}
-
 static int hs_json(const char *root)
 {
 	char tk[80], fl[40], rl[40], ir[40], cut[40], snd[120], btn[40], *p, *ts, *lv;
@@ -304,7 +284,6 @@ static int hs_json(const char *root)
 	for (i = 0; tk[i]; i++)
 		if (!((tk[i] >= '0' && tk[i] <= '9') || (tk[i] >= 'a' && tk[i] <= 'f') || (tk[i] >= 'A' && tk[i] <= 'F'))) return 0;
 	if (!st_exists("/mnt/scripts/action.d/hardware.sh")) return 0;	/* "Unsupported command" */
-	st_clock();	/* the time of the audit line */
 	front = hs_led("/sys/class/leds/blue_led/brightness", "/sys/class/leds/blue/brightness", fl, sizeof fl);
 	red = hs_led("/sys/class/leds/red_led/brightness", "/sys/class/leds/red/brightness", rl, sizeof rl);
 	st_first("/sys/class/leds/ir/brightness", ir, sizeof ir, 0);
@@ -340,7 +319,7 @@ static int hs_json(const char *root)
 	for (; *db; db++) o_c(*db);	/* printf %s: as it is, a backslash or a quote included */
 	o_r(",\"button\":"); o_r(button);
 	o_r("}\n");
-	return !st_bail && hs_audit();
+	return !st_bail;
 }
 
 /* ---- health.cgi cache hit ---- */
@@ -528,7 +507,7 @@ static const char *poll_response(int route, const char *root, u32 ip, int *len)
 	static const char h1[] = "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nPragma: no-cache\r\n"
 		"Cache-Control: max-age=0, no-store, no-cache\r\nConnection: close\r\nContent-Length: ";
 
-	pl_ip = ip;
+	(void)ip;	/* the client address: no audit line any more (W5) */
 	return (route == 3 ? dn_json(root) : route == 4 ? hs_json(root) : route == 5 ? hc_json(root) : it_json(root))
 		? wrap_response(h1, len) : 0;
 }

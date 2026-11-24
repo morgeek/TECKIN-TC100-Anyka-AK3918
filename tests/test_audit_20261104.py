@@ -38,6 +38,20 @@ class NoReflectedValues(unittest.TestCase):
             self.assertNotIn('<', out)
             self.assertIn('cmd=set_xscriptalert1scriptforgedcmdreb', out)
 
+    def test_read_only_queries_are_not_audited(self):
+        # W5 (owner 2026-11-24): the 2 s hw_state poll filled the audit log and its rotation erased the real entries
+        src = text('www/cgi-bin/action.cgi')
+        reads = re.search(r'^ACTION_GET_READS="([^"]*)"', src, re.M).group(1).split()
+        i = src.index('|| audit_log "$F_cmd"')
+        block = src[src.rindex('case " $ACTION_GET_READS " in', 0, i):i]
+        with tempfile.TemporaryDirectory() as d:
+            code = ('ACTION_GET_READS="%s"\naudit_log() { echo "$1" >> %s/audit.log; }\nF_cmd="$1"\n%s|| audit_log "$F_cmd" ;;\nesac\n'
+                    % (' '.join(reads), d, block))
+            for cmd, logged in (('hw_state', False), ('showlog', False), ('reboot', True), ('set_all_password', True)):
+                Path(d, 'audit.log').unlink(missing_ok=True)
+                subprocess.run(SHELL + ['-c', code, 'sh', cmd], check=True)
+                self.assertEqual(Path(d, 'audit.log').exists(), logged, cmd)
+
     def test_showlog_escapes_the_logs(self):
         src = text('www/cgi-bin/action.cgi')
         body = src[src.index('emit_log_tail_dir() {'):src.index('\n}\n', src.index('emit_log_tail_dir() {'))]
