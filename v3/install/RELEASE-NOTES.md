@@ -2,6 +2,19 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
+## What is new in 3.0.2-rc3 (test build, branch main)
+Everything of 3.0.2-rc2, plus the fixes of the audit of the C optimisation code (24/11). Updating keeps the settings.
+- **Security:** after a password change ONVIF no longer accepts the old password (it did until a restart); a
+  *retained* MQTT command is no longer executed at every connection (a retained reboot made a reboot loop).
+- **Fixes:** a sound starts a recording again with `REC_WHEN=motion`; two-way audio off is seen by ONVIF; the hue you
+  set survives the day/night switches; encoder motion detection no longer sticks "on" all night; the reset button keeps
+  its timing during a day/night switch, and a stuck night script no longer blocks it.
+- **Lighter:** privacy mode and a few loops cost less CPU; read-only web queries no longer fill the audit log; about
+  4 KB of dead video code removed (default behaviour unchanged).
+- **To test:** the test-queue entries `B1-ONVIF`, `R3-MQTT`, `B2B3-CONF`, `B4-HUE`, `R1-MDENC`, `R2-BUTTON`,
+  `W1-PRIVFILL`, `W3-ZERO`, `T1B5-PARITY`, `W5-AUDIT`, `CLEANUP-1124`, `SMALL-A-1124`, `SMALL-B-1124`, plus those of
+  rc2 and rc1 still open.
+
 ## What is new in 3.0.2-rc2 (test build, branch main)
 Everything of 3.0.2-rc1, plus the fixes from the 2-day readings of 3.0.1 and new measurements. Updating keeps the settings.
 - **White balance at night (`AWB-NIGHT`):** the AWB-05 loop is paused at night and the ISP's automatic white balance is back (the .24 sat at 1618 kbit/s all night after an evening switch); the day gains return at dawn; a night or implausible `awb.state` is never loaded (`RTSP_AWB_NIGHT=0` to revert).

@@ -5,6 +5,52 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [3.0.2-rc3] - 2026-11-24
+
+Fixes of the audit of the C optimisation code (`docs/linux-port/audit-2026-11-24-optim.md`). No kernel change since
+rc1.
+
+### Security
+- **ONVIF sees a password change at once** (`[b1-onvif]`): `tc100-onvifd` read `user.pwd` only at start, so after a
+  password change in the web UI the old password kept working on ONVIF until a restart, and a daemon started before
+  the wizard set a password stayed open. `user.pwd` is now looked at before every authentication and the settings files
+  every 2 s; `all_password` writes `user.pwd` atomically and never leaves it empty. Test-queue B1-ONVIF.
+- **A retained MQTT command is not executed** (`[r3-mqtt]`): a command published *retained* was run at every
+  connection (a retained reboot = a reboot loop); `tc100-mqttd` and the shell bridge now drop it with one log line.
+  A command published retained on purpose to run at reconnect no longer runs. Test-queue R3-MQTT.
+
+### Fixed
+- **Settings read whole** (`[b2b3-conf]`): `boot.conf` (23.7 KB) was read into 16 KB by `tc100-supervisord` (a sound
+  never started a recording with `REC_WHEN=motion`) and 8 KB by `tc100-onvifd` (two-way audio off still advertised);
+  64 KB buffers, a file that still fills one is reported. Test-queue B2B3-CONF.
+- **Hue kept across day / night** (`[video-fix]` B4): the user's HUE was lost after the first day/night switch.
+- **Encoder motion detection** (`[video-fix]` R1): it could stick "motion on" all night after a change of the budget per
+  picture (night rate, idle rate, ABR); it now follows the budget, and does not learn the walk of a person who
+  just came in when the rate goes back up.
+- **Reset button** (`[r2-button]`): it is read during every wait for a script, so a hold that overlaps a day/night
+  switch or an MQTT publish keeps its length (8 s = reboot, 3-7 s = rescue access point); a hung `nightmode.sh` is
+  killed after 120 s (the script only) instead of blocking the button for good.
+- **Native web routes** (`[parity]`): their parity test runs in CI now; native `isp_tune` answers exactly as the
+  CGI (it fell back to the CGI as soon as a privacy mask was set); the native `fullconfig` route is removed (the CGI
+  answers, cached 5 s).
+- Small fixes (`[small]`): one write per MQTT FIFO record (two publishers no longer interleave); `auto-night-detection
+  restart` really restarts the C night job; `daynight.log` no longer trimmed by `log-cap.sh`; `rwconf` temp file
+  excluded from the settings slot; health probes and `memory.csv` no longer done twice.
+
+### Changed
+- **Audit log** (`[w5-audit]`, owner's decision): read-only queries (`hw_state`, `showlog`, `wifi_scan`, ...) are no
+  longer noted in `/tmp/log/audit.log`; the Hardware page's 2 s poll filled it and erased the real entries.
+- **Less CPU / work** (`[video-fix]` W1 W3, `[small]` W2 W6 W7 W9): privacy mode paints the chroma with one `memset` per
+  row; the encoder pool is zeroed once per open (7.4 MB, was twice); no division per AWB sample; `tc100-mdnsd` reads its
+  TXT files only for an answer and keeps host name / address 5 s; `tc100-onvifd` reads the motion file only with a
+  subscriber; `memcpy` for the encoder output and fewer clock reads.
+
+### Removed
+- Dead or never-paid paths of `tc100_rtsp` (`[cleanup]`): `RTSP_ZEROCOPY`, `RTSP_UDPMMSG`, `RTSP_PACING_US`,
+  `RTSP_SNDBUF`, `RTSP_POOLPAD`, `RTSP_FRAMECOPY=0`, `RTSP_LIVE_DIRECT=0` and the `/dev/mem` search of direct
+  capture (−4 KB); the JPEG "luma" fallback of the day/night logic. A leftover setting in `rtsp.env` is ignored. The
+  default behaviour is unchanged (same RTP packets, STAT fields and MP4 bytes). Test-queue CLEANUP-1124.
+
 ## [3.0.2-rc2] - 2026-11-23
 
 ### Added
