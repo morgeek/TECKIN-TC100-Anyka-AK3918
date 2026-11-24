@@ -629,6 +629,31 @@ per flash write.
   cameras with the server running across the evening switch; if the ceiling remains with AWB-05 paused, look at the
   night noise reduction (NR levels 64-512 / 512-1024 at 26x), the 3D NR (`NR3D=1`) and R1 (the budget at 10 fps
   lets a noisy picture use the whole ceiling; `RTSP_FE_FPS=0` caps it at 640 kbit/s as before).
+- **2026-11-24, reading of the first rc2 night and plan for the night of 24-25/11 (main session):**
+  - **Passed so far, nothing to fix:** FAILCOUNT (all 0, hourly copy works), AWB-NIGHT on the .11 (650-890 kbit/s,
+    day gains resumed and saved, no night state saved), MEMWATCH (flat over 9 h). DN-FLAP: no round trip, but the
+    room may not have reproduced the fault: two more evenings before a conclusion.
+  - **No fix yet for the two anomalies, on purpose:**
+    1. `rtl8xxxu: Failed power on` x2 on the first boot after the web update of the .11 only (healed by the driver's
+       retries, +7 s; not on the .24 with the same update). A fix would touch the update chain (power the chip down
+       before the update's reboot) for one self-healed case: more risk than the fault. Watch item WIFI-POWERON in
+       `a-faire-implementeur.md`; act only if it repeats.
+    2. Night bit rate at the ceiling on the .24: 3 min of samples right after a start at dawn, light rising under the
+       IR. AWB-05 was paused as designed, so it is not the cause there, but the data cannot yet tell between dawn
+       light, night noise at 26x gain, the 3D NR and the R1 budget (by design R1 lets a noisy picture use the whole
+       ceiling at 10 fps). Item NIGHT-CEIL in `a-faire-implementeur.md`.
+  - **The real gap was the measurement:** the capped video log (128 KB + `.1`, 2-4 h) lost the evening AWB hand-over
+    line and the bit rate from 00:11 to 05:00. Test of the night of 24-25/11, no new build:
+    1. On both cameras, `RTSP_LOGMAX=1048576` in `/mnt/config/rtsp.env`, then `controlscripts/rtsp-h26x restart`
+       before the evening: 1 MB + `.1` keeps about 9 h of `STAT` lines (up to 2 MB of RAM; `Shmem` in `memory.csv`
+       rises by that much that night: expected). Remove the line after the test.
+    2. No video restart until the morning, so that the evening switch happens with the server running.
+    3. In the morning, before any reboot (the logs are in RAM): copy `/tmp/logs/tc100_rtsp.log*` and
+       `/tmp/logs/daynight.log` of both cameras.
+  - **Reading (the .24):** ceiling through the whole deep night on a steady scene -> night noise at high gain (next:
+    night NR levels, 3D NR, or a night budget cap); ceiling only at dusk / dawn -> changing light under the IR, likely
+    acceptable as is; normal night bit rate as on the .11 -> this morning was a start-at-dawn case. Then one targeted
+    fix with its off switch.
 - **2026-11-24 08:05, first night of 3.0.2-rc2 on the .11 (up 9.2 h since the 22:51 reboot; the .24 on 3.0.1 as the
   reference):**
   - **FAILCOUNT:** `starts=1 pic_fail=0 enc_reopen=0 cap_stall=0 dq_err=0 sub_off=0 exit3=0`, the same in every

@@ -122,6 +122,23 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
   sur les deux caméras, lire avec le tableau de `internals.md` "Memory watch" ; noyau SD avec `CONFIG_SLUB_DEBUG`
   seulement si `SUnreclaim` monte (la baisse de ~0,4 Mo / jour n'est pas l'espace utilisateur).
 
+### B3. Trouvé dans la première nuit en 3.0.2-rc2 (24/11) — en observation, pas encore de correctif
+- [ ] **NIGHT-CEIL, débit de nuit au plafond sur la .24 malgré AWB-NIGHT.** Au démarrage à l'aube, AWB-05 s'est bien mis
+  en pause (`ISP auto`) mais le débit est resté à 1500-1870 kbit/s pendant 3 min (gain 26×, exposition qui bouge),
+  alors que la .11 est restée à 650-890 kbit/s toute la nuit. Pas de correctif tant qu'on ne sait pas si c'est la
+  lumière de l'aube sous l'IR, le bruit de nuit à fort gain, le 3D-NR ou le budget R1 (voulu : à 10 i/s une image
+  bruitée peut prendre tout le plafond ; `RTSP_FE_FPS=0` le ramène à 640 kbit/s). Mesure de la nuit du 24-25/11 :
+  `RTSP_LOGMAX=1048576` dans `rtsp.env` sur les deux caméras, pas de redémarrage vidéo avant le matin, relever les
+  journaux avant tout redémarrage (test-queue, relevé du 24/11). Lecture : plafond toute la nuit profonde → réglages de
+  bruit de nuit (NR 64-512 / 512-1024 à 26×), 3D-NR ou plafond de budget de nuit ; plafond seulement à l'aube et au
+  crépuscule → lumière changeante, sans doute acceptable ; débit normal → cas particulier du démarrage à l'aube.
+  Ensuite un seul correctif ciblé, avec son interrupteur.
+- [ ] **WIFI-POWERON, `rtl8xxxu: Failed power on` ×2 au premier démarrage après la mise à jour web (.11, 23/11).**
+  Rattrapé par les essais du pilote (+7 s), absent après un redémarrage et absent sur la .24 avec la même mise à jour.
+  Piste : la puce restée alimentée par l'ancien firmware pendant le redémarrage de la mise à jour. Pas de correctif
+  (il toucherait la chaîne de mise à jour pour un cas unique qui se corrige seul) ; à regarder à chaque mise à jour,
+  et seulement s'il se répète : couper la puce ou réinitialiser le périphérique USB avant le redémarrage.
+
 ### C. Polissage invisible (robustesse, ressources)
 - [x] **Sauvegarde des réglages 5,4 s → ~1 s (`cfg-persist`) :** la boucle par fichier (~180 forks `cmp` / `md5sum` /
   `cat`) remplacée par un seul `md5sum` sur tous les fichiers (POLISH-01).
