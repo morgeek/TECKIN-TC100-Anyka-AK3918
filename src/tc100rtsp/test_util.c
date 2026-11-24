@@ -166,6 +166,29 @@ int main(void)
 	CHECK(q_target(900000, 786432, 65536, 790528) == 786432);
 	CHECK(q_target(0, 16384, 65536, 790528) == 16384);		/* a small queue is never grown by the trim */
 
+	/* AWB grid (W2): the luma byte of every sample of post_awb_sample, stepped without a division, is the one of the
+	 * old i / W formula, for the camera's sizes and for widths that are no multiple of the step */
+	{
+		static const int wh[][2] = { { 1920, 1080 }, { 1280, 720 }, { 640, 360 }, { 2304, 1296 }, { 64, 36 }, { 100, 50 },
+					     { 1000, 562 }, { 1918, 1080 }, { 65, 31 } };
+		int k, bad = 0, total = 0;
+
+		for (k = 0; k < (int)(sizeof wh / sizeof wh[0]); k++) {
+			int w = wh[k][0], h = wh[k][1], i, col = 0, yoff = 0, n = 0;
+
+			for (i = 0; i < w * h / 2 - 2; i += 64) {
+				int uv_row = i / w, uv_col = i - uv_row * w;
+
+				if (yoff != (uv_row * 2) * w + uv_col || col != uv_col) bad++;
+				n++;
+				awb_grid_next(&col, &yoff, 64, w);
+			}
+			total += n;
+			if (w == 1920) CHECK(n == 16200);	/* the 16 200 samples of a 1080p picture */
+		}
+		CHECK(bad == 0 && total > 30000);
+	}
+
 	/* NAL table: same cut as next_nal(), 3 and 4 byte start codes, trailing zeros trimmed, H.264 and H.265 headers */
 	{
 		static const unsigned char fr[] = { 0, 0, 0, 1, 0x09, 0xf0,			/* AUD */

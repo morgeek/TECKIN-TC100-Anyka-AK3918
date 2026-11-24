@@ -1520,7 +1520,7 @@ static void post_awb_sample(const unsigned char *uv, int bw)
 	static int last_my = -1, settled, hold, acc_u, acc_v, acc_n;
 	const unsigned char *y_plane = uv - W * H;
 	long su = 0, sv = 0, sy = 0, gu = 0, gv = 0;
-	int n = 0, ng = 0, i;
+	int n = 0, ng = 0, i, uv_col = 0, y_off = 0;	/* y_off: the luma byte above chroma byte i (awb_grid_next, W2) */
 
 	if (sensor_fps_want) sensor_fps_set();
 	if (tune_dirty) { tune_hw_apply(); ispx_apply(); }
@@ -1538,8 +1538,7 @@ static void post_awb_sample(const unsigned char *uv, int bw)
 
 		su += u0; sv += v0; n++;
 		if (awb_grey) {
-			int uv_row = i / W, uv_col = i - uv_row * W;
-			int y0 = y_plane[(uv_row * 2) * W + uv_col];
+			int y0 = y_plane[y_off];
 
 			sy += y0;
 			/* mid-luma non-saturated candidates (ignore clipped highlights >220, dark shadows <40, and vivid patches) */
@@ -1547,6 +1546,7 @@ static void post_awb_sample(const unsigned char *uv, int bw)
 				gu += u0; gv += v0; ng++;
 			}
 		}
+		awb_grid_next(&uv_col, &y_off, 64, W);
 	}
 	if (!n) return;
 	if (awb_grey) {

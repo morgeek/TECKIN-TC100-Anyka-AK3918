@@ -202,6 +202,17 @@ static inline int q_target(int hi, int cap, int min, int max)
 	return t < cap ? t : cap;
 }
 
+/* ---- AWB sample grid ---------------------------------------------------------------------------------------------
+ * post_awb_sample reads every `step`-th byte i of the NV12 chroma plane (width w) and the luma byte above it, at row
+ * 2 * (i / w), column i % w. awb_grid_next() moves (col, yoff) along with i += step without a division (W2, audit
+ * 2026-11-24: i / W was a library division per sample on the ARM926): start at col = yoff = 0, call it after each
+ * sample; yoff stays 2 * (i / w) * w + i % w for any w > 0. */
+static inline void awb_grid_next(int *col, int *yoff, int step, int w)
+{
+	*col += step; *yoff += step;
+	while (*col >= w) { *col -= w; *yoff += w; }	/* next chroma row = two luma rows down: -w + 2w */
+}
+
 /* ---- one NAL scan per frame ------------------------------------------------------------------------------------
  * The encoder output is uncached memory: it is copied once (nal_copy, 32-bit reads) and the Annex B start codes are
  * found once in the copy, into a small table (offset of the NAL header byte, length up to the next start code with
