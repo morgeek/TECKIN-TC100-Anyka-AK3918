@@ -4,10 +4,12 @@
 # which lets a missing header through (a struct timeval broke the base build of 43efa80). Runs in alpine (musl).
 #   docker run --rm -v "$PWD:/src:ro" alpine:3.20 sh /src/tests/docker/whep-musl.sh
 set -e
-MB=2.28.9
+. /src/.github/ci-pins.sh
+MB=$MBEDTLS_VERSION
 apk add -q build-base curl >/dev/null
 cd /tmp
-curl -sfL --retry 3 "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-$MB/mbedtls-$MB.tar.bz2" | tar xj
+fetch_sha256 "$MBEDTLS_SHA256" "mbedtls-$MB.tar.bz2" "$MBEDTLS_URL"
+tar xjf "mbedtls-$MB.tar.bz2"
 cd "mbedtls-$MB"
 sed -i 's|^//#define MBEDTLS_SSL_DTLS_SRTP|#define MBEDTLS_SSL_DTLS_SRTP|' include/mbedtls/config.h
 make -j"$(nproc)" lib >/dev/null

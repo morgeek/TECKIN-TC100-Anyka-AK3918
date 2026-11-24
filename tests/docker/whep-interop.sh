@@ -7,11 +7,14 @@
 set -eu
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 W=${WHEP_WORK:-/tmp/whep-work}
-MB=2.28.9
+# . pins: MBEDTLS_VERSION, MBEDTLS_SHA256, fetch_sha256 (one place for the checksum)
+. "$REPO/.github/ci-pins.sh"
+MB=$MBEDTLS_VERSION
 mkdir -p "$W"; cd "$W"
 if [ ! -f "mbedtls-$MB/library/libmbedtls.a" ]; then
 	rm -rf "mbedtls-$MB"
-	curl -sfL --retry 3 "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-$MB/mbedtls-$MB.tar.bz2" | tar xj
+	fetch_sha256 "$MBEDTLS_SHA256" "mbedtls-$MB.tar.bz2" "$MBEDTLS_URL"
+	tar xjf "mbedtls-$MB.tar.bz2"
 	cd "mbedtls-$MB"
 	python3 scripts/config.py set MBEDTLS_SSL_DTLS_SRTP
 	python3 scripts/config.py set MBEDTLS_SSL_EXPORT_KEYS 2>/dev/null || true
@@ -24,6 +27,8 @@ gcc -Os -Wall -Wextra -Werror -I "mbedtls-$MB/include" -o tc100-whep "$REPO/src/
 	-L "mbedtls-$MB/library" -lmbedtls -lmbedx509 -lmbedcrypto
 strip tc100-whep
 echo "tc100-whep (host build, stripped, bytes): $(wc -c < tc100-whep)"
-pip install -q aiortc 2>&1 | tail -2
+# hash-pinned (every package and its dependencies): tests/docker/requirements-whep-interop.txt, made from the .in file with
+# pip-compile --generate-hashes
+pip install -q --require-hashes -r "$REPO/tests/docker/requirements-whep-interop.txt" 2>&1 | tail -2
 cd "$REPO"
 WHEP_DEBUG="${WHEP_DEBUG:-}" WHEP_BIN="$W/tc100-whep" LD_LIBRARY_PATH="$W/mbedtls-$MB/library" python3 tests/whep_interop.py -v

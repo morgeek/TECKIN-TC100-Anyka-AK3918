@@ -33,6 +33,10 @@ The gates that run it or repeat its limits:
   refuses a kernel that does not fit the kernel partition.
 - **Stack:** `v3/build-stack.sh` (`STACK_MAX=2830336`, lines 20 and 174) refuses a `stack.sqfs` larger than the
   `stack` partition.
+- **Vendor, in CI:** the vendor image is made on each camera, so CI builds a stand-in the same way (mksquashfs, xz,
+  256 KiB blocks) from a worst-case `isp.conf` of 64 KiB (five times the measured size) and runs
+  `flash_budget.py --vendor` on it (`tests/ci-vendor-budget.sh`, step "Flash budget gate" of the kernel job, which also
+  checks `--initrd` and `--stack`). `VENDOR_MAX` of `v3/install/install66.sh` is tested against the partition size.
 - **Vendor and settings:** not in the image. `vendor` is made on each camera at install (`v3/install/`), and the
   settings slots are written through `v3/linux66-sd/cfg-persist` (the flash writer `flashw` does the partition writes).
 

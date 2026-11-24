@@ -160,8 +160,13 @@ chmod -R a+rX "$T"; chmod 755 "$T"/bin/* "$T"/ext/bin/* "$T"/tc100test/tc100_rts
 # (the ELF programs); the kernel decodes it (CONFIG_XZ_DEC_ARM, CONFIG_XZ_DEC_BCJ) with no extra memory.
 # SQFS_BCJ=none builds without it.
 case "${SQFS_BCJ:-arm}" in none) bcj= ;; *) bcj="-Xbcj ${SQFS_BCJ:-arm}" ;; esac
+# reproducible image (item CI-PIN): with SOURCE_DATE_EPOCH (the CI sets it to the commit time) every inode and the
+# filesystem carry that time, so two builds of one commit give the same bytes (the entries are sorted, xz is deterministic).
+# mksquashfs 4.6 refuses the variable together with these options (it reads the variable itself, but only clamps the
+# times): the flags are given and the variable removed from its environment
+sdt=; [ -z "${SOURCE_DATE_EPOCH:-}" ] || sdt="-mkfs-time $SOURCE_DATE_EPOCH -all-time $SOURCE_DATE_EPOCH"
 # shellcheck disable=SC2086
-mksquashfs "$T" "$OUT/stack.sqfs" -comp xz $bcj -b 128K -noappend -all-root -quiet \
+env -u SOURCE_DATE_EPOCH mksquashfs "$T" "$OUT/stack.sqfs" -comp xz $bcj $sdt -b 128K -noappend -all-root -quiet \
 	-p "bin/busybox s 777 0 0 /bin/busybox" \
 	-e ext/bin/mksquashfs bin/busybox scripts/build-kernel-docker.sh scripts/flash_budget.py scripts/generate_sounds.py scripts/pcm2alaw.py \
 	v3/install/envtool.c v3/install/RELEASE-NOTES.md v3/install/README-SD.txt \

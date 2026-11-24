@@ -8,6 +8,6 @@ Twenty-five patches on top of tag `v6.6`, one per subsystem or feature:
 The series is the only source of the kernel changes (CI applies it with `git am`).
 Configuration: `../defconfig_cma` (copy to `.config`, then `make olddefconfig`).
 The RTL8188FU firmware is embedded: put `rtlwifi/rtl8188fufw.bin` from linux-firmware (tag 20241017) in `firmware/` of the
-kernel tree first (CI and `scripts/build-kernel-docker.sh` download it and check its SHA-256).
+kernel tree first (CI and `scripts/build-kernel-docker.sh` download it and check its SHA-256, kept in `.github/ci-pins.sh`).
 
 Whitespace warnings from `git apply` come from the vendor-derived drivers and are harmless.

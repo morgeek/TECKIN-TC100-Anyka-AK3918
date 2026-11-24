@@ -62,7 +62,16 @@ if [ ! -f lib/firmware/regulatory.db ]; then
   echo "warning: no lib/firmware/regulatory.db, the Wi-Fi keeps the world rules" >&2
 fi
 INITRD_SIZE=${INITRD_SIZE:-2012654}
-find . | cpio -o -H newc --quiet | xz -9 --check=crc32 --lzma2=dict=2MiB > "$OUT.tmp"
+# reproducible image (item CI-PIN): with SOURCE_DATE_EPOCH (the CI sets it to the commit time) every file gets that time,
+# the list is sorted and GNU cpio renumbers the inodes (--reproducible, cpio 2.14 or later: without it
+# the inode numbers can differ between two builds); xz keeps the same input as before otherwise
+cpio_opt=
+if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
+  find . -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +
+  if cpio --help 2>&1 | grep -q -- --reproducible; then cpio_opt=--reproducible; else echo "warning: this cpio has no --reproducible (inode numbers may differ)" >&2; fi
+fi
+# shellcheck disable=SC2086
+find . | LC_ALL=C sort | cpio -o -H newc --quiet $cpio_opt | xz -9 --check=crc32 --lzma2=dict=2MiB > "$OUT.tmp"
 n=$(wc -c < "$OUT.tmp")
 [ "$n" -le "$INITRD_SIZE" ] || { echo "initramfs is $n bytes, more than $INITRD_SIZE" >&2; rm -f "$OUT.tmp"; exit 1; }
 head -c $((INITRD_SIZE - n)) /dev/zero >> "$OUT.tmp"

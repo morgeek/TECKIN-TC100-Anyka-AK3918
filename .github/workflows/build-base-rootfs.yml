@@ -10,17 +10,17 @@ jobs:
   base-rootfs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # The finished image, keyed on everything that makes it (the external tree: configs, busybox fragment,
       # post-build script, package tweaks; and this workflow: Buildroot version and the fixes applied to it).
       # A hit skips the whole Buildroot build (about 40 minutes); any change there builds it again.
       - name: Cached base image
         id: base
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: br-out/images/rootfs.cpio.gz
-          key: base-rootfs-${{ hashFiles('v3/buildroot/**', 'src/whep/**', '.github/workflows/build-base-rootfs.yml') }}
+          key: base-rootfs-${{ hashFiles('v3/buildroot/**', 'src/whep/**', '.github/workflows/build-base-rootfs.yml', '.github/ci-pins.sh') }}
 
       - name: Build dependencies
         if: steps.base.outputs.cache-hit != 'true'
@@ -33,7 +33,9 @@ jobs:
       - name: Fetch Buildroot 2024.02.9
         if: steps.base.outputs.cache-hit != 'true'
         run: |
-          git clone --depth 1 --branch 2024.02.9 https://github.com/buildroot/buildroot.git buildroot-src
+          # pinned: the tag must be this commit (.github/ci-pins.sh); Buildroot checks each package download against its .hash
+          . .github/ci-pins.sh
+          git_clone_pinned "$BUILDROOT_TAG" "$BUILDROOT_COMMIT" buildroot-src https://github.com/buildroot/buildroot.git
           sed -i 's/M4_VERSION = 1.4.19/M4_VERSION = 1.4.21/' buildroot-src/package/m4/m4.mk
           sed -i 's/f25c6ab51548a73a75558742fb031e0625d6485fe5f9155949d6486a2408ab66/f25c6ab51548a73a75558742fb031e0625d6485fe5f9155949d6486a2408ab66/' buildroot-src/package/m4/m4.hash 2>/dev/null || true
           echo "sha256  f25c6ab51548a73a75558742fb031e0625d6485fe5f9155949d6486a2408ab66  m4-1.4.21.tar.xz" > buildroot-src/package/m4/m4.hash
@@ -43,7 +45,7 @@ jobs:
 
       - name: Cache downloads
         if: steps.base.outputs.cache-hit != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: dl
           key: buildroot-dl-2024.02.9-${{ hashFiles('v3/buildroot/configs/**') }}
@@ -53,6 +55,9 @@ jobs:
         if: steps.base.outputs.cache-hit != 'true'
         run: |
           set -e
+          # reproducible base image (BR2_REPRODUCIBLE=y in tc100_defconfig): the time of the pinned Buildroot commit, not
+          # ours, so the image keeps the same bytes while its cache key does (the key is the external tree, not the commit)
+          export SOURCE_DATE_EPOCH=$(git -C buildroot-src log -1 --format=%ct)
           mkdir -p dl
           make -C buildroot-src BR2_EXTERNAL=$PWD/v3/buildroot BR2_DL_DIR=$PWD/dl O=$PWD/br-out tc100_defconfig
           make -C buildroot-src BR2_EXTERNAL=$PWD/v3/buildroot BR2_DL_DIR=$PWD/dl O=$PWD/br-out -j$(nproc)
@@ -66,7 +71,7 @@ jobs:
           ls -l br-out/images/rootfs.cpio.gz
           mkdir t && cd t && gzip -dc ../br-out/images/rootfs.cpio.gz | sudo cpio -id --quiet && sudo du -sk . && sudo du -ak . | sort -rn | head -25
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: tc100-base-rootfs
           path: br-out/images/rootfs.cpio.gz

@@ -84,8 +84,14 @@ les tests caméra `AUDIT-1116-*` de `test-queue.md`. Ce qui reste ouvert, par or
   (make, local-ci, entrée CI `harden`). Reste le test caméra **HARDEN** de `test-queue.md` (24 h, CPU identique).
 - [ ] MQTT : les commandes `telnet`, `ftp` et `reboot` ne dépendent que de la confiance accordée au broker (TCP en
   clair). Décision du propriétaire : ajouter un interrupteur, ou documenter les ACL du broker.
-- [ ] CI : épingler les actions par SHA, vérifier les checksums de mbedtls et d'aiortc, rendre les builds reproductibles
-  (`SOURCE_DATE_EPOCH`), et contrôler le budget `--vendor`.
+- [x] CI : épingler les actions par SHA, vérifier les checksums de mbedtls et d'aiortc, rendre les builds reproductibles
+  (`SOURCE_DATE_EPOCH`), et contrôler le budget `--vendor`. Fait (`[ci-pin]`) : actions épinglées par SHA (tag en
+  commentaire) ; `.github/ci-pins.sh` = une seule place pour les commits (Linux v6.6, Buildroot 2024.02.9) et les
+  SHA-256 (mbedTLS 2.28.9, firmware RTL8188FU), `npm ci` avec `package-lock.json`, pip avec `--require-hashes` ;
+  `SOURCE_DATE_EPOCH` (heure du commit) pour mksquashfs, cpio, zip, tar, gzip, noyau (`KBUILD_BUILD_*`), Buildroot
+  `BR2_REPRODUCIBLE` ; étape CI « Flash budget gate » (pile, initramfs, partition `vendor` avec une image de pire cas
+  de `tests/ci-vendor-budget.sh`, car l'image vendor est faite sur la caméra). Test : `tests/test_ci_pinning.py`.
+  Reste le test GitHub CI-PIN de `test-queue.md` (deux runs du même commit, même `tc100-*-update.tar`).
 
 ## Après 3.0.1 : plafond et polissage (bilan du 2026-11-15 10:15, demande du propriétaire)
 **Bilan :** fluidité, stabilité et Wi-Fi sont près du maximum. Plafond matériel atteint, **ne pas y retourner** : CPU

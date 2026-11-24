@@ -32,6 +32,9 @@ on:
       - 'lib/**'
       - 'src/jpegenc/**'
       - 'VERSION'
+      - '.github/ci-pins.sh'
+      - 'src/webui/package-lock.json'
+      - 'tests/ci-vendor-budget.sh'
       - '.github/workflows/build-kernel-linux66.yml'
   workflow_dispatch:
     inputs:
@@ -65,10 +68,20 @@ jobs:
     env:
       # [harden] one switch for the free programs: make reads it (src/musl.mk), the freestanding builds below use FSSP
       HARDEN: ${{ github.event.inputs.harden == 'false' && '0' || '1' }}
+      # reproducible builds (item CI-PIN): file times, the kernel build stamp and the uImage header come from the commit
+      # time, so two runs of one commit give the same files; SOURCE_DATE_EPOCH itself is set by the next step
+      TZ: UTC
+      KBUILD_BUILD_USER: tc100
+      KBUILD_BUILD_HOST: ci
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Build time of this commit (SOURCE_DATE_EPOCH)
+        run: |
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+          echo "KBUILD_BUILD_TIMESTAMP=$(date -u -d "@$(git log -1 --format=%ct)" '+%a %b %e %H:%M:%S UTC %Y')" >> "$GITHUB_ENV"
 
       - name: Install Build Dependencies
         run: |
@@ -77,8 +90,9 @@ jobs:
 
       - name: Clone Linux 6.6 Stable Tree (Tag v6.6)
         run: |
-          git clone --depth 1 -b v6.6 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git linux-src \
-            || git clone --depth 1 -b v6.6 https://github.com/torvalds/linux.git linux-src
+          # pinned: the tag must be this commit (.github/ci-pins.sh)
+          . .github/ci-pins.sh
+          git_clone_pinned "$LINUX_TAG" "$LINUX_COMMIT" linux-src $LINUX_URLS
 
       - name: Apply Anyka AK3918 Hardware, CMA 16MB & ALSA Audio Patches
         run: |
@@ -102,11 +116,10 @@ jobs:
       - name: Configure Kernel with CMA and ALSA
         run: |
           cd linux-src
-          # RTL8188FU firmware (embedded in the kernel): from linux-firmware, pinned tag and checksum (not stored here)
+          # RTL8188FU firmware (embedded in the kernel): from linux-firmware, pinned tag and checksum (.github/ci-pins.sh)
           mkdir -p firmware/rtlwifi
-          curl -sfL --retry 3 "https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/rtlwifi/rtl8188fufw.bin?h=20241017" -o firmware/rtlwifi/rtl8188fufw.bin || \
-            curl -sfL --retry 3 "https://gitlab.com/kernel-firmware/linux-firmware/-/raw/20241017/rtlwifi/rtl8188fufw.bin" -o firmware/rtlwifi/rtl8188fufw.bin
-          echo "e6189d6d7032b83f0ed4284629c43db66262449a866f33fd329e611239f62e1f  firmware/rtlwifi/rtl8188fufw.bin" | sha256sum -c -
+          . ../.github/ci-pins.sh
+          fetch_sha256 "$RTL8188FU_FW_SHA256" firmware/rtlwifi/rtl8188fufw.bin $RTL8188FU_FW_URLS
           cp ../patches/kernel-6.6/defconfig_cma .config
           # H4 test kernel (manual run only): one-shot timer mode, so that usleep(100) sleeps 100 us and not a 10 ms tick
           # (pacing, ABR); the timer of patch 0001 declares CLOCK_EVT_FEAT_ONESHOT. Checks on the camera: /proc/timer_list
@@ -164,7 +177,7 @@ jobs:
           n=$(wc -c < output/oipc.img); [ "$n" -le 1892352 ] || echo "::warning::kernel is $n bytes: more than the 0x1ce000 that the first hand-made flashload reads" 
 
       - name: Get our base root filesystem
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: tc100-base-rootfs
           path: base-rootfs
@@ -241,12 +254,19 @@ jobs:
           cp src/netacl/libnetacl-musl.so lib/libnetacl-musl.so
           gcc -O2 -Wall -o /tmp/envtool-host v3/install/envtool.c
           # audit 2026-11-06 S5: the web JavaScript and inline scripts/styles of the image are minified (esbuild, pinned)
-          npm install --prefix src/webui --no-save --no-audit --no-fund esbuild@0.21.5 >/dev/null
+          # src/webui/package-lock.json pins esbuild 0.21.5 and the integrity hash of every package (npm ci checks it)
+          npm ci --prefix src/webui --no-audit --no-fund >/dev/null
           MINIFY_WWW=1 READELF=arm-linux-gnueabi-readelf sh v3/build-stack.sh output/tc100test base-rootfs/rootfs.cpio.gz output/stack
           sh v3/build-release.sh output/stack output/oipc.img output/tc100test/oipcrd66.gz output/envtool output/release
 
+      - name: Flash budget gate (stack, initramfs, vendor partition)
+        run: |
+          python3 scripts/flash_budget.py --kernel output/oipc.img --initrd output/tc100test/oipcrd66.gz --stack output/stack/stack.sqfs
+          # the vendor image is made on each camera: a worst-case stand-in must fit its partition (tests/ci-vendor-budget.sh)
+          sh tests/ci-vendor-budget.sh
+
       - name: Upload the 3.0 release
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: tc100-3-release${{ github.event.inputs.venc_pool && format('-TESTKERNEL-pool{0}', github.event.inputs.venc_pool) || '' }}
           path: |
@@ -279,7 +299,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" $PRE             --title "TC100 firmware $GITHUB_REF_NAME" --notes-file "$GITHUB_WORKSPACE/v3/install/RELEASE-NOTES.md"             *.zip *.tar MD5SUMS.txt
 
       - name: Upload Kernel Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: tc100-linux66-cma16-kernel${{ github.event.inputs.venc_pool && format('-pool{0}', github.event.inputs.venc_pool) || '' }}
           path: output/
@@ -290,10 +310,10 @@ jobs:
           cp linux-src/System.map linux-src/.config symbols/
           # unstripped user-space programs (the shipped ones are stripped)
           cp src/tc100rtsp/tc100_rtsp-musl.dbg src/mqttd/tc100-mqttd.dbg src/onvifd/tc100-onvifd.dbg src/supervisord/tc100-supervisord.dbg symbols/ 2>/dev/null || true
-          gzip -c linux-src/vmlinux > symbols/vmlinux.gz
+          gzip -n -c linux-src/vmlinux > symbols/vmlinux.gz
 
       - name: Upload kernel symbols
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: tc100-linux66-symbols
           path: symbols/

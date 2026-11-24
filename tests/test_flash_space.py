@@ -13,7 +13,7 @@ class FlashSpace(unittest.TestCase):
     def test_bcj_filter_with_a_switch(self):
         src = (ROOT / 'v3/build-stack.sh').read_text(encoding='utf-8')
         self.assertIn('case "${SQFS_BCJ:-arm}" in none) bcj= ;; *) bcj="-Xbcj ${SQFS_BCJ:-arm}" ;; esac', src)
-        self.assertIn('mksquashfs "$T" "$OUT/stack.sqfs" -comp xz $bcj -b 128K', src)
+        self.assertIn('mksquashfs "$T" "$OUT/stack.sqfs" -comp xz $bcj $sdt -b 128K', src)
         conf = (ROOT / 'patches/kernel-6.6/defconfig_cma').read_text()
         for k in ('CONFIG_XZ_DEC_ARM=y', 'CONFIG_XZ_DEC_BCJ=y', 'CONFIG_SQUASHFS_XZ=y'):
             self.assertIn(k, conf)

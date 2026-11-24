@@ -54,6 +54,7 @@ class FlashBudget(unittest.TestCase):
         size = {n: s for n, _, s, _ in flash_budget.REGIONS}
         self.assertIn('STACK_MAX=${STACK_MAX:-%d}' % size['stack'], text('v3/build-stack.sh'))
         self.assertIn('KERNEL_MAX=%d' % size['kernel'], text('v3/build-release.sh'))
+        self.assertIn('VENDOR_MAX=%d' % size['vendor'], text('v3/install/install66.sh'))   # the install's own check (item CI-PIN)
         m = re.search(r'INITRD_SIZE=\$\{INITRD_SIZE:-(\d+)\}', text('v3/build-rootfs66.sh'))
         initrd = int(m.group(1))
         self.assertLessEqual(initrd, size['initrd'])

@@ -11,7 +11,8 @@ cd "$BUILD_DIR"
 
 if [ ! -d linux-src ]; then
   echo "[+] Cloning Linux 6.6 stable tree (Tag v6.6)..."
-  git clone --depth 1 -b v6.6 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git linux-src
+  . "$ROOT_DIR/.github/ci-pins.sh"
+  git_clone_pinned "$LINUX_TAG" "$LINUX_COMMIT" linux-src $LINUX_URLS
 fi
 
 cd linux-src
@@ -23,8 +24,8 @@ git -c user.name=build -c user.email=build@localhost am --whitespace=nowarn "$RO
 echo "[+] Configuring CMA in kernel..."
 mkdir -p firmware/rtlwifi
 # RTL8188FU firmware from linux-firmware (pinned, checksum checked), as CI does
-curl -sfL --retry 3 "https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/rtlwifi/rtl8188fufw.bin?h=20241017" -o firmware/rtlwifi/rtl8188fufw.bin
-echo "e6189d6d7032b83f0ed4284629c43db66262449a866f33fd329e611239f62e1f  firmware/rtlwifi/rtl8188fufw.bin" | sha256sum -c -
+. "$ROOT_DIR/.github/ci-pins.sh"
+fetch_sha256 "$RTL8188FU_FW_SHA256" firmware/rtlwifi/rtl8188fufw.bin $RTL8188FU_FW_URLS
 cp "$ROOT_DIR/patches/kernel-6.6/defconfig_cma" .config
 make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- olddefconfig
 

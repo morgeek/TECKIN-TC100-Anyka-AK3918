@@ -119,13 +119,14 @@ run_kernel() {
 		apt-get update -qq >/dev/null && apt-get install -y -qq build-essential bc libssl-dev libelf-dev flex bison \
 			gcc-arm-linux-gnueabi git curl ca-certificates device-tree-compiler u-boot-tools >/dev/null 2>&1
 		set -e
-		[ -d /k/v6.6 ] || git clone -q --depth 1 -b v6.6 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git /k/v6.6
+		. /src/.github/ci-pins.sh
+		[ -d /k/v6.6 ] || git_clone_pinned "$LINUX_TAG" "$LINUX_COMMIT" /k/v6.6 $LINUX_URLS
 		cd /k/v6.6 && git config user.email ci@example.invalid && git config user.name ci
 		git am --abort >/dev/null 2>&1 || true
 		git reset -q --hard v6.6 2>/dev/null || git reset -q --hard "$(git rev-list --max-parents=0 HEAD | head -1)"
 		git am -q --whitespace=nowarn /src/patches/kernel-6.6/series/*.patch
 		mkdir -p firmware/rtlwifi
-		[ -s firmware/rtlwifi/rtl8188fufw.bin ] || curl -sfL --retry 3 "https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/rtlwifi/rtl8188fufw.bin?h=20241017" -o firmware/rtlwifi/rtl8188fufw.bin
+		echo "$RTL8188FU_FW_SHA256  firmware/rtlwifi/rtl8188fufw.bin" | sha256sum -c - >/dev/null 2>&1 || fetch_sha256 "$RTL8188FU_FW_SHA256" firmware/rtlwifi/rtl8188fufw.bin $RTL8188FU_FW_URLS
 		cp /src/patches/kernel-6.6/defconfig_cma .config
 		make -s ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- olddefconfig
 		# no stale image may pass for a new one: the pipe below hides the exit status of make

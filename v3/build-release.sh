@@ -15,6 +15,22 @@ VER=$(head -n 1 "$S/tree/VERSION")
 [ "$(wc -c < "$K")" -le $KERNEL_MAX ] || { echo "kernel does not fit the kernel partition" >&2; exit 1; }
 [ "$(wc -c < "$I")" -eq $INITRD_SIZE ] || { echo "initramfs is not $INITRD_SIZE bytes (v3/build-rootfs66.sh pads it)" >&2; exit 1; }
 
+# Reproducible packages (item CI-PIN): with SOURCE_DATE_EPOCH (the CI sets it to the commit time) the zip and tar entries
+# are in a fixed order, owned by root, and carry that time, so two builds of one commit give the same files. Without it: as before.
+# mkzip DIR ZIP: everything in DIR. mktar TAR FILE...: the files of the current directory, in that order.
+mkzip() {
+	if [ -z "${SOURCE_DATE_EPOCH:-}" ]; then ( cd "$1" && zip -qr -X "$2" . ); return; fi
+	( cd "$1" && find . -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} + && find . -mindepth 1 | LC_ALL=C sort | TZ=UTC zip -qX "$2" -@ )
+}
+mktar() {
+	t=$1; shift
+	if [ -n "${SOURCE_DATE_EPOCH:-}" ] && tar --version 2>/dev/null | grep -q GNU; then
+		tar --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -cf "$t" "$@"
+	else
+		tar cf "$t" "$@"
+	fi
+}
+
 # SD card: the user space as plain files (trial mode runs it from the card), the boot images, the stock-firmware hook
 C=$OUT/sd; rm -rf "$C"; mkdir -p "$C"
 cp -r "$S/tree/." "$C/"
@@ -27,7 +43,7 @@ cp "$S/stack.sqfs" "$S/stack.sqfs.md5" "$C/tc100-3/"
 cp "$REPO/v3/install/README-SD.txt" "$C/README-3.0.txt"
 cp "$REPO/v3/install/LISEZ-MOI.txt" "$C/00-LISEZ-MOI-READ-ME.txt"	# first in the listing: card layout, LEDs, address
 chmod 755 "$C/wifitest/wifi_test.sh" "$C/tc100-3/envtool"
-rm -f "$OUT/tc100-$VER-sd.zip"; ( cd "$C" && zip -qr -X "$OUT/tc100-$VER-sd.zip" . )
+rm -f "$OUT/tc100-$VER-sd.zip"; mkzip "$C" "$OUT/tc100-$VER-sd.zip"
 
 # inventory package: only the read-only hardware inventory (the same hook stops after it: INVENTORY-ONLY), for owners
 # of a TC100 that may differ from the tested one. Nothing of the firmware, nothing written to the camera.
@@ -37,10 +53,10 @@ cp "$REPO/v3/install/inventory.sh" "$REPO/v3/install/hwcheck.sh" "$N/v3/install/
 cp -r "$REPO/v3/board" "$N/v3/"; cp "$S/tree/bin/busybox" "$N/bin/"; cp "$S/tree/VERSION" "$N/"
 cp "$REPO/v3/install/LISEZ-MOI-INVENTAIRE.txt" "$N/00-LISEZ-MOI-READ-ME.txt"
 : > "$N/INVENTORY-ONLY"; chmod 755 "$N/wifitest/wifi_test.sh"
-rm -f "$OUT/tc100-$VER-inventory.zip"; ( cd "$N" && zip -qr -X "$OUT/tc100-$VER-inventory.zip" . )
+rm -f "$OUT/tc100-$VER-inventory.zip"; mkzip "$N" "$OUT/tc100-$VER-inventory.zip"
 
 # web update: what the flash partitions stack, kernel and initrd receive
 U=$OUT/update; rm -rf "$U"; mkdir -p "$U"
 cp "$S/stack.sqfs" "$U/"; cp "$K" "$U/c66.img"; cp "$I" "$U/c66rd.gz"; cp "$S/tree/VERSION" "$U/"
-( cd "$U" && md5sum stack.sqfs c66.img c66rd.gz VERSION > MD5SUMS && tar cf "$OUT/tc100-$VER-update.tar" VERSION stack.sqfs c66.img c66rd.gz MD5SUMS )
+( cd "$U" && md5sum stack.sqfs c66.img c66rd.gz VERSION > MD5SUMS && mktar "$OUT/tc100-$VER-update.tar" VERSION stack.sqfs c66.img c66rd.gz MD5SUMS )
 ls -l "$OUT"/*.zip "$OUT"/*.tar
