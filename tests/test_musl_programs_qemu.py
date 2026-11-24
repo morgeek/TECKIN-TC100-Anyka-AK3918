@@ -284,7 +284,7 @@ class Tc100RtspMusl(unittest.TestCase):
         self.assertEqual(' __stack_chk_fail' in syms, HARDENED)                 # [harden]
         self.assertEqual('BIND_NOW' in self.readelf('-d', str(self.bin)), HARDENED)
         for name in ('akuio_pmem_init', 'akuio_alloc_pmem', 'akuio_free_pmem', 'akuio_vaddr2paddr', 'akuio_wait_irq',
-                     'akuio_map_regs', 'akuio_reset_video'):
+                     'akuio_map_regs', 'akuio_reset_video', 'akuio_alloc_pmem_nozero'):   # W3: dlsym'd by fe_setup
             self.assertRegex(syms, r' FUNC +GLOBAL +DEFAULT +\d+ %s\n' % name, name)
 
     def test_the_musl_loader_starts_it(self):

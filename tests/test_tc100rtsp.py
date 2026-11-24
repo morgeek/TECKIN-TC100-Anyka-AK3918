@@ -2696,5 +2696,83 @@ int main(void)
         self.assertIn('fill(p, w, h, 0, 0, w, h, 16);', calls)
 
 
+@unittest.skipUnless(shutil.which('gcc'), 'needs gcc')
+class EncoderZeroOnce(unittest.TestCase):
+    """W3 (audit 2026-11-24): one zeroing of the free encoder's pool block per open. libakuio's akuio_alloc_pmem still
+    zeroes (vendor libraries, the other pool users); akuio_alloc_pmem_nozero does not; fe_open_wh zeroes its block
+    itself, so a block handed out dirty comes out clean."""
+
+    HARNESS = r"""
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#define FE_HOST_TEST
+#include "freeenc.h"
+int akuio_test_attach(void *, unsigned, unsigned);
+unsigned long akuio_alloc_pmem(int);
+unsigned long akuio_alloc_pmem_nozero(int);
+void akuio_free_pmem(unsigned long);
+int akuio_vaddr2paddr(unsigned long);
+static int fe_run(struct fe_enc *e, uint32_t list_pa) { (void)e; (void)list_pa; return -1; }
+static void t_wait(unsigned long r) { (void)r; }
+int main(void)
+{
+	static const struct fe_env env = { NULL, akuio_alloc_pmem_nozero, akuio_free_pmem, akuio_vaddr2paddr, t_wait, NULL };
+	static struct fe_enc e;
+	size_t sz = 12u << 20, i, bad = 0;
+	unsigned char *pool = malloc(sz);
+	unsigned long a;
+
+	memset(pool, 0xa5, sz);	/* what the previous process left in the pool */
+	akuio_test_attach(pool, 0x81800000u, (unsigned)sz);
+	a = akuio_alloc_pmem_nozero(4096);
+	printf("NOZERO %d\n", ((unsigned char *)a)[100] == 0xa5);
+	akuio_free_pmem(a);
+	a = akuio_alloc_pmem(4096);
+	printf("ZERO %d\n", ((unsigned char *)a)[100] == 0);
+	memset((void *)a, 0xa5, 4096);
+	akuio_free_pmem(a);
+	if (!fe_open(&env, &e, 1, 1920, 25, 50, 1600, 20, 45)) { puts("OPEN failed"); return 1; }
+	for (i = 0; i < (size_t)e.work_off + FE_WORK_SIZE; i++) {
+		int head = i >= e.tables_off && i < e.tables_off + sizeof FE_TABLES_HEAD, work = i >= e.work_off;
+
+		if (!head && !work && e.mem[i]) bad++;
+	}
+	for (i = e.small_off; i < e.list_off + 0x200; i++) if (e.mem[i]) bad++;
+	printf("BLOCK %lu bytes, %lu not zero, tables head %d\n", (unsigned long)(e.list_off + 0x200), (unsigned long)bad,
+	       !memcmp(e.mem + e.tables_off, FE_TABLES_HEAD, sizeof FE_TABLES_HEAD));
+	printf("MAIN_BLOCK_MB %.1f\n", (e.list_off + 0x200) / 1e6);
+	fe_close(&e);
+	return 0;
+}
+"""
+
+    def test_one_zeroing_per_open(self):
+        with tempfile.TemporaryDirectory() as t:
+            Path(t, 'z.c').write_text(self.HARNESS)
+            subprocess.run(['gcc', '-O1', '-Wall', '-Wextra', '-Wno-unused-function', '-DAKUIO_SELFTEST',
+                            '-I', str(ROOT / 'src/h265enc'), '-I', str(ROOT / 'src/libakuio'), '-o', str(Path(t, 'z')),
+                            str(Path(t, 'z.c')), str(ROOT / 'src/libakuio/libakuio.c'), '-lpthread'], check=True)
+            out = subprocess.run([str(Path(t, 'z'))], capture_output=True, text=True, check=True).stdout
+        self.assertIn('NOZERO 1', out)          # the free encoder's allocation is not zeroed by libakuio...
+        self.assertIn('ZERO 1', out)            # ...every other one still is
+        self.assertRegex(out, r'BLOCK \d+ bytes, 0 not zero, tables head 1')   # ...and fe_open_wh zeroes it whole
+        self.assertIn('MAIN_BLOCK_MB 7.4', out)
+
+    def test_wiring(self):
+        src = (SRC / 'tc100_rtsp.c').read_text()
+        fe = (ROOT / 'src/h265enc/freeenc.h').read_text()
+        ak = (ROOT / 'src/libakuio/libakuio.c').read_text()
+        setup = c_function(src, 'static int fe_setup(void)\n{')
+        self.assertIn('fe_env.alloc = (unsigned long (*)(int))dlsym(RTLD_DEFAULT, "akuio_alloc_pmem_nozero");', setup)
+        self.assertIn('if (!fe_env.alloc) fe_env.alloc = p_alloc;', setup)      # a vendor libakuio: as before
+        self.assertEqual(src.count('dlsym(RTLD_DEFAULT, "akuio_alloc_pmem")'), 2)  # p_alloc (pictures, JPEG): zeroed
+        self.assertEqual(fe.count('memset(e->mem, 0, total);'), 1)
+        self.assertIn('if (zero && !nozero)', ak)
+        self.assertIn('return alloc_pmem(size, 1);', c_function(ak, 'unsigned long akuio_alloc_pmem(int size)\n{'))
+        self.assertIn('return alloc_pmem(size, 0);', c_function(ak, 'unsigned long akuio_alloc_pmem_nozero(int size)\n{'))
+
+
 if __name__ == '__main__':
     unittest.main()

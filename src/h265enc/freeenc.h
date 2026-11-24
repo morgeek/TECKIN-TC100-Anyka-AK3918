@@ -37,7 +37,8 @@
 
 struct fe_env {
 	volatile uint32_t *regs;		/* the register window (0x20020000) */
-	unsigned long (*alloc)(int size);	/* akuio_alloc_pmem: zeroed pool memory, its virtual address */
+	unsigned long (*alloc)(int size);	/* akuio_alloc_pmem_nozero (or akuio_alloc_pmem): pool memory, its virtual address;
+						 * fe_open_wh zeroes the block itself */
 	void (*release)(unsigned long vaddr);	/* akuio_free_pmem */
 	int (*v2p)(unsigned long vaddr);	/* akuio_vaddr2paddr */
 	void (*wait)(unsigned long res);	/* akuio_wait_irq: waits for the interrupt, clears 0x8018; *res < 0: none */
@@ -167,6 +168,11 @@ static inline struct fe_enc *fe_open_wh(const struct fe_env *env, struct fe_enc 
 	if (!e->mem) return NULL;
 	e->pa = (uint32_t)env->v2p((unsigned long)e->mem);
 	if (!e->pa) { env->release((unsigned long)e->mem); e->mem = NULL; return NULL; }
+	/* the one zeroing of the block (W3: the allocator does not zero it again). What the core reads that nothing of ours
+	 * writes: the 0x4040-byte tables block past its 20-byte head (only bytes 18-19 change per picture), the 0x400-byte
+	 * "small" block of list word 0x2f, and at the first P picture the reference's motion / co-located areas (f_mv,
+	 * f_col) of a buffer the IDR may not have written whole. (The work table and the list's FE_LIST_WORDS are written whole, the
+	 * pictures and the stream are written by the core before they are read.) Zeroed whatever env->alloc does. */
 	memset(e->mem, 0, total);
 	memcpy(e->mem + e->tables_off, FE_TABLES_HEAD, sizeof FE_TABLES_HEAD);
 	if (hevc) h265_work_table(e->mem + e->work_off); else h264_work_table(e->mem + e->work_off);

@@ -275,7 +275,10 @@ static int fe_setup(void)
 	p_v2p = dlsym(RTLD_DEFAULT, "akuio_vaddr2paddr");
 	p_wait = dlsym(RTLD_DEFAULT, "akuio_wait_irq");
 	fe_env.regs = r;
-	fe_env.alloc = p_alloc;
+	/* W3: fe_open_wh zeroes its block itself; libakuio's own zeroing (akuio_alloc_pmem) was a second 7.4 MB memset at
+	 * every main encoder open. A libakuio without the call (vendor): the zeroing one, as before */
+	fe_env.alloc = (unsigned long (*)(int))dlsym(RTLD_DEFAULT, "akuio_alloc_pmem_nozero");
+	if (!fe_env.alloc) fe_env.alloc = p_alloc;
 	fe_env.release = (void (*)(unsigned long))dlsym(RTLD_DEFAULT, "akuio_free_pmem");
 	fe_env.v2p = p_v2p;
 	fe_env.wait = p_wait;

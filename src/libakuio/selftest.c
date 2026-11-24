@@ -5,6 +5,7 @@
 #include <string.h>
 int akuio_test_attach(void *, unsigned, unsigned);
 unsigned long akuio_alloc_pmem(int);
+unsigned long akuio_alloc_pmem_nozero(int);
 void akuio_free_pmem(unsigned long);
 int akuio_vaddr2paddr(unsigned long);
 int akuio_map_extra(unsigned long, unsigned long, unsigned long);
@@ -29,6 +30,14 @@ int main(void)
 	d = akuio_alloc_pmem(4000);	/* fits in the hole b left */
 	assert(d == b);
 	akuio_free_pmem(d); akuio_free_pmem(a); akuio_free_pmem(c);
+	assert(akuio_get_used_pmem() == 0);
+	/* W3: akuio_alloc_pmem zeroes, akuio_alloc_pmem_nozero leaves the previous contents */
+	memset(mem, 0xa5, sz);
+	a = akuio_alloc_pmem(256);
+	b = akuio_alloc_pmem_nozero(256);
+	assert(a && b && b == a + 256);
+	for (int i = 0; i < 256; i++) assert(((unsigned char *)a)[i] == 0 && ((unsigned char *)b)[i] == 0xa5);
+	akuio_free_pmem(a); akuio_free_pmem(b);
 	assert(akuio_get_used_pmem() == 0);
 	assert(akuio_alloc_pmem(sz) != 0);	/* whole pool again: all merged */
 	assert(akuio_alloc_pmem(32) == 0);	/* and now full */

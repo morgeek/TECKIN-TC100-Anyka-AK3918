@@ -7,7 +7,8 @@
  * 32-bit ABI, on top of the ak39_venc kernel driver (/dev/uio0):
  *
  *   akuio_pmem_init / _fini         open the device, map the DMA pool
- *   akuio_alloc_pmem / _free_pmem   sub-allocate from the pool (32-byte units)
+ *   akuio_alloc_pmem / _free_pmem   sub-allocate from the pool (32-byte units), zeroed
+ *   akuio_alloc_pmem_nozero         the same without the zeroing (ours only: freeenc.h zeroes its block itself)
  *   akuio_vaddr2paddr               physical address of a pool pointer (or of an akuio_map_extra region)
  *   akuio_map_extra                 declare a contiguous region outside the pool (V4L2 capture buffers)
  *   akuio_map_regs / _unmap_regs    map the encoder register window
@@ -191,7 +192,7 @@ int akuio_pmem_fini(void)
 	return 0;
 }
 
-unsigned long akuio_alloc_pmem(int size)
+static unsigned long alloc_pmem(int size, int zero)
 {
 	struct blk *b, *rest;
 	uint32_t need;
@@ -265,10 +266,24 @@ unsigned long akuio_alloc_pmem(int size)
 
 	if (nozero < 0)
 		nozero = getenv("AKUIO_NOZERO") != NULL;
-	if (!nozero)	/* the pool keeps the previous process' data: hand out zeroed memory */
+	if (zero && !nozero)	/* the pool keeps the previous process' data: hand out zeroed memory */
 		memset(pool + b->off, 0, need);
 	pthread_mutex_unlock(&lock);
 	return (unsigned long)(pool + b->off);
+}
+
+/* the vendor libraries and every other caller: zeroed memory (unless AKUIO_NOZERO) */
+unsigned long akuio_alloc_pmem(int size)
+{
+	return alloc_pmem(size, 1);
+}
+
+/* W3 (audit 2026-11-24): the free encoder (src/h265enc/freeenc.h fe_open_wh) zeroes its whole block itself, and its
+ * correctness rests on that memset, not on the allocator: zeroing it here as well cost a second 7.4 MB memset at
+ * every open of the 1080p main encoder. Not a vendor name: a vendor libakuio does not have it (callers fall back). */
+unsigned long akuio_alloc_pmem_nozero(int size)
+{
+	return alloc_pmem(size, 0);
 }
 
 void akuio_free_pmem(unsigned long vaddr)

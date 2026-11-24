@@ -444,6 +444,23 @@ per flash write.
 - **Pass:** `pp_ms` with `/tmp/tc100_privacy` present is clearly lower than on the old build (estimate 10-40 ms per
   frame saved), the same without privacy, and 2 unchanged.
 
+### W3-ZERO One zeroing of the encoder's pool block per open (`[video-fix]`, audit 2026-11-24 W3) — `to test`
+- **What:** each free encoder open zeroed its pool block twice: `akuio_alloc_pmem` (unless `AKUIO_NOZERO`) and
+  `fe_open_wh` (`freeenc.h`), 7.4 MB for the 1080p main encoder, at every viewer after an idle period. The free
+  encoder now allocates through `akuio_alloc_pmem_nozero` (new in libakuio, the same allocator without the memset)
+  and keeps its own `memset`, which it relies on (the 0x4040-byte tables block past its 20-byte head, the 0x400-byte
+  "small" block, the reference's motion / co-located areas before the first P picture). The
+  vendor libraries and the other pool users of `tc100_rtsp` still get zeroed memory from `akuio_alloc_pmem`. A
+  `libakuio` without the new call (vendor library): `akuio_alloc_pmem` as before.
+- **Revert:** the previous build (no switch: same memory contents for the encoder).
+- **Test:**
+  1. Main stream idle (no client) for a minute, then open it in VLC: time from PLAY to the first picture, five
+     times, old and new build; the log shows `free encoder: H.265 1920x1080 ...` at each open, no
+     `picture failed` line.
+  2. One hour with a viewer that connects and leaves every minute (`ffprobe` loop): no encoder failure, no
+     `ak_venc_open failed`, the picture is clean from the first frame (no green or stale blocks at the first IDR).
+- **Pass:** 1 and 2 clean; the open is faster or the same.
+
 ### FAILCOUNT Failure totals of the video server over a day: STAT, /tmp file, memory-hourly.csv (`[failcount]`) â€” `to test` (both cameras, 24 h or more)
 
 - **What:** measurement only, no behaviour change. `src/tc100rtsp/tc100_rtsp.c` counts since the process start

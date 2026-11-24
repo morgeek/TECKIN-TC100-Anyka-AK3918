@@ -20,7 +20,8 @@ Rapport : [audit-2026-11-24-optim.md](audit-2026-11-24-optim.md) (lecture seule,
   16 images P d'apprentissage.
 - [x] **W1** mode confidentialité : chroma peinte octet par octet (fait 2026-11-24 `[video-fix]`, test-queue
   `W1-PRIVFILL`) : un `memset` par ligne.
-- [ ] **W3** double mise à zéro de 7,4 Mo à l'ouverture de l'encodeur.
+- [x] **W3** double mise à zéro de 7,4 Mo à l'ouverture de l'encodeur (fait 2026-11-24 `[video-fix]`, test-queue
+  `W3-ZERO`) : l'encodeur libre garde son `memset` et alloue par `akuio_alloc_pmem_nozero`.
 - [ ] **R2** le bouton reset bloqué pendant `nightmode.sh` / MQTT ; **R3** commande MQTT retenue exécutée à chaque connexion.
 - [ ] **T1 + B5** faire tourner le test de parité des routes natives de `httpfront`, puis corriger `isp_tune`.
 - [ ] Retirer les optimisations mortes (section 5 du rapport) en un seul nettoyage ; le reste des sections 2 et 4.

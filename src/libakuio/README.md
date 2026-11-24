@@ -16,5 +16,7 @@ region of the device tree. The pool is sub-allocated here in 32-byte units.
 - `make selftest` checks the allocator on the host.
 - Install it as `/usr/lib/libakuio.so` (or `LD_PRELOAD`), no other change.
 - `AKUIO_DEV=/path` overrides the device.
+- `akuio_alloc_pmem` hands out zeroed memory (`AKUIO_NOZERO` turns that off); `akuio_alloc_pmem_nozero` (not a
+  vendor name) does not zero: the free encoder (`src/h265enc/freeenc.h`) zeroes its block itself.
 
 Status: allocator tested on the host; not yet run on the camera.
