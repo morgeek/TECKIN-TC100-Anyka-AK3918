@@ -560,6 +560,24 @@ per flash write.
   3. Settings opens and fills every tab as before (`fullconfig` from the CGI: `curl -si -u $U "http://127.0.0.1/cgi-bin/state.cgi?cmd=fullconfig"` says `Content-type: text/plain`).
 - **Pass:** 1 and 3 unchanged, `diff` empty in 2.
 
+### CLEANUP-1124 Dead or never-paid optimisations removed (`[cleanup]`, audit 2026-11-24 section 5) — `to test`
+- **What:** code paths that were off by default (or impossible) are gone; the default path is unchanged, byte for byte
+  on the host tests (RTP packets over UDP and TCP, the live view's fMP4). The `STAT` line is not touched.
+  1. `tc100_rtsp`: `RTSP_UDPMMSG` (one `sendmmsg` per frame; P-09 artefacts), `RTSP_PACING_US` and `pace_udp` (a sleep
+     after each UDP packet; at HZ=100 it slept 10 ms, with `cl_mu` held under the sender thread: risk R4),
+     `RTSP_SNDBUF` (never measured), `RTSP_FRAMECOPY=0` (encoder output and JPEGs read in place; the in-place read stays
+     only as the fallback when the copy finds no memory, as before), `RTSP_LIVE_DIRECT=0` in `livemp4.c` (a payload
+     buffer per frame then a copy per viewer). `RTSP_UDPSG=1` sends each packet at once (it always did by default).
+     The startup line `rtp scatter-gather N sendmmsg N; pacing N us sndbuf N KB; live direct` is now
+     `rtp scatter-gather N`.
+- **Switch / revert:** none (removal of non-default paths); the previous build. A `/mnt/config/rtsp.env` that still
+  sets one of these variables does no harm: they are ignored.
+- **Test (one camera, then both; a normal run):** install the build, leave it 24 h with the usual viewers (VLC or
+  Frigate over RTSP, the web live view), and the day / night switches of an evening and a morning.
+- **Pass:** the `STAT` lines of `/tmp/logs/tc100_rtsp.log` have the same fields and the same order of magnitude as on
+  the previous build (`cap`, `enc`, `snd_ms`, `pp_ms`, `dropped`, `pic_fail` 0, `cap_stall` 0, `exit3` 0); no reboot,
+  no oops; RTSP and the web live view play; the day / night switches happen as before.
+
 ### FAILCOUNT Failure totals of the video server over a day: STAT, /tmp file, memory-hourly.csv (`[failcount]`) â€” `to test` (both cameras, 24 h or more)
 
 - **What:** measurement only, no behaviour change. `src/tc100rtsp/tc100_rtsp.c` counts since the process start
@@ -591,7 +609,7 @@ per flash write.
   A function with a local array now checks a random canary before it returns, and the GOT of the musl programs is
   read-only after loading. Cost: +3.7 KB in `stack.sqfs` (flash-budget.md "Hardening"); about 4 to 8 instructions per
   call of an instrumented function. In `tc100_rtsp` that includes per-packet and per-frame functions (`send_nal`,
-  `send_pkt`, `rtp_out`, `sg_pkt`, `pace_udp`, `now_us`, `q_push`, `live_frame`, `mdct`, `aec_process`, `md_frame`,
+  `send_pkt`, `rtp_out`, `sg_pkt`, `pace_udp` (removed 2026-11-24, audit), `now_us`, `q_push`, `live_frame`, `mdct`, `aec_process`, `md_frame`,
   `akuio_wait_irq`), so the CPU check below matters. `_FORTIFY_SOURCE` is not used (musl has no fortified headers).
 - **Switch to turn it off:** a build switch, not a camera setting: the CI input `harden` = off (Actions, "Run
   workflow" of `build-kernel-linux66.yml`), or `HARDEN=0` for `make` / `sh tests/docker/local-ci.sh cross`. The
@@ -981,9 +999,9 @@ per flash write.
 
 ### HRTIMER-01 High-resolution timers and NO_HZ_IDLE (`[kernel]`) — `to test (venc_soft_reset fixed 2026-11-14)`
 
-- **What (`H4`/`H5`):** a kernel with `CONFIG_HIGH_RES_TIMERS=y` and `CONFIG_NO_HZ_IDLE=y` (the AK39 timer in patch 0001 declares `CLOCK_EVT_FEAT_ONESHOT`), and `src/tc100rtsp/tc100_rtsp.c` uses `nanosleep()` in `pace_udp()` (works on both kernels). Patch `0008` (`venc_soft_reset()`) was updated on 2026-11-14 from `usleep_range(100, 200)` to `usleep_range(1000, 2000)` so the hardware encoder soft-reset pulse stays 1–2 ms under `HIGH_RES_TIMERS=y` instead of shrinking to ~0.2 ms (and stays 1 jiffy under `HZ_PERIODIC`).
+- **What (`H4`/`H5`):** a kernel with `CONFIG_HIGH_RES_TIMERS=y` and `CONFIG_NO_HZ_IDLE=y` (the AK39 timer in patch 0001 declares `CLOCK_EVT_FEAT_ONESHOT`), and `src/tc100rtsp/tc100_rtsp.c` used `nanosleep()` in `pace_udp()` (works on both kernels; `pace_udp` and `RTSP_PACING_US` removed 2026-11-24, audit, CLEANUP-1124). Patch `0008` (`venc_soft_reset()`) was updated on 2026-11-14 from `usleep_range(100, 200)` to `usleep_range(1000, 2000)` so the hardware encoder soft-reset pulse stays 1–2 ms under `HIGH_RES_TIMERS=y` instead of shrinking to ~0.2 ms (and stays 1 jiffy under `HZ_PERIODIC`).
 - **Test kernel only (2026-11-13):** 9d37efe had put both options in the base `defconfig_cma`, so every CI kernel (the next RC too) carried a timer mode no camera had ever booted; the read-only review classed it brick-class for a flash (if the one-shot path of patch 0001 misbehaves, the tick dies before the initramfs: SD recovery only), with side effects to watch: exact `usleep_range` before `ispdrv_ae_work()` (exposure writes earlier in the frame; `venc_soft_reset` pulse fixed in 0008). The base config is back to `HZ_PERIODIC`; build the test kernel with the workflow input `test_hrtimers` (packages get `-testkernel` in their version, see the 2026-10 entry below).
-- **Test (SD kernel from a `test_hrtimers` run, nothing flashed):** Boot on SD (`boot66b.sh`), check `/proc/timer_list` shows `resolution: 1 nsecs` / `Event Handler: hrtimer_interrupt`, and run a 2 h H.265 soak + `RTSP_PACING_US=200` test; also check the picture for exposure flicker and the encoder after a reset (`vencreset`). Only after a pass, with the owner's agreement, move the two options into `defconfig_cma` as a change of its own.
+- **Test (SD kernel from a `test_hrtimers` run, nothing flashed):** Boot on SD (`boot66b.sh`), check `/proc/timer_list` shows `resolution: 1 nsecs` / `Event Handler: hrtimer_interrupt`, and run a 2 h H.265 soak (the `RTSP_PACING_US=200` step is void: the switch was removed 2026-11-24, audit); also check the picture for exposure flicker and the encoder after a reset (`vencreset`). Only after a pass, with the owner's agreement, move the two options into `defconfig_cma` as a change of its own.
 
 ### IDLE-MIC-01 Idle microphone DSP bypass & zero-fork MQTT/presence (`[opt]`) — `to test`
 
@@ -1165,9 +1183,9 @@ per flash write.
 
 ### RTSP-UDP-NB non-blocking UDP RTP send (`[rtsp]`) — `to test`
 
-- **What:** `src/tc100rtsp/tc100_rtsp.c` now passes `MSG_DONTWAIT | MSG_NOSIGNAL` on UDP `sendto`/`sendmsg`/`sendmmsg` (video, audio, and `RTSP_UDPSG=1`). On transient `EAGAIN`/`EWOULDBLOCK`/`ENOBUFS` (e.g. during a Wi-Fi stall), video marks `wait_idr` + `want_idr` and increments `c->dropped` once instead of blocking capture or closing the client.
+- **What:** `src/tc100rtsp/tc100_rtsp.c` now passes `MSG_DONTWAIT | MSG_NOSIGNAL` on UDP `sendto`/`sendmsg`/`sendmmsg` (video, audio, and `RTSP_UDPSG=1`; the `sendmmsg` path, `RTSP_UDPMMSG`, removed 2026-11-24, audit). On transient `EAGAIN`/`EWOULDBLOCK`/`ENOBUFS` (e.g. during a Wi-Fi stall), video marks `wait_idr` + `want_idr` and increments `c->dropped` once instead of blocking capture or closing the client.
 - **Test:** Stream UDP RTSP (`rtsp://.../stream0`) during a Wi-Fi disturbance or rate-limited link; verify `STAT` shows `dropped` incrementing without killing the UDP client or stalling `cap` fps.
-- **Fix (rc42, `[rtsp-udp-nb]`):** the IDR request caused by UDP backpressure is rate-limited to one per stream every 2 s (`UDP_IDR_MIN_S`); the client still waits for the next IDR, natural or requested. Before, an IDR larger than the socket buffer (small `RTSP_SNDBUF`) made every frame an IDR for all clients of the stream. `sg_pkt` also stops queuing the rest of a frame for a UDP client in `wait_idr`. TCP clients unchanged. Extra check: with a small `RTSP_SNDBUF` and a UDP client, the encoder must not switch to all-IDR (frame sizes in `STAT`).
+- **Fix (rc42, `[rtsp-udp-nb]`):** the IDR request caused by UDP backpressure is rate-limited to one per stream every 2 s (`UDP_IDR_MIN_S`); the client still waits for the next IDR, natural or requested. Before, an IDR larger than the socket buffer (small `RTSP_SNDBUF`) made every frame an IDR for all clients of the stream. `sg_pkt` also stops queuing the rest of a frame for a UDP client in `wait_idr`. TCP clients unchanged. Extra check: with a small `RTSP_SNDBUF` and a UDP client, the encoder must not switch to all-IDR (frame sizes in `STAT`) (`RTSP_SNDBUF` removed 2026-11-24, audit: the check is void).
 
 ### WHEP-ONDEMAND start `tc100-whep` on demand (`[whep]`) — `to test`
 

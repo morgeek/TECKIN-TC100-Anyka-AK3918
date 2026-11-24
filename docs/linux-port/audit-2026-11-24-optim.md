@@ -26,7 +26,7 @@ the main session in the code.
 | R1 | `tc100_rtsp` | **Encoder motion detection (`RTSP_MD_ENC`, default on) can stick "motion on" after a budget step.** R1 (`fe_set_fps`) multiplies the per-picture budget at night (10 fps), in low light and at the idle rate; in CBR the P frames grow to it, and `md_enc_frame` only learns frames under its threshold (`:3503-3516`). CBR + `mdsens ≥ 88` at night: motion all night (recordings, MQTT events); `IDLE_FPS` + a noisy scene: false events every ~10 s. | Reset `md_enc_base` / `md_enc_hits` when `fe->fps_now` changes (hook at `:4717`, as done for the smart floor at `:4734`) and on ABR steps. Camera check: an md_enc trigger right after a `capture rate N fps` line. |
 | R2 | `tc100-supervisord` | **Night mode and MQTT work block the reset button.** `run(nightmode.sh)` has no timeout (`:505`, `:680`); each sound-job MQTT publish blocks up to 30 s (`:1016`). A hung `nightmode.sh` stops the button job for good (no reboot, no rescue AP; the housekeeper only checks the pid); a normal switch of a few seconds can turn an 8 s hold into the 3-7 s rescue AP. | `run()` waits with the 50 ms poll of `run_to`, samples the button inside it, and gives `nightmode.sh` a generous timeout (e.g. 120 s, then kill and log). |
 | R3 | `mqttd` | **A retained command is executed at every connection** (`mqttd.c:758-773`): a retained `{"cmd":"reboot"}` reboots the camera at each connect (the dedupe state is in `/tmp`, lost at reboot): a reboot loop. | Drop command PUBLISH with the retain flag (HA buttons never retain). |
-| R4 | `tc100_rtsp` | UDP pacing (`RTSP_PACING_US`, off) with the sender thread (`RTSP_SENDER_THREAD`, off) sleeps with `cl_mu` held: ~0.7 s capture stall per IDR at HZ=100. The 11-06 audit plans exactly that combination (H5). | Remove the pacing, or never sleep with the lock held. |
+| R4 | `tc100_rtsp` | UDP pacing (`RTSP_PACING_US`, off) with the sender thread (`RTSP_SENDER_THREAD`, off) sleeps with `cl_mu` held: ~0.7 s capture stall per IDR at HZ=100. The 11-06 audit plans exactly that combination (H5). | Remove the pacing, or never sleep with the lock held. **Done 2026-11-24: the pacing is removed (`[cleanup]`, CLEANUP-1124).** |
 | R5 | `mqtt-bridge.sh` → `mqttd` | FIFO records of 1-3 KB may take several `write()` calls through BusyBox `printf`; two publishers at once can interleave and mqttd drops the buffer (`mqttd.c:394`). Not verified on the camera's BusyBox. | Write each record from a temp file with `dd bs=4096 count=1` (as `mqtt-bridge.sh:594` does). |
 | R6 | `tc100-supervisord` | `auto-night-detection restart` does not reset the night job in C: the flag is removed and re-created within ms, the daemon looks once a second, so `night_reset()` usually does not run (a DN-FLAP hold survives). | A nonce in the flag file, or document it. |
 | R7 | `log-cap.sh` | `daynight.log` (rotated at 400 lines, ~160 B/line ≈ 64 KB) sits on the 64 KB RAM-log cap that trims to 200 lines: the documented "2 x 400 lines" may be cut in half. Unverified. | Exclude `daynight.log` from `log-cap.sh`, or rotate by bytes. |
@@ -59,12 +59,12 @@ the main session in the code.
 | Optimisation | Why remove |
 |---|---|
 | `RTSP_ZEROCOPY` (USERPTR, `tc100_rtsp.c:4183-4214`) | Impossible as written: the driver needs ≥ 3 slots, the code asks 2. |
-| `RTSP_UDPMMSG` (`sendmmsg`) | P-09: picture artefacts. |
-| `RTSP_PACING_US` | Reverted (HZ=100); see R4. |
-| `RTSP_SNDBUF` | Never measured. |
+| `RTSP_UDPMMSG` (`sendmmsg`) | P-09: picture artefacts. **Removed 2026-11-24.** |
+| `RTSP_PACING_US` | Reverted (HZ=100); see R4. **Removed 2026-11-24.** |
+| `RTSP_SNDBUF` | Never measured. **Removed 2026-11-24.** |
 | `RTSP_POOLPAD` | Effectively off with the 9600K pool; HW-01b not reproduced. |
 | `/dev/mem` marker search fallback of direct capture (`:3670-3713`) | Patch 0006 provides `AK39_VI_G_PHYS`. |
-| `RTSP_FRAMECOPY=0` and `RTSP_LIVE_DIRECT=0` paths | O-05: no measurable difference; keep the default path only. |
+| `RTSP_FRAMECOPY=0` and `RTSP_LIVE_DIRECT=0` paths | O-05: no measurable difference; keep the default path only. **Removed 2026-11-24** (the in-place read stays only as the fallback when the copy finds no memory). |
 | Native `fullconfig` (`poll.h` route 7, ~270 lines) | Once per Settings open, already cached 5 s by the CGI; falls back on any value ≥ 24 characters (a Frigate URL already is), small semantic differences (`perf_profile`, Content-Type). |
 | Native `health.cgi` (route 5) | Once per diagnostics visit; the CGI's cache path is already fork-free. Small; keep or remove. |
 | JPEG luma fallback of the day/night logic (`supervisord.c:698-710`, `auto-night-daemon.sh:427-428`) | Averages JPEG header bytes, not light; `tc100_rtsp` writes `/tmp/cam_luma` on 3.0. |

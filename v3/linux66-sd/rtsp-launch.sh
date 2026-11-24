@@ -97,9 +97,8 @@ if [ "$RTSP_LOG" != /dev/console ]; then
 fi
 # boot.conf NET_LAN_ONLY: the server closes connections from outside the allowed networks itself (no packet filter)
 TC100_NET_ALLOW="$(sh -c '. /mnt/scripts/common_functions.sh; netacl_allow_list' 2>/dev/null)"; export TC100_NET_ALLOW
-# RTSP_PACING_US (rtsp.env) stays unset by default (rc27 tester, R2): the kernel runs at HZ=100 without high resolution
-# timers, so usleep(100) sleeps at least 10 ms, and the pacing sleeps in the main loop after each UDP packet: a UDP
-# client was capped near 100 packets/s and the capture was delayed for every client. cf4960b's default is reverted.
+# RTSP_PACING_US is gone (removed 2026-11-24, audit; tc100_rtsp ignores it in rtsp.env): at HZ=100 without high
+# resolution timers the pacing slept at least 10 ms in the main loop after each UDP packet (rc27 tester, R2).
 # on by default since the next RC (owner, 2026-11-05), each turned off by "=0" in /mnt/config/rtsp.env (read below):
 # the microphone read by tc100_rtsp itself (no arecord), its processing (high-pass, gate and level, muted while the
 # speaker plays), the automatic bit rate, the motion from the encoder frame sizes, and AAC sound in the SD recordings

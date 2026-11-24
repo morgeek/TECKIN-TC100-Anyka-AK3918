@@ -403,7 +403,7 @@ switch back to the rc7 behaviour.
    CPU by itself) and `ak39_vi.slots=3` (kernel default; `ak39_vi.slots=4` = rc7). The camera's `rtsp.env` does not
    need these lines any more.
 4. **Left opt-in:** `RTSP_UDPMMSG`, `RTSP_UDPSG` (no gain measured, so no reason to switch), `otg_hs.fifo32`,
-   `rtl8xxxu.dma_aggregation`, `RTSP_FRAMECOPY=0`.
+   `rtl8xxxu.dma_aggregation`, `RTSP_FRAMECOPY=0`. (`RTSP_UDPMMSG` and `RTSP_FRAMECOPY` removed 2026-11-24, audit.)
 5. **`amixer -c 0`: fixed** by writing `ext/share/alsa/cards/aliases.conf` (the slim base drops `cards/`): its four
    includes define `sysdefault`, `dmix`, `dsnoop`; build-stack checks them.
    **Speaker silent: not touched in rc8** (no verified fix; the codec path needs a test of its own, see B-01 notes).
@@ -903,7 +903,7 @@ uses the **flash** user space: the rc7 scripts (`perf-baseline.sh`, S50, ssh/tel
   broker refuses the login. A camera with MQTT configured and no/wrong password must not pay this.
 - **P-09 (owner watching VLC, IPCAM2, rc7, main H.265 + sub):** `RTSP_UDPSG=1` (log `rtp scatter-gather 1 sendmmsg 0`):
   **clean and smooth picture** over UDP for 1 minute+, `dropped` 0, `snd_ms` 250-310 per 5 s (same as without).
-  `RTSP_UDPSG=1` + **`RTSP_UDPMMSG=1`** (`sendmmsg 1`): **blocks / smears / stutter** in VLC (the log shows
+  `RTSP_UDPSG=1` + **`RTSP_UDPMMSG=1`** (removed 2026-11-24, audit) (`sendmmsg 1`): **blocks / smears / stutter** in VLC (the log shows
   `clients 2`, `snd_ms` 716-1124 in two STAT lines while the second client connected, `dropped` 0). So the `sendmmsg`
   batching is **not** ready; scatter-gather alone looks fine, no CPU difference seen (idle 56.9 % with, 57.5 % without,
   bridge running in both). Not tried: a simultaneous TCP and UDP client, 30 min of `dropped`, Frigate reconnect time.
@@ -987,7 +987,7 @@ Second part of the same night (flash boot, one TCP client = Frigate, 15 fps, eve
 | Test | Result |
 |---|---|
 | **O-05** log rotation | **PASSED** with a small cap: `RTSP_LOGMAX=8000` -> `/tmp/logs/tc100_rtsp.log.1` (8018 B) created after about 5 min, the new file starts with `log rotated`. Not seen at the real 256 KB cap (needs about 2.5 h at 1.7 KB/min of STAT lines): check `ls -l /tmp/logs` after the overnight soak. |
-| **O-05** `RTSP_FRAMECOPY` A/B | **No measurable difference at one client**: default `snd_ms` avg **264** (71 STAT lines), `enc_ms` 2300, idle 82.7 % / `RTSP_FRAMECOPY=0` `snd_ms` avg **273** (61 lines), `enc_ms` 2302, idle 82.3 %. The gain, if any, only shows with several clients or the recorder (not measurable here: no credentials for more clients). Keep the default. |
+| **O-05** `RTSP_FRAMECOPY` A/B (switch removed 2026-11-24, audit) | **No measurable difference at one client**: default `snd_ms` avg **264** (71 STAT lines), `enc_ms` 2300, idle 82.7 % / `RTSP_FRAMECOPY=0` `snd_ms` avg **273** (61 lines), `enc_ms` 2302, idle 82.3 %. The gain, if any, only shows with several clients or the recorder (not measurable here: no credentials for more clients). Keep the default. |
 | **B-01** slim initramfs | **PASSED** (serial checks): `initrd=0x81000000,2012654` in the cmdline, `/usr/bin/aplay|arecord|amixer` and `/usr/share/alsa` are links into `/mnt/ext`, `aplay -l` / `arecord -l` list `card 0: ADDA`, `PATH` has `/mnt/ext/bin`, dropbear running, **port 22 open, 23 closed**, `curl -I https://example.org` -> `200` with `ssl_verify_result 0` (CA bundle `/mnt/ext/etc/ssl/certs`), `jq -n 1` -> `1`, `iw reg get` works (`country 00`). MemAvailable 15.3-16.9 MB. **Not passing:** `amixer -c 0` (known, `cards/aliases.conf` missing; `amixer -D hw:0 scontents` works). Not done: microphone `arecord` (busy while `tc100_rtsp` runs), speaker (silent, see audio notes), ssh login (needs the password). |
 | **B-02** slim base | **PASSED** for what runs without a login: `busybox --list` = **192**, no `not found` in dmesg, `ps`, Wi-Fi, ntp, SD mount fine. |
 | **O-04** (checks 1, 7, 10, 11, 12) | **PASSED:** `/var/run/v4l2rtspserver.pid` = `pidof tc100_rtsp`, `oom_score_adj` **-900**; **no `crond`** with an empty crontab; `/tmp/www` has 22 entries, `/lib` has the `mnt` links; 13 `sh` processes in total, none new over the minutes watched; day/night daemon 0 %. Needs the web credentials: checks 2-6, 8, 9. |
@@ -1259,8 +1259,8 @@ Remarques :
 
 - **Version :** `3.0.1-rc22`
 - **Quoi :**
-  1. `RTSP_PACING_US` : micro-lissage d'émission des paquets RTP UDP en microsecondes (ex: 50 à 100 µs entre paquets/salves) pour étaler les salves des trames IDR volumineuses (H.265 ~130 Ko) et éviter de saturer la queue TX du dongle Wi-Fi USB RTL8188FU.
-  2. `RTSP_SNDBUF` : plafonnement de `SO_SNDBUF` en Ko (ex: 32 à 64 Ko) sur les sockets RTSP (TCP et UDP) afin de limiter l'accumulation de données dans la pile réseau du noyau.
+  1. `RTSP_PACING_US` (retiré le 2026-11-24, audit) : micro-lissage d'émission des paquets RTP UDP en microsecondes (ex: 50 à 100 µs entre paquets/salves) pour étaler les salves des trames IDR volumineuses (H.265 ~130 Ko) et éviter de saturer la queue TX du dongle Wi-Fi USB RTL8188FU.
+  2. `RTSP_SNDBUF` (retiré le 2026-11-24, audit) : plafonnement de `SO_SNDBUF` en Ko (ex: 32 à 64 Ko) sur les sockets RTSP (TCP et UDP) afin de limiter l'accumulation de données dans la pile réseau du noyau.
   3. Récupération Wi-Fi proactive : `net-guard.sh` tente un `wifi-recover.sh force` (re-probe USB propre) dès 60 s d'échec passerelle avant d'attendre l'extinction/reboot de la caméra.
   4. Optimisation RAM `/tmp` : rotation `RTSP_LOGMAX` abaissée de 256 Ko à 128 Ko.
   5. `multiview.html` : support du flux vidéo direct HTML5 (live.cgi) avec bascule instantanée et traductions complètes FR/EN.
@@ -1530,7 +1530,7 @@ Prochaine étape : rc26 sur la .11.
 | mDNS | `ipcamera2.local` → 192.168.1.11 |
 | Import JSON (export de la caméra elle-même) | 1er import : `changed_files 3` = les nouvelles clés rc27 écrites une fois ; 2e : `changed_files 0` (idempotent). **Durée 20-25 s** pour 144 valeurs (12-15 s pour 123 en rc25). Pendant l'import, la capture tombe à 11-17 images/s (processeur unique), puis revient à 24-25. |
 
-### Problème trouvé : `RTSP_PACING_US=100` par défaut (`cf4960b`) avec un noyau à 100 Hz
+### Problème trouvé : `RTSP_PACING_US=100` par défaut (`cf4960b`) avec un noyau à 100 Hz (`RTSP_PACING_US` retiré le 2026-11-24, audit)
 - Le noyau est `CONFIG_HZ=100`, `CONFIG_HZ_PERIODIC=y`, sans minuterie haute résolution : `/proc/timer_list` → `.resolution: 10000000 nsecs`. Un `usleep(100)` dort donc **au moins 10 ms**, pas 100 µs.
 - Dans `tc100_rtsp.c`, le pacing (lignes 1675, 1961, 1969) ne touche **que les clients UDP** et dort **dans la boucle principale** (un seul fil) après chaque paquet : à ~143 paquets/s pour 1,6 Mbit/s, il faudrait > 1,4 s de sommeil par seconde. Avec un client RTSP en **UDP** (VLC par défaut, certains NVR), le débit plafonne vers ~100 paquets/s (< 1,2 Mbit/s) et **la capture elle-même est retardée** → images perdues pour tous les clients.
 - Frigate/go2rtc en TCP ne sont pas concernés (pas de pacing en TCP) : c'est pour ça que rien ne se voit ici. Ma VM ne peut pas faire d'UDP (NAT) : à confirmer par le propriétaire (VLC en UDP sur la .11 : flux saccadé attendu).
@@ -2207,7 +2207,7 @@ Not done: 3D-NR (its 6.2 MB reference frame does not fit until HW-01b / HW-02 fr
   - **Snapshot cadence:** the 2 s snapshot cadence now applies only if the picture was read in the last 4 s (the
     dashboard kept it at 2 s forever).
   - **Client queues:** they shrink back after a congestion.
-- **Switches:** `RTSP_FRAMECOPY=0` (frame and JPEG reads as before), `RTSP_QTRIM=0` (queues never shrunk),
+- **Switches:** `RTSP_FRAMECOPY=0` (frame and JPEG reads as before; removed 2026-11-24, audit), `RTSP_QTRIM=0` (queues never shrunk),
   `RTSP_LOGFILE` unset (no rotation), in `/mnt/config/rtsp.env`.
 - **Test** (same scene, bit rate and clients before and after):
   1. After about an hour: `ls -l /tmp/logs` shows `tc100_rtsp.log` under 256 KB and a `.1`; `MemAvailable` stops
@@ -2348,12 +2348,12 @@ Declined after the tester's answer: `cma=16M`, wpa_supplicant out of the RAM ima
 - **What (commit `[video] ...`):**
   - **RTP:** a packet is a header buffer plus the payload left in the frame copy, sent with `sendmsg` iovecs (UDP);
     TCP queues header then payload. The two payload copies per packet are gone. **Opt-in: `RTSP_UDPSG=1`** (the host
-    test shows byte-identical packets for H.264; H.265 framing is not covered there). With it, `RTSP_UDPMMSG=1`
+    test shows byte-identical packets for H.264; H.265 framing is not covered there). With it, `RTSP_UDPMMSG=1` (removed 2026-11-24, audit)
     batches a frame's packets in one `sendmmsg`.
   - **Client queue:** 384 KB by default (was 768), raised to 1.5 s of the main bit rate. A late TCP joiner gets the
     IDR and the P frames that fit at once (`RTSP_QBURST=0`: wait for the next IDR as before). `RTSP_QMAX=<KB>` sets it.
   - **Browser live video:** the fMP4 fragment is built straight into the viewer's send buffer (byte-identical in the
-    host test); `RTSP_LIVE_DIRECT=0` restores the old path.
+    host test); `RTSP_LIVE_DIRECT=0` restores the old path (removed 2026-11-24, audit).
   - **VBR (P-08):** `[0].vbr` is the global setting; `RTSP_VBR_SUB` in `rtsp.env` is an explicit sub-stream override.
   - RTSP tuning switches go in `/mnt/config/rtsp.env`; global VBR and Smart mode stay in `[0]` of `rtspserver.conf`.
 - **Test:**
@@ -2517,7 +2517,7 @@ order and camera state are the 2026-11-10 owner-confirmed items above.
 3. **Make default:** `RTSP_ISPOSD=1` (HW-07 passed, saves about 2 % of a core), the privacy masks by the ISP (HW-04 passed
    for black, gray and white), `ak39_vi.slots=3` (+3.5 MB RAM, no cost, 15 and 25 fps checked).
 4. **Do not make default / drop:** `RTSP_UDPMMSG=1` (blocks and stutter in VLC), `otg_hs.fifo32=1` and
-   `rtl8xxxu.dma_aggregation=1` (no gain), `RTSP_FRAMECOPY` (no difference at one client).
+   `rtl8xxxu.dma_aggregation=1` (no gain), `RTSP_FRAMECOPY` (no difference at one client). (`RTSP_UDPMMSG` and `RTSP_FRAMECOPY` removed 2026-11-24, audit.)
 5. **Needs data from the day:** HW-08 / F-04 (at night AE is pegged: exposure 1124, gain 6840 with or without IR), HW-05
    (sharpness gains are 1 in the tuning file: only 0 / 1 / 2 levels).
 **Questions waiting for the owner** (the tester cannot do these alone): RTSP / web credentials for the client tests (TCP + UDP at the
@@ -3552,7 +3552,7 @@ Décision du propriétaire : l'interface reste en HTTP simple sur le port 80 ; l
 - **Test :** une installation neuve (ou `mqtt.conf` recopié de la `.dist`) démarre `tc100-mqttd` ; deuxième nuit stable sur la rc26/27 comme la première (un seul démon, pas de reconnexion) ; entités HA inchangées.
 - **Note implémenteur :** `_get_now_ts` est appelée par `$(…)` : un sous-shell par événement / commande, là où le script évitait les forks (sans effet fonctionnel).
 
-### `[pacing]` `RTSP_PACING_US=100` par défaut (`cf4960b`)
+### `[pacing]` `RTSP_PACING_US=100` par défaut (`cf4960b`) (`RTSP_PACING_US` retiré le 2026-11-24, audit)
 - **Quoi :** `rtsp-launch.sh` exporte `RTSP_PACING_US=100` si rien n'est donné (100 µs entre les paquets d'une rafale) ; `rtsp.env` peut le changer.
 - **Interrupteur :** `RTSP_PACING_US=0` dans `/mnt/config/rtsp.env`.
 - **Test (.11, une nuit, avec l'enregistreur de pertes) :** pertes de ping et images sautées (`dropped` des lignes `STAT`) comparées à la nuit du 2026-11-05 (9,5 %) ; latence du direct et charge CPU inchangées ; pas d'artefacts sur les images clés.
@@ -3827,7 +3827,7 @@ CI et build **verts** sur `184e1e5` (le build de `43efa80` était rouge, corrig�
   - **R5** : `restart` (arrêt puis démarrage) ajouté aux 15 scripts de service qui l'ignoraient en silence (auto-night-detection, black-white, front-led, ftp-server, ir-cut, ir-led, mdns, motion-detection, night-mode, privacy, red-led, ssh-server, telegram-bot, telnet-server, whep). Effets concrets : un nouveau jeton Telegram est pris tout de suite (`system.sh` appelle `telegram-bot restart`), le service-watchdog et memory-guard relancent vraiment ces services. Test : tout script de service doit accepter `restart`.
   - **R6** : `controlscripts/onvif` annonce la cadence réelle (`[0] fps` si 10/12/15/20/25, sinon 15 ; la même pour les deux flux) au lieu de la plafonner à 15, et 1280x720 quand le flux principal est en 720p (`[0] mainres=720` et `main_scale` du noyau).
   - **R7** : l'import JSON ne lance plus un sous-shell `urldecode` pour les valeurs sans caractère encodé (la plupart : `1`, `auto`, `25`…) ; non mesuré sur caméra.
-- **Interrupteur :** aucun (corrections) ; `RTSP_PACING_US=<µs>` dans `rtsp.env` reste possible à la main.
+- **Interrupteur :** aucun (corrections) ; `RTSP_PACING_US=<µs>` dans `rtsp.env` reste possible à la main (retiré le 2026-11-24, audit).
 - **Test :** (R2) VLC en **UDP** sur la .11 (`rtsp://…/video0_unicast`, option RTSP over UDP) : flux fluide, pas d'images perdues côté `tc100_rtsp` (`cap` normal dans le log). (R4) `WHEP=1`, direct WebRTC dans Chrome : image en < 2 s ; puis simuler l'absence de vidéo (`WHEP_STREAM=main` avec un principal en H.265 est refusé en 415 → repli MP4) ; le cas « son sans image » n'est reproductible qu'avec l'ancien binaire. (R5) Services : `restart` de mdns et de telegram-bot (`ps` : nouveau PID) ; changer le jeton Telegram dans Réglages : le bot répond sans redémarrage. (R6) Client ONVIF (ONVIF Device Manager ou Frigate) avec `ONVIF_IMPL=c` : profils à 25 img/s quand `[0] fps=25`, 1280x720 en 720p. (R7) Import JSON d'une sauvegarde complète : durée comparée aux 20-25 s de la rc27, `cap` pendant l'import.
 - **Critères :** UDP fluide ; jamais de direct noir avec le son ; `restart` relance chaque service ; cadence ONVIF = cadence du flux ; import plus rapide qu'en rc27.
 
@@ -4299,7 +4299,7 @@ Attention : le tag `v3.0.0` (08/11) a été construit pendant les deux jours où
 
 **Relecture du code (Fable, lecture seule, 2026-11-12) :** ni interblocage, ni tampon libéré pendant un envoi, ni
 mélange des trames TCP. Points à observer pendant l'essai :
-- **UDP :** la socket UDP est bloquante et l'envoi se fait sous `cl_mu` (avec l'attente `RTSP_PACING_US` si elle est
+- **UDP :** la socket UDP est bloquante et l'envoi se fait sous `cl_mu` (avec l'attente `RTSP_PACING_US`, retirée le 2026-11-24, si elle est
   réglée) ; un client UDP lent freine donc encore la capture, fil actif ou non. Le fil n'apporte un gain qu'aux
   clients TCP. Dans l'heure à deux clients, comparer `snd_wait` et `cap` avec et sans le client UDP : une hausse nette
   de `snd_wait` avec UDP confirme ce point (pas une régression : l'envoi inline fait de même).

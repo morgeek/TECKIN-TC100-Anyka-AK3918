@@ -1701,8 +1701,9 @@ class LiveMux(unittest.TestCase):
             self.assertEqual(fb[0][2], 0, 'times are relative to the viewer\'s first frame')
             self.assertEqual(b.samples()[0][1], True)
 
-    def test_building_the_fragment_in_the_viewers_buffer_gives_the_same_bytes_as_the_payload_copy(self):
-        """RTSP_LIVE_DIRECT=0 is the old path (a payload buffer per frame); the output must not change by one byte"""
+    def test_the_removed_live_direct_switch_changes_nothing(self):
+        """RTSP_LIVE_DIRECT=0 (the old payload buffer per frame) was removed on 2026-11-24 (audit, CLEANUP-1124): an
+        rtsp.env that still sets it gets the same bytes as without it"""
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
             self.run_live('flow', d / 'live0', d / 'a0.mp4', d / 'b0.mp4', env={'RTSP_LIVE_DIRECT': '0'})
@@ -1710,7 +1711,7 @@ class LiveMux(unittest.TestCase):
             for n in 'ab':
                 old, new = (d / (n + '0.mp4')).read_bytes(), (d / (n + '1.mp4')).read_bytes()
                 self.assertGreater(len(old), 10000)
-                self.assertEqual(old, new, n + '.mp4 differs between the two paths')
+                self.assertEqual(old, new, n + '.mp4 differs with RTSP_LIVE_DIRECT=0')
 
     def test_a_slow_viewer_skips_frames_until_a_keyframe_and_the_time_line_stays_continuous(self):
         with tempfile.TemporaryDirectory() as d:
@@ -1918,8 +1919,9 @@ def rtp_nals(pkts):
 
 
 class RtpPath(Server):
-    """the video RTP path of the server (host build, frames made by TC100_RTP_TEST): the packets of the old path (RTSP_UDPSG=0), the
-    scatter-gather path and the sendmmsg path must be the same bytes, over UDP and over the RTSP connection; the client queue limit"""
+    """the video RTP path of the server (host build, frames made by TC100_RTP_TEST): the packets of the old path (RTSP_UDPSG=0) and
+    the scatter-gather path must be the same bytes, over UDP and over the RTSP connection (the removed sendmmsg switch
+    RTSP_UDPMMSG changes nothing); the client queue limit"""
     audio = 0
     password = False
 
@@ -1980,11 +1982,12 @@ class RtpPath(Server):
         seqs = [struct.unpack('>H', p[2:4])[0] for p in pkts]
         self.assertEqual(seqs, [(seqs[0] + i) & 0xffff for i in range(len(seqs))], 'sequence numbers count up with no hole')
 
-    def test_the_three_paths_send_the_same_packets_over_udp_and_over_the_connection(self):
+    def test_the_two_paths_send_the_same_packets_over_udp_and_over_the_connection(self):
         feed = '24,20000,3000,50,12'
         got = {}
+        # mmsg: RTSP_UDPMMSG was removed on 2026-11-24 (audit, CLEANUP-1124); a leftover setting must change nothing
         for name, env in (('old', {}), ('sg', {'RTSP_UDPSG': '1'}), ('mmsg', {'RTSP_UDPSG': '1', 'RTSP_UDPMMSG': '1'})):
-            for tcp in (False, True):
+            for tcp in ((False,) if name == 'mmsg' else (False, True)):
                 self.start(TC100_RTP_TEST=feed, **env)
                 try:
                     pk = self.play(tcp)
@@ -1995,7 +1998,7 @@ class RtpPath(Server):
         self.assertGreater(len(got['old', False]), 24 * 2, 'the IDRs are fragmented')
         for tcp in (False, True):
             self.assertEqual(got['sg', tcp], got['old', tcp], 'scatter-gather packets differ from the old path (tcp=%s)' % tcp)
-        self.assertEqual(got['mmsg', False], got['old', False], 'sendmmsg packets differ from the old path')
+        self.assertEqual(got['mmsg', False], got['old', False], 'RTSP_UDPMMSG=1 (removed) changes the packets')
         self.assertEqual(got['old', True], got['old', False], 'UDP and interleaved packets carry the same RTP')
 
     def first_ids(self, **env):

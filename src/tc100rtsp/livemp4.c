@@ -61,7 +61,6 @@ static unsigned live_seconds = 600;
 static int ready, cur_si = -1, nview;
 static uint64_t last_scan;
 static char status_last[160];
-static int direct = 1;	/* RTSP_LIVE_DIRECT=0 (or TC100_LIVE_DIRECT=0): the old way, a payload buffer per frame then a copy per viewer */
 
 static uint64_t mono_ms(void)
 {
@@ -99,7 +98,6 @@ void live_init(void)
 	const char *e;
 	int i;
 
-	if ((e = getenv("RTSP_LIVE_DIRECT")) && *e == '0') direct = 0;
 	if ((e = getenv("TC100_LIVE_DIR")) && *e) dir = e;
 	if ((e = getenv("TC100_LIVE_SECONDS")) && *e) { live_seconds = 0; while (*e >= '0' && *e <= '9') live_seconds = live_seconds * 10 + (unsigned)(*e++ - '0'); }
 	for (i = 0; i < LIVE_MAX; i++) V[i].fd = -1;
@@ -266,9 +264,10 @@ void live_scan(uint64_t now_ms)
 	closedir(dp);
 }
 
-/* moof + mdat of one frame into the viewer's buffer. The sample is either pl (length-prefixed NALs already joined: the old
- * way) or, with pl NULL, the nn NALs in nl, each written behind its 4 byte length straight into the buffer (plen bytes in all) */
-static void put_frag(struct viewer *v, const struct buf *pl, const struct nal *nl, int nn, size_t plen, uint64_t ts_us, int key)
+/* moof + mdat of one frame into the viewer's buffer. The sample is the nn NALs in nl, each written behind its 4 byte
+ * length straight into the buffer (plen bytes in all). (The old way, the NALs joined in a payload buffer per frame then
+ * copied per viewer, RTSP_LIVE_DIRECT=0, was removed on 2026-11-24: same bytes.) */
+static void put_frag(struct viewer *v, const struct nal *nl, int nn, size_t plen, uint64_t ts_us, int key)
 {
 	size_t moof, traf, a, doff;
 	uint64_t dt;
@@ -292,7 +291,7 @@ static void put_frag(struct viewer *v, const struct buf *pl, const struct nal *n
 		if (dt <= v->prev_dt) dt = v->prev_dt + 1;
 		dur = d < 900 ? 900 : d > 90000 ? 90000 : (uint32_t)d;
 	}
-	if (!pl) mp4_b_need(&v->tx, plen + 256);
+	mp4_b_need(&v->tx, plen + 256);
 	moof = mp4_box(&v->tx, "moof");
 	a = mp4_fbox(&v->tx, "mfhd", 0, 0); mp4_b32(&v->tx, ++v->seq); mp4_end(&v->tx, a);
 	traf = mp4_box(&v->tx, "traf");
@@ -312,11 +311,8 @@ static void put_frag(struct viewer *v, const struct buf *pl, const struct nal *n
 	}
 	mdat = (uint32_t)(8 + plen);
 	mp4_b32(&v->tx, mdat); mp4_b_put(&v->tx, "mdat", 4);
-	if (pl) mp4_b_put(&v->tx, pl->p, pl->n);
-	else {
-		mp4_b_need(&v->tx, plen);	/* one growth, not one per NAL */
-		for (int i = 0; i < nn; i++) { mp4_b32(&v->tx, nl[i].n); mp4_b_put(&v->tx, nl[i].p, nl[i].n); }
-	}
+	mp4_b_need(&v->tx, plen);	/* one growth, not one per NAL */
+	for (int i = 0; i < nn; i++) { mp4_b32(&v->tx, nl[i].n); mp4_b_put(&v->tx, nl[i].p, nl[i].n); }
 	v->prev_ts_us = ts_us; v->prev_dt = dt; v->prev_dur = dur;
 }
 
@@ -324,7 +320,6 @@ void live_frame(int si, const unsigned char *d, uint32_t len, uint64_t ts_us, in
 {
 	struct nal u[32], sel[32];
 	const struct nal *sps = NULL, *pps = NULL;
-	struct buf pl = { 0 };
 	size_t plen = 0;
 	int n, i, ns = 0;
 
@@ -336,11 +331,9 @@ void live_frame(int si, const unsigned char *d, uint32_t len, uint64_t ts_us, in
 		if (t == 7) { sps = &u[i]; continue; }
 		if (t == 8) { pps = &u[i]; continue; }
 		if (t == 9) continue;
-		if (direct) { sel[ns++] = u[i]; plen += 4 + (size_t)u[i].n; }
-		else { mp4_b32(&pl, u[i].n); mp4_b_put(&pl, u[i].p, u[i].n); }
+		sel[ns++] = u[i]; plen += 4 + (size_t)u[i].n;
 	}
-	if (!direct) plen = pl.n;
-	if (pl.err || !plen) { free(pl.p); return; }
+	if (!plen) return;
 	if (sps && (sps->n > MP4_PS_MAX || sps->n < 4)) sps = NULL;
 	for (i = 0; i < LIVE_MAX; i++) {
 		struct viewer *v = &V[i];
@@ -367,10 +360,9 @@ void live_frame(int si, const unsigned char *d, uint32_t len, uint64_t ts_us, in
 			continue;
 		}
 		if (v->off) { memmove(v->tx.p, v->tx.p + v->off, pending); v->tx.n = pending; v->off = 0; }
-		put_frag(v, direct ? NULL : &pl, sel, ns, plen, ts_us, key);
+		put_frag(v, sel, ns, plen, ts_us, key);
 		if (v->tx.err || flush(v) < 0) v_drop(v);
 	}
-	free(pl.p);
 }
 
 void live_close_all(void)

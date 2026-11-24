@@ -109,7 +109,6 @@ static int (*p_set_br)(void *, int);		/* ak_venc_set_br(handle, kbit/s), optiona
 static unsigned long (*p_alloc)(int);
 static int (*p_pinit)(void);
 static volatile int run = 1;
-static int fcopy_on = 1;	/* RTSP_FRAMECOPY=0: encoder output and JPEGs are read in place (uncached) as before */
 static int dbg_on;	/* RTSP_DEBUG, read once at start (no getenv per frame) */
 
 /* RTSP_SAVE_FRAMES=PREFIX (step 2 of the free encoder, with AKUIO_CAPTURE of libakuio): the first RTSP_SAVE_FRAMES_N
@@ -331,10 +330,10 @@ static uint32_t jpeg_run(uint32_t y, uint32_t uv, int w, int h, int q)
 }
 
 /* the JPEG in jbuf is uncached memory read two or three times (two files, the recorder's thumbnail): one word-wise
- * copy to the heap, the readers use that; *own is what to free (NULL: no copy, jbuf itself) */
+ * copy to the heap, the readers use that; *own is what to free (NULL: no memory for the copy, jbuf itself) */
 static const uint8_t *jpeg_stable(uint32_t n, uint8_t **own)
 {
-	*own = fcopy_on ? malloc(n) : NULL;
+	*own = malloc(n);
 	if (!*own) return jbuf + TABLES_SIZE;
 	nal_copy(*own, jbuf + TABLES_SIZE, n);
 	return *own;
@@ -2443,9 +2442,6 @@ static int qflush(struct cli *c)
 	return 0;
 }
 
-static int pacing_us;	/* RTSP_PACING_US: delay in us after sending each UDP packet/batch to smooth IDR burst */
-static int sndbuf_kb;	/* RTSP_SNDBUF: socket SO_SNDBUF in KB (e.g. 32 to 64 KB to limit Wi-Fi driver queuing) */
-
 #define UDP_IDR_MIN_S 2.0	/* at most one IDR request per stream every 2 s caused by UDP backpressure */
 
 /* The client waits for the next IDR, natural or requested. The request itself is rate-limited per stream: if an IDR is
@@ -2474,13 +2470,6 @@ static int udp_err_ok(struct cli *c)
 	return 1;
 }
 
-static inline void pace_udp(void)
-{
-	if (pacing_us <= 0) return;
-	struct timespec ts = { 0, (long)pacing_us * 1000L };
-	nanosleep(&ts, NULL);
-}
-
 static int rtp_out(struct cli *c, const unsigned char *hdr12, const unsigned char *pl, int n)
 {
 	unsigned char pk[16 + RTP_PAYLOAD + 64];
@@ -2492,9 +2481,7 @@ static int rtp_out(struct cli *c, const unsigned char *hdr12, const unsigned cha
 		return qsend(c, pk, 16 + n);
 	}
 	if (c->wait_idr) return 0;
-	int rc = sendto(udpfd, pk + 4, 12 + n, MSG_DONTWAIT | MSG_NOSIGNAL, (struct sockaddr *)&c->udp, sizeof c->udp) < 0 ? (udp_err_ok(c) ? 0 : -1) : 0;
-	if (!rc && !c->wait_idr) pace_udp();
-	return rc;
+	return sendto(udpfd, pk + 4, 12 + n, MSG_DONTWAIT | MSG_NOSIGNAL, (struct sockaddr *)&c->udp, sizeof c->udp) < 0 ? (udp_err_ok(c) ? 0 : -1) : 0;
 }
 
 /* ---- audio: microphone (ALSA, via arecord) -> G.711 A-law -> RTP PT 8, 8 kHz mono, 20 ms per packet ----
@@ -2805,84 +2792,38 @@ static int send_pkt(struct cli *c, uint32_t ts, int marker, const unsigned char 
  * A packet is a header (12 RTP bytes + the FU bytes, built in a small buffer) and the payload, which stays where it is (the
  * frame copy): UDP hands both to sendmsg as two iovecs, TCP queues the 4 byte interleave header + header, then the payload
  * (one copy, into the queue). The old path copied the payload into an FU buffer, then into a packet buffer, then sent.
- * RTSP_UDPMMSG=1 (default off): the packets of one frame are collected (SG_MAX) and sent by one sendmmsg raw syscall. */
-#define SG_MAX 16
-struct sg_mmsg { struct msghdr hdr; unsigned int len; };	/* kernel struct mmsghdr, as glibc's */
-static int sg_on, sg_mmsg_on;
-static struct {
-	struct cli *c;
-	int n;
-	unsigned char h[SG_MAX][16];
-	struct iovec iov[SG_MAX][2];
-	struct sg_mmsg m[SG_MAX];
-} sg;
+ * (The batch of a frame's packets in one sendmmsg, RTSP_UDPMMSG, was removed on 2026-11-24: picture artefacts, P-09.) */
+static int sg_on;
 
-/* send what was collected for sg.c; 0 when fine, -1 when the client has to go (as a failed sendto did) */
-static int sg_flush(void)
-{
-	int i = 0, rc = 0;
-
-	while (i < sg.n) {
-#ifdef SYS_sendmmsg
-		if (sg_mmsg_on && sg.n - i > 1) {
-			long r = syscall(SYS_sendmmsg, udpfd, sg.m + i, (unsigned)(sg.n - i), MSG_DONTWAIT | MSG_NOSIGNAL);
-
-			if (r > 0) {
-				i += (int)r;
-				pace_udp();
-				continue;
-			}
-			if (r < 0 && errno == ENOSYS) { sg_mmsg_on = 0; continue; }
-			if (r < 0 && errno == EINTR) continue;
-			if (r < 0 && udp_err_ok(sg.c)) break;
-			rc = -1; break;
-		}
-#endif
-		if (sendmsg(udpfd, &sg.m[i].hdr, MSG_DONTWAIT | MSG_NOSIGNAL) < 0) {
-			if (errno == EINTR) continue;
-			if (!udp_err_ok(sg.c)) rc = -1;
-			break;
-		}
-		pace_udp();
-		i++;
-	}
-	sg.n = 0; sg.c = NULL;
-	return rc;
-}
-
-/* header: 12 RTP bytes then fl FU bytes (fu), payload pl / n left in place */
+/* header: 12 RTP bytes then fl FU bytes (fu), payload pl / n left in place; 0 when fine, -1 when the client has to go
+ * (as a failed sendto did) */
 static int sg_pkt(struct cli *c, uint32_t ts, int marker, const unsigned char *fu, int fl, const unsigned char *pl, int n)
 {
 	uint32_t ssrc = S[c->si].ssrc;
-	unsigned char th[4 + 16], *h;
-	int k = 0;
+	unsigned char th[4 + 16], *h = th + 4;
+	struct iovec iov[2];
+	struct msghdr m;
 
 	/* a UDP client in wait_idr (backpressure) gets no more packets of this frame: they would only feed the congestion,
-	 * the picture is lost until the next IDR (what was already collected is still flushed) */
+	 * the picture is lost until the next IDR */
 	if (!c->tcp && c->wait_idr) return 0;
 
-	if (c->tcp) {
-		h = th + 4;
-		th[0] = '$'; th[1] = c->ch; th[2] = (12 + fl + n) >> 8; th[3] = (12 + fl + n) & 255;
-	} else {
-		if (sg.n && sg.c != c && sg_flush()) return -1;
-		sg.c = c;
-		k = sg.n;
-		h = sg.h[k];
-	}
+	if (c->tcp) { th[0] = '$'; th[1] = c->ch; th[2] = (12 + fl + n) >> 8; th[3] = (12 + fl + n) & 255; }
 	h[0] = 0x80; h[1] = (marker ? 0x80 : 0) | 96;
 	h[2] = c->seq >> 8; h[3] = c->seq & 255; c->seq++;
 	h[4] = ts >> 24; h[5] = ts >> 16; h[6] = ts >> 8; h[7] = ts;
 	h[8] = ssrc >> 24; h[9] = ssrc >> 16; h[10] = ssrc >> 8; h[11] = ssrc;
 	for (int j = 0; j < fl; j++) h[12 + j] = fu[j];
 	if (c->tcp) return qsend(c, th, 16 + fl) || qsend(c, pl, n) ? -1 : 0;
-	sg.iov[k][0].iov_base = h; sg.iov[k][0].iov_len = 12 + fl;
-	sg.iov[k][1].iov_base = (void *)pl; sg.iov[k][1].iov_len = n;
-	memset(&sg.m[k], 0, sizeof sg.m[k]);
-	sg.m[k].hdr.msg_name = &c->udp; sg.m[k].hdr.msg_namelen = sizeof c->udp;
-	sg.m[k].hdr.msg_iov = sg.iov[k]; sg.m[k].hdr.msg_iovlen = 2;
-	sg.n++;
-	if (sg.n >= (sg_mmsg_on ? SG_MAX : 1)) return sg_flush();
+	iov[0].iov_base = h; iov[0].iov_len = 12 + fl;
+	iov[1].iov_base = (void *)pl; iov[1].iov_len = n;
+	memset(&m, 0, sizeof m);
+	m.msg_name = &c->udp; m.msg_namelen = sizeof c->udp;
+	m.msg_iov = iov; m.msg_iovlen = 2;
+	while (sendmsg(udpfd, &m, MSG_DONTWAIT | MSG_NOSIGNAL) < 0) {
+		if (errno == EINTR) continue;
+		return udp_err_ok(c) ? 0 : -1;
+	}
 	return 0;
 }
 
@@ -2952,8 +2893,7 @@ static int send_ps(struct cli *c, uint32_t ts)
 	struct strm *s = &S[c->si];
 
 	if (s->hevc && send_nal(c, ts, s->vps, s->vps_len, 0)) return -1;
-	if (send_nal(c, ts, s->sps, s->sps_len, 0) || send_nal(c, ts, s->pps, s->pps_len, 0)) return -1;
-	return sg.n ? sg_flush() : 0;
+	return send_nal(c, ts, s->sps, s->sps_len, 0) || send_nal(c, ts, s->pps, s->pps_len, 0) ? -1 : 0;
 }
 
 /* tab: the NALs of the frame already found once (nal_scan of the cached copy), NULL: scan d here */
@@ -2978,8 +2918,8 @@ static int send_frame(struct cli *c, const unsigned char *d, int n, uint32_t ts,
 		nl[k].s = s; nl[k].l = l; k++;
 	}
 	for (i = 0; i < k; i++)
-		if (send_nal(c, ts, d + nl[i].s, nl[i].l, i == k - 1)) { sg.n = 0; sg.c = NULL; return -1; }
-	return sg.n ? sg_flush() : 0;
+		if (send_nal(c, ts, d + nl[i].s, nl[i].l, i == k - 1)) return -1;
+	return 0;
 }
 
 /* queue space a frame needs: payload, RTP/interleave headers per packet, parameter sets */
@@ -4070,12 +4010,10 @@ int main(int argc, char **argv)
 		} else if (ew && *ew && num(ew) != 1920)
 			LOG("RTSP_WIDTH %s: only 1920x1080 or 1280x720, 1920x1080 kept\n", ew);
 	}
-	{ const char *fc = getenv("RTSP_FRAMECOPY"), *qt = getenv("RTSP_QTRIM"), *qb = getenv("RTSP_QBURST"); fcopy_on = !(fc && fc[0] == '0'); qtrim_on = !(qt && qt[0] == '0');
-	  qburst_on = !(qb && qb[0] == '0');
-	  { const char *sgv = getenv("RTSP_UDPSG"), *mm = getenv("RTSP_UDPMMSG"); sg_on = sgv && sgv[0] == '1'; sg_mmsg_on = sg_on && mm && mm[0] == '1'; }
-	  { const char *pc = getenv("RTSP_PACING_US"), *sb = getenv("RTSP_SNDBUF");
-	    pacing_us = pc && *pc ? (int)num(pc) : 0;
-	    sndbuf_kb = sb && *sb ? (int)num(sb) : 0; } }
+	/* removed 2026-11-24 (audit, section 5), ignored when still set in rtsp.env: RTSP_FRAMECOPY, RTSP_UDPMMSG,
+	 * RTSP_PACING_US, RTSP_SNDBUF, RTSP_LIVE_DIRECT */
+	{ const char *qt = getenv("RTSP_QTRIM"), *qb = getenv("RTSP_QBURST"), *sgv = getenv("RTSP_UDPSG");
+	  qtrim_on = !(qt && qt[0] == '0'); qburst_on = !(qb && qb[0] == '0'); sg_on = sgv && sgv[0] == '1'; }
 
 	for (o = 1; o + 1 < argc; o += 2) {
 		const char *a = argv[o], *v = argv[o + 1];
@@ -4420,10 +4358,6 @@ unsigned char *fpb[2] = { NULL, NULL };
 	udpfd = socket(AF_INET, SOCK_DGRAM, 0);
 	sa.sin_port = htons(srv_rtp);
 	if (bind(udpfd, (struct sockaddr *)&sa, sizeof sa)) LOG("udp %d: %s\n", srv_rtp, strerror(errno));
-	if (sndbuf_kb > 0) {
-		int sb = sndbuf_kb * 1024;
-		setsockopt(udpfd, SOL_SOCKET, SO_SNDBUF, &sb, sizeof sb);
-	}
 	for (int i = 0; i < MAXCLI; i++) cl[i].fd = -1;
 	net_init();
 	au_rand_init();
@@ -4445,8 +4379,8 @@ unsigned char *fpb[2] = { NULL, NULL };
 #endif
 	LOG("tc100_rtsp: rtsp://<ip>:%d/  %dx%d %d fps %d kbit/s %s; sub-stream (/video1, /ch1, /sub) %s %dx%d %d kbit/s %s\n",
 	    port, W, H, fps, kbps, hevc ? "H.265" : "H.264", sub_on ? "on" : "off", SW, SH, sub_kbps, sub_hevc ? "H.265" : "H.264");
-	LOG("tc100_rtsp: vbr main %u sub %u; client queue %d KB; rtp scatter-gather %d sendmmsg %d; pacing %d us sndbuf %d KB; live direct\n",
-	    S[0].pa.rc_vbr, S[1].pa.rc_vbr, q_cap / 1024, sg_on, sg_mmsg_on, pacing_us, sndbuf_kb);
+	LOG("tc100_rtsp: vbr main %u sub %u; client queue %d KB; rtp scatter-gather %d\n",
+	    S[0].pa.rc_vbr, S[1].pa.rc_vbr, q_cap / 1024, sg_on);
 	cfg_reload(now_s());
 
 	{	/* RTSP_SENDER_THREAD=1: a thread of its own sends the frames to the clients (see "sender thread" above) */
@@ -4607,10 +4541,6 @@ unsigned char *fpb[2] = { NULL, NULL };
 					cl[i].peer = pa.sin_addr.s_addr;
 					fcntl(s, F_SETFL, fcntl(s, F_GETFL) | O_NONBLOCK);
 					setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
-					if (sndbuf_kb > 0) {
-						int sb = sndbuf_kb * 1024;
-						setsockopt(s, SOL_SOCKET, SO_SNDBUF, &sb, sizeof sb);
-					}
 				}
 			}
 		}
@@ -4913,8 +4843,8 @@ unsigned char *fpb[2] = { NULL, NULL };
 				{
 					/* The encoder output is uncached memory: read it once, word-wise, into the heap (the GOP cache keeps
 					 * that copy), find the NALs once, give the encoder its buffer back, and let everything below read the
-					 * copy. RTSP_FRAMECOPY=0 (or no memory for the copy): the old way, the encoder buffer read in place. */
-					unsigned char *own = fcopy_on ? malloc(st.len) : NULL, *d = own ? own : st.data;
+					 * copy. No memory for the copy: the encoder buffer is read in place. */
+					unsigned char *own = malloc(st.len), *d = own ? own : st.data;
 					unsigned len = st.len;
 					struct nal_tab nt, *tp = NULL;
 					int kept = 0, i;
