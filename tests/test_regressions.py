@@ -784,6 +784,29 @@ class Regressions(unittest.TestCase):
                 self.assertIn(b'#INVALID', self.decoder(frame).stdout)
         self.assertIn(b'#PAYLOAD {  "cmd":"x" }', self.decoder(publish(b'{\r\n"cmd":"x"\n}')).stdout)
 
+    def test_mqtt_retained_command_is_not_delivered(self):
+        # audit 2026-11-24 R3: a PUBLISH with RETAIN set comes from the broker's store at subscribe time (MQTT 3.1.1
+        # 3.3.1.3), at every reconnection: a retained reboot command looped. The live one after it is delivered.
+        retained, live = b'\x31' + publish(b'{"cmd":"reboot"}')[1:], publish(b'{"cmd":"front_led"}')
+        r = self.decoder(retained + live)
+        self.assertEqual(r.stdout.count(b'#RETAINED'), 1)
+        self.assertEqual(r.stdout.count(b'#PAYLOAD'), 1)
+        self.assertIn(b'#PAYLOAD {"cmd":"front_led"}', r.stdout)
+        self.assertNotIn(b'reboot', r.stdout)
+        self.assertIn(('#CONSUMED ' + str(len(retained) + len(live))).encode(), r.stdout)
+        (self.base / 'spool.1').write_bytes(retained + live)
+        r = run(self.mqtt_prefix().replace('log_msg() { :; }', 'log_msg() { printf "LOG %s\\n" "$1"; }') +
+                'MQTT_TOPIC_COMMAND=camera/command\necho 1 > "${MQTT_STREAM_RAW}.session"\ndrain_command_spool\n')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.split(b'\n')[:2], [b'LOG MQTT retained command ignored: clear it with an empty retained '
+                                                     b'message on camera/command', b'DELIVERED {"cmd":"front_led"}'])
+        # the windowed subscriber (MQTT_PERSISTENT_SUBSCRIBE=0) skips it as well
+        s = (ROOT / MQTT).read_text()
+        once = re.search(r"_sub_payload=\"\$\(awk '(.*?)' \"\$_sub_resp\"", s, re.S).group(1)
+        r = subprocess.run(['awk', once], input=' '.join(str(b) for b in b'\x20\x02\x00\x00' + retained + live).encode(),
+                           capture_output=True, timeout=5, env=dict(os.environ, LC_ALL='C'))
+        self.assertEqual(r.stdout, b'{"cmd":"front_led"}\n')
+
     def mqtt_prefix(self):
         s = (ROOT / MQTT).read_text()
         start = s.index('MQTT_STREAM_RAW="/tmp/mqtt_stream.bin"')

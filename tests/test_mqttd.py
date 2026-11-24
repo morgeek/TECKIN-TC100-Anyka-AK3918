@@ -153,10 +153,10 @@ class Broker:
             with self.lock:
                 self.log.append('disconnect')
 
-    def send_publish(self, topic, payload):
+    def send_publish(self, topic, payload, retain=False):
         tb = topic.encode()
         body = len(tb).to_bytes(2, 'big') + tb + payload
-        self.conn.sendall(b'\x30' + varint(len(body)) + body)
+        self.conn.sendall((b'\x31' if retain else b'\x30') + varint(len(body)) + body)
 
     def drop(self):
         self.conn.shutdown(socket.SHUT_RDWR)
@@ -334,6 +334,28 @@ class Daemon(unittest.TestCase):
         self.assertEqual(lines[1], 'reboot|mqtt')
         self.assertFalse((self.d / 'pwned').exists() or (self.d / 'pwned2').exists())
         self.assertEqual(len(lines), 3)
+
+    def test_a_retained_command_is_ignored_and_a_live_one_runs(self):
+        """audit 2026-11-24 R3: the broker sends its retained message with RETAIN set right after the SUBSCRIBE, at
+        every connection (MQTT 3.1.1 3.3.1.3): a retained reboot command was a reboot loop. Live messages (RETAIN clear,
+        what a Home Assistant button sends) still run, also after a reconnection."""
+        b = self.start()
+        self.assertTrue(b.wait(lambda b: b.subs and b.pub('t/health')))
+        b.send_publish('cam1/command', b'{"cmd":"reboot","secret":"s3"}', retain=True)
+        b.send_publish('cam1/command', b'{"cmd":"live"}')
+        self.assertTrue(b.wait(lambda b: len(b.pub('t/command/result')) == 1))
+        self.assertEqual((self.d / 'cmds').read_text(), '{"cmd":"live"}|mqtt\n')            # in order: the retained one was seen first
+        log = (self.d / 'log').read_text()
+        self.assertIn('MQTT retained command ignored (30 bytes)', log)
+        self.assertNotIn('s3', log)                                                          # never the payload
+        b.drop()
+        self.assertTrue(b.wait(lambda b: len(b.subs) == 2))
+        time.sleep(0.2)
+        b.send_publish('cam1/command', b'{"cmd":"reboot"}', retain=True)                    # the store again, at the new SUBSCRIBE
+        b.send_publish('cam1/command', b'{"cmd":"after"}')
+        self.assertTrue(b.wait(lambda b: len(b.pub('t/command/result')) == 2))
+        self.assertEqual((self.d / 'cmds').read_text().split('\n'), ['{"cmd":"live"}|mqtt', '{"cmd":"after"}|mqtt', ''])
+        self.assertEqual((self.d / 'log').read_text().count('retained command ignored'), 2)
 
     def test_fifo_of_the_other_scripts_publishes_and_survives_garbage(self):
         b = self.start()

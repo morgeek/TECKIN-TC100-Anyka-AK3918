@@ -2501,7 +2501,7 @@ subscribe_once_command_forged()
           d = b[j]; rem += (d % 128) * mult; mult *= 128; j++
         } while (d >= 128)
         if (j + rem > n) exit
-        if (type == 3) {                      # PUBLISH
+        if (type == 3 && b[i] % 2 == 0) {     # PUBLISH, not retained (audit R3)
           tl = b[j] * 256 + b[j + 1]
           start = j + 2 + tl
           if (int(b[i] / 2) % 4 > 0) start += 2   # QoS > 0 carries a packet id
@@ -2580,6 +2580,9 @@ END {
       if (tl < 1 || start > j + rem || qos != 0) {
         print "#INVALID"; p = n; break
       }
+      # RETAIN set: from the retained store at subscribe time, never a live
+      # command (MQTT 3.1.1 3.3.1.3); a retained reboot looped (audit R3).
+      if (b[p] % 2 == 1) { print "#RETAINED"; p = j + rem; continue }
       out = ""
       for (k = start; k < j + rem; k++) {
         # One output record per packet, also for pretty-printed JSON.
@@ -2748,6 +2751,8 @@ EOF
     case "$_dc_line" in
       '#CONSUMED '*) _dc_consumed="${_dc_line#\#CONSUMED }" ;;
       '#PAYLOAD '*) handle_command_payload "${_dc_line#\#PAYLOAD }" mqtt ;;
+      '#RETAINED')
+        log_msg "MQTT retained command ignored: clear it with an empty retained message on ${MQTT_TOPIC_COMMAND}" ;;
       '#INVALID')
         : > "${MQTT_STREAM_RAW}.reset"
         log_msg "MQTT command frame rejected (invalid or over 4 KiB)" ;;
@@ -2780,6 +2785,9 @@ subscribe_stream_start()
   # of one per MQTT_COMMAND_WAIT_SECONDS. --no-buffer makes curl flush each
   # PUBLISH payload to the FIFO as it arrives; --connect-timeout keeps failure
   # detection fast now that --max-time no longer bounds the connect phase.
+  # curl prints no RETAIN flag: a retained command is not filtered in this
+  # legacy mode (MQTT_PERSISTENT_SUBSCRIBE=0 only); the default listener
+  # above drops it (audit R3).
   _ss_url="mqtt://${MQTT_HOST}:${MQTT_PORT}/${MQTT_TOPIC_COMMAND}?clientid=${MQTT_CLIENT_ID}-sub&qos=${MQTT_QOS}"
   if [ -n "$MQTT_USER" ]; then
     "$CURL_BIN" --silent --no-buffer --connect-timeout 10 \

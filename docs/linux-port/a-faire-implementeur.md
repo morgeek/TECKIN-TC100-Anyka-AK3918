@@ -26,7 +26,9 @@ Rapport : [audit-2026-11-24-optim.md](audit-2026-11-24-optim.md) (lecture seule,
 - [x] **R2** le bouton reset bloqué pendant `nightmode.sh` / MQTT (fait 2026-11-24 `[r2-button]`, test-queue
   `R2-BUTTON`) : chaque attente d'un script interroge toutes les 50 ms et lit le bouton à l'heure ; `nightmode.sh`
   tué après 120 s (`DN_NIGHTMODE_TIMEOUT`), avec ce qu'il a lancé, et une ligne sur la console.
-- [ ] **R3** commande MQTT retenue exécutée à chaque connexion.
+- [x] **R3** commande MQTT retenue exécutée à chaque connexion (fait 2026-11-24 `[r3-mqtt]`, test-queue `R3-MQTT`) :
+  `tc100-mqttd` et le pont shell (écouteur persistant, abonnement par fenêtre) ignorent une commande reçue avec le
+  drapeau RETAIN, une ligne de journal sans le contenu ; le mode flux curl hérité ne voit pas le drapeau.
 - [ ] **T1 + B5** faire tourner le test de parité des routes natives de `httpfront`, puis corriger `isp_tune`.
 - [ ] Retirer les optimisations mortes (section 5 du rapport) en un seul nettoyage ; le reste des sections 2 et 4.
 

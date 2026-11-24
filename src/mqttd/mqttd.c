@@ -762,6 +762,15 @@ static int on_packet(int type, int flags, const unsigned char *p, size_t rem)
 		if (((flags >> 1) & 3) != 0 || rem < 2) return -1;
 		tl = (p[0] << 8) | p[1];
 		if (tl < 1 || 2 + tl > rem) return -1;
+		/* audit 2026-11-24 R3: RETAIN set = a message from the broker's retained store, sent because we just
+		 * subscribed (MQTT 3.1.1 3.3.1.3; a live message to an existing subscription always has it clear, even when
+		 * it was published retained). A retained {"cmd":"reboot"} ran again at every connection: a reboot loop.
+		 * Not executed, one line without the payload (it may carry settings). */
+		if (flags & 1) {
+			logf_("MQTT retained command ignored (%u bytes): clear it with an empty retained message on %s",
+			      (unsigned)(rem - 2 - tl), C.cmd);
+			return 0;
+		}
 		pn = rem - 2 - tl;
 		memcpy(pay, p + 2 + tl, pn);
 		for (size_t i = 0; i < pn; i++) {

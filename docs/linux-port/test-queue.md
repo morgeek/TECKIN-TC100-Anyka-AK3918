@@ -508,6 +508,25 @@ per flash write.
      killed`, and a 5 s hold still starts the rescue access point during and after the hang.
 - **Pass:** 1 and 2 (and 3 when run); `umount /mnt/scripts/nightmode.sh` if no reboot happened.
 
+### R3-MQTT A retained MQTT command is not executed (`[r3-mqtt]`, audit 2026-11-24 R3) — `to test`
+- **What:** a message published *retained* on the command topic is sent again by the broker at every subscription
+  (with the RETAIN flag set, MQTT 3.1.1 3.3.1.3). `tc100-mqttd` executed it at every connection (a retained
+  `{"cmd":"reboot"}` = a reboot loop: the repeat filter lives in `/tmp`). Command PUBLISH packets with RETAIN set are
+  now dropped with one log line (`MQTT retained command ignored (N bytes): clear it with an empty retained message on
+  <topic>`, no payload). A live message, also one published with retain, reaches an existing subscription with RETAIN
+  clear and runs as before: Home Assistant buttons publish without retain. The shell bridge
+  (`MQTT_BRIDGE_IMPL=sh`, persistent listener and windowed subscriber) does the same; its legacy curl stream mode
+  (`MQTT_PERSISTENT_SUBSCRIBE=0` with curl) cannot see the flag.
+- **Revert:** the previous build (no switch: a retained command is never wanted).
+- **Test:** from a PC on the LAN (the owner types the credentials):
+  1. `mosquitto_pub -h BROKER -u USER -P PASS -t <root>/command -r -m '{"cmd":"snapshot"}'` (a harmless command;
+     `-r` = retained). Restart the bridge (`/mnt/controlscripts/mqtt-bridge restart`) or drop Wi-Fi a moment: the
+     command does not run (no `<root>/command/result` message), and `/tmp/log/mqtt-bridge.log` has one
+     `retained command ignored` line per connection.
+  2. A Home Assistant button press (or the same `mosquitto_pub` without `-r`) still runs at once.
+  3. Clear the retained message: `mosquitto_pub ... -t <root>/command -r -n`.
+- **Pass:** 1 and 2.
+
 ### FAILCOUNT Failure totals of the video server over a day: STAT, /tmp file, memory-hourly.csv (`[failcount]`) â€” `to test` (both cameras, 24 h or more)
 
 - **What:** measurement only, no behaviour change. `src/tc100rtsp/tc100_rtsp.c` counts since the process start
