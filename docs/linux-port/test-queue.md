@@ -601,6 +601,33 @@ per flash write.
   the previous build (`cap`, `enc`, `snd_ms`, `pp_ms`, `dropped`, `pic_fail` 0, `cap_stall` 0, `exit3` 0); no reboot,
   no oops; RTSP and the web live view play; the day / night switches happen as before.
 
+### SMALL-B-1124 Small CPU savings of the audit (W2, W6, W7, W9) (`[small]`, audit 2026-11-24 section 4) — `to test`
+- **What:** four small cuts in work that was paid for nothing; the default output is the same (host tests compare the
+  old and new results byte for byte or sample for sample).
+  1. W2, `tc100_rtsp` `post_awb_sample` (AWB, twice a second): the luma byte of each of the 16 200 samples was found
+     with a signed library division (`i / W`); row and column are now stepped (`awb_grid_next`, `util.h`), same samples.
+  2. W6, `tc100-mdnsd`: host name, address and netmask are kept 5 s (they were read with an open/read/close and two
+     ioctls for every query); the TXT strings of `MDNS_INFO=1` (`/mnt/VERSION`, `/proc/loadavg`,
+     `/tmp/wifi-signal.avg`) are read only when a DNS-SD answer is due, not for every query of the subnet. A new host
+     name or address is answered within 5 s (at once before).
+  3. W7, `tc100-onvifd`: `/tmp/rec_control` is read only while a PullPoint subscription exists (twice a second, as
+     before) and once when one is created, so its first `Initialized` message has the current state.
+  4. W9, `tc100_rtsp`: the copy of the encoder output and of the JPEG is a plain `memcpy` (the volatile word loop
+     `nal_copy` is gone: the pool is write-combined, the libc copy reads it in words and bursts); one clock read for
+     `lis_scan`, `live_scan` and `talk_tick`, and `live_scan` uses its argument instead of a second clock read.
+- **Switch / revert:** none (no setting); the previous build.
+- **Test (one camera, then both; a normal day):**
+  - W2: colours and white balance as on the previous build, day and evening (`isp_tune.status`, the picture); the
+    `pp_ms` field of the `STAT` lines of `/tmp/logs/tc100_rtsp.log` not higher, and `tc100_rtsp` in `top` not higher.
+  - W6: mDNS / Bonjour still finds the camera: `ping <hostname>.local` from a PC, `avahi-browse -rt _rtsp._tcp` (or
+    the Bonjour list of VLC / Home Assistant) shows it with `model`, `fw`, `load` and `rssi` in the TXT.
+  - W7: ONVIF motion events still arrive in Home Assistant (ONVIF integration, motion binary sensor) or an NVR: walk
+    in front of the camera, the event turns on, then off; after a restart of Home Assistant (new subscription) the
+    sensor starts with the right state.
+  - W9: video as before: RTSP main and sub stream in VLC or Frigate, the web live view, a recording and a snapshot.
+- **Pass:** the four checks above; `STAT` lines with the same fields and order of magnitude as on the previous build
+  (`cap`, `enc`, `snd_ms`, `pp_ms`, `dropped`, `pic_fail` 0, `cap_stall` 0, `exit3` 0); no reboot, no oops.
+
 ### FAILCOUNT Failure totals of the video server over a day: STAT, /tmp file, memory-hourly.csv (`[failcount]`) â€” `to test` (both cameras, 24 h or more)
 
 - **What:** measurement only, no behaviour change. `src/tc100rtsp/tc100_rtsp.c` counts since the process start
