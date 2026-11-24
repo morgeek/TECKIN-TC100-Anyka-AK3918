@@ -158,7 +158,11 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
   seulement si `SUnreclaim` monte (la baisse de ~0,4 Mo / jour n'est pas l'espace utilisateur).
 
 ### B3. Trouvé dans la première nuit en 3.0.2-rc2 (24/11) — en observation, pas encore de correctif
-- [ ] **NIGHT-CEIL, débit de nuit au plafond sur la .24 malgré AWB-NIGHT.** Au démarrage à l'aube, AWB-05 s'est bien mis
+- [ ] **NIGHT-CEIL, débit de nuit au plafond sur la .24 malgré AWB-NIGHT.** *Testeur, 24/11 18:20 : le
+  `nightmode.log` de la .24 montre nuit 08:08 → jour 08:11 (heure locale) : les 3 min au plafond étaient une
+  courte nuit juste après le démarrage, à l'aube, pas une nuit établie. Priorité plus basse ; la nuit du 24-25/11
+  tranche (journal 1 Mo actif sur les deux caméras depuis 18:22, vidéo non redémarrée jusqu'au matin). Pour la
+  RC3 : rien à corriger sur ce point avant cette lecture.* Au démarrage à l'aube, AWB-05 s'est bien mis
   en pause (`ISP auto`) mais le débit est resté à 1500-1870 kbit/s pendant 3 min (gain 26×, exposition qui bouge),
   alors que la .11 est restée à 650-890 kbit/s toute la nuit. Pas de correctif tant qu'on ne sait pas si c'est la
   lumière de l'aube sous l'IR, le bruit de nuit à fort gain, le 3D-NR ou le budget R1 (voulu : à 10 i/s une image

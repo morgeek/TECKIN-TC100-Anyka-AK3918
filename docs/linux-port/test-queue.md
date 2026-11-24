@@ -865,6 +865,25 @@ per flash write.
   cameras with the server running across the evening switch; if the ceiling remains with AWB-05 paused, look at the
   night noise reduction (NR levels 64-512 / 512-1024 at 26x), the 3D NR (`NR3D=1`) and R1 (the budget at 10 fps
   lets a noisy picture use the whole ceiling; `RTSP_FE_FPS=0` caps it at 640 kbit/s as before).
+- **2026-11-24 18:20, day watch of both cameras on 3.0.2-rc2 (tester; one line every 5 min from 08:07 in
+  `/tmp/watch.log`: bit rate, fps, mode, AWB gains, pid, `MemAvailable`, signal, counters):**
+  - **Stable all day:** `tc100_rtsp` never restarted (.11 19.5 h, .24 10.2 h since boot), every counter at 0
+    (`pic_fail enc_reopen cap_stall dq_err sub_off exit3`), no `Failed power on` since the .11 reboot of 23/11.
+  - **Memory flat:** .11 `MemAvailable` 17.5-18.0 MB over 19 h, `SUnreclaim` 3.44-3.56 MB; .24 17.3-18.2 MB,
+    `SUnreclaim` 3.62-3.73 MB. No trend: the slow drop seen on 3.0.1 is not there on rc2 so far (to confirm over 3 days).
+  - **Wi-Fi:** 0 TX URB error, 0 RX URB lost, TCP retransmits 0.07 % (.11) / 0.17 % (.24), `txq_stops` 122 / 137.
+  - **Bit rate by day:** .11 220-380 kbit/s at 24 fps, 108-156 kbit/s at 10 fps in the dim late afternoon (15:50-17:10),
+    450-750 kbit/s when the room lights came on (18:13); .24 88-340 kbit/s, one 714 kbit/s sample (15:12, motion).
+    The 10-fps low-light step goes both ways without a night switch (luma 83-118): correct.
+  - **NIGHT-CEIL, the dawn case of this morning explained:** the .24's `nightmode.log` shows night 08:08 -> **08:11**
+    (local): the ceiling samples were a 3-min night spell right after the start at dawn, then day. Not the steady
+    night case: lower priority; the night of 24-25/11 decides.
+  - **No evening switch yet at 18:20** (both still in day, rooms lit): AWB-NIGHT hand-over and DN-FLAP still to read.
+  - **Plan of the main session applied (18:22):** `RTSP_LOGMAX=1048576` added to `/mnt/config/rtsp.env` on both
+    (backup `/tmp/rtsp.env.before-logmax`, md5 before: .11 `bf72029f2d2f`, .24 `94fb3ad3be4c`), video restarted with
+    `controlscripts/rtsp-h26x restart` (new pids, `RTSP_LOGMAX` seen in the process environment). No restart until
+    the morning; `watch.sh` keeps running. In the morning: copy the logs before any reboot, then remove the line
+    (check the md5 is back to the one above).
 - **2026-11-24, reading of the first rc2 night and plan for the night of 24-25/11 (main session):**
   - **Passed so far, nothing to fix:** FAILCOUNT (all 0, hourly copy works), AWB-NIGHT on the .11 (650-890 kbit/s,
     day gains resumed and saved, no night state saved), MEMWATCH (flat over 9 h). DN-FLAP: no round trip, but the
