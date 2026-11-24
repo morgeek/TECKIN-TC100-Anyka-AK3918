@@ -94,7 +94,7 @@ single-consumer with compiler barriers, enough on this uniprocessor, the signal 
 
 | Source | Period | Forks/min |
 |---|---|---|
-| `wifi-quality.sh` (also awk-scans its 1440-line log each minute) | 60 s | ~10-12 |
+| `wifi-quality.sh` (also awk-scans its 1440-line log each minute) (done 2026-11-24, `[wifiq]`, WIFIQ-FORKS: 13 pids a run before, 8 after: timeout + iw, timeout + ping, 2 mv; no awk, the last hour kept in a small window file) | 60 s | ~10-12 -> ~8 |
 | `health-snapshot.sh` (+ probes, memwatch) | 300 s | ~3-4 |
 | `log-cap.sh` | 600 s | ~2-3 |
 | `log-persist.sh` (with a card) | 600 s | ~1-4 |

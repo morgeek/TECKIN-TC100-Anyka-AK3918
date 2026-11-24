@@ -650,6 +650,23 @@ per flash write.
   twice an hour apart), the stop of health-snapshot still flushes.
 - **Pass:** (a) both events arrive; (b) the hold is gone; (c)-(f) as described, no error in the log.
 
+### WIFIQ-FORKS `wifi-quality.sh` with 8 forks a minute instead of 13, no awk over the 24 h log (`[wifiq]`, audit 2026-11-24 section 7) — `to test`
+- **What:** `scripts/wifi-quality.sh` gives the same files (`/tmp/wifi-quality.log`, `/tmp/wifi-quality`,
+  `/tmp/wifi-signal.avg`, the previous-state file), byte for byte, with far less work. No `$(...)` subshell or pipe:
+  `iw` and `ping` write to `/tmp/.wifi-quality.prev.iw` / `.ping` (under `timeout`, as before) and are read back with
+  `read`; the gateway and the `iw` path are found in the shell; the awk over the 1440-line log is gone: the last hour
+  is kept in `/tmp/.wifi-quality.prev.win` (a few dozen lines) and summed with `$(( ))` (the same integers as the awk,
+  leading zeros handled). `wifi-quality.sh summary` still reads the whole log. Forks of a run: 13 -> 8 pids (busybox
+  `timeout` costs 3 each: timeout + iw, timeout + ping, and the two `mv` of the avg and the summary file).
+  Only difference: after a clock that goes back by more than an hour the old awk counted the "future" lines again.
+- **Switch to turn it off:** `WIFI_QUALITY=0` in `boot.conf` (the whole job); otherwise the previous build.
+- **Test (one camera, a day):** (1) the Wi-Fi page, `mqtt` diag values (`wifi_loss_pct`, `wifi_tx_retries`,
+  `wifi_rssi_min`), the mDNS TXT signal and `wifi-roam.sh` behave as before; `cat /tmp/wifi-quality` has its seven keys
+  and `samples_1h` is about 60. (2) `/proc/stat` `processes` twice 600 s apart, housekeeper running: fewer than
+  before (about 50 less per 10 minutes from this script alone). (3) `top` CPU not higher.
+- **Pass:** (1) values plausible and unchanged in format; (2) lower; (3) not higher; no error in `/tmp/logs`.
+  Host test: `tests/test_wifiq_forks.py` (identical files over 132 simulated minutes against the old script, fork count).
+
 ### FAILCOUNT Failure totals of the video server over a day: STAT, /tmp file, memory-hourly.csv (`[failcount]`) â€” `to test` (both cameras, 24 h or more)
 
 - **What:** measurement only, no behaviour change. `src/tc100rtsp/tc100_rtsp.c` counts since the process start

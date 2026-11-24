@@ -191,7 +191,7 @@ class NightFindings(unittest.TestCase):
             self.assertEqual((d / 'log').read_text().splitlines()[-1].split()[1], '-49')
             self.assertFalse((d / 'avg').exists())
         w = text('scripts/wifi-quality.sh')
-        self.assertIn('timeout 5 "$(command -v iw', w)
+        self.assertIn('timeout 5 "$_wq_iw" dev', w)
         self.assertIn('timeout 8 ping', w)
 
     def test_switched_off_service_is_disabled_not_stopped(self):
