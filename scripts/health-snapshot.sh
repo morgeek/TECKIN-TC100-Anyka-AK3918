@@ -48,7 +48,7 @@ case "$1" in
   once|flush|interval) ;;
   *)
     echo "$$" > "$PIDFILE" 2>/dev/null || true
-    trap 'stability_flush; rm -f "$PIDFILE"; exit 0' TERM INT ;;
+    trap 'memwatch_flush; stability_flush; rm -f "$PIDFILE"; exit 0' TERM INT ;;
 esac
 
 _btime=0
@@ -98,8 +98,14 @@ stability_default_path() {
 }
 
 # Append the RAM samples to the file in one write, then trim it.
-stability_flush() {
+# memwatch.sh flushes itself at its boot / hourly / drop samples ("once an hour"): only the stop path and the explicit
+# "flush" command ask for it here, so memory.csv is not written a second time every hour.
+memwatch_flush() {
   [ -r "$MEMWATCH_SCRIPT" ] && sh "$MEMWATCH_SCRIPT" flush </dev/null >/dev/null 2>&1
+  return 0
+}
+
+stability_flush() {
   [ -s "$STABILITY_PENDING" ] || return 0
   _sf="$STABILITY_FILE"
   [ -n "$_sf" ] || stability_default_path
@@ -203,7 +209,7 @@ build_snapshot() {
 
 case "$1" in
   interval) echo "$INTERVAL" ;;
-  flush) stability_flush ;;
+  flush) memwatch_flush; stability_flush ;;
   once)
     # the time since the last stability sample lives in a file between two runs (the daemon keeps it in a variable)
     _se=0; [ -r "$STABILITY_ELAPSED_FILE" ] && read -r _se < "$STABILITY_ELAPSED_FILE"
