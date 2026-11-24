@@ -628,6 +628,28 @@ per flash write.
 - **Pass:** the four checks above; `STAT` lines with the same fields and order of magnitude as on the previous build
   (`cap`, `enc`, `snd_ms`, `pp_ms`, `dropped`, `pic_fail` 0, `cap_stall` 0, `exit3` 0); no reboot, no oops.
 
+### SMALL-A-1124 Six small fixes of the audit (`[small]`, audit 2026-11-24 R5 R6 R7 R8 W4 W8) — `to test`
+- **What:** no visible change with the default configuration.
+  1. R5 `mqtt-bridge.sh`: each FIFO record for `tc100-mqttd` is built in `/tmp/.mqtt_rec.PID` and handed over by one
+     `dd bs=4096 count=1` (one `write()`, under PIPE_BUF), as the fast path already did. The 3000-byte limit stays.
+  2. R6 `supervisor.sh` / `tc100-supervisord`: the job flag now holds a nonce (pid + uptime); the daemon restarts the
+     night job when it changes. An empty flag (older callers) still works.
+  3. R7 `log-cap.sh` leaves `daynight.log` alone (the daemon rotates it at 400 lines).
+  4. R8 `rwconf`: temp file `FILE.<pid>.tmp` (matches the `*.tmp` exclusions of `cfg-persist`).
+  5. W4 `health-probe.sh`: a 0 exit of `onvif health` / `rtsp-h26x health` is "running" (no `status` run behind it);
+     `ssh-server` is a pid-file probe (`/var/run/dropbear.pid`).
+  6. W8 `health-snapshot.sh`: `memory.csv` is flushed by `memwatch.sh` itself (boot, hourly) and by the stop path, no
+     longer a second time by the stability flush.
+- **Switch / revert:** none; the previous build.
+- **Test (one camera, a normal run):** (a) R5 with `MQTT_BRIDGE_IMPL=c`: trigger two MQTT events at once (motion and a
+  sound event, or two `mqtt-bridge.sh publish` in parallel with 2-3 KB payloads): both arrive at the broker. (b) R6: with
+  a DN-FLAP hold running (`daynight.log`), `controlscripts/auto-night-detection restart` ends it (log line
+  `Daemon started`, no hold). (c) R7: `daynight.log` stays up to 400 lines (`wc -l`) after 10 minutes. (d) R8: Settings
+  save works, no `*.tmp` stays next to the file. (e) W4: Services page health unchanged; `ps` shows no extra
+  `controlscripts/onvif status` every 5 minutes. (f) W8: `memory.csv` gets its rows once an hour (`ls -l --time-style=full-iso`
+  twice an hour apart), the stop of health-snapshot still flushes.
+- **Pass:** (a) both events arrive; (b) the hold is gone; (c)-(f) as described, no error in the log.
+
 ### FAILCOUNT Failure totals of the video server over a day: STAT, /tmp file, memory-hourly.csv (`[failcount]`) â€” `to test` (both cameras, 24 h or more)
 
 - **What:** measurement only, no behaviour change. `src/tc100rtsp/tc100_rtsp.c` counts since the process start

@@ -38,7 +38,8 @@ Rapport : [audit-2026-11-24-optim.md](audit-2026-11-24-optim.md) (lecture seule,
   `RTSP_POOLPAD`, `RTSP_ZEROCOPY`, les chemins `RTSP_FRAMECOPY=0` / `RTSP_LIVE_DIRECT=0` ni la recherche `/dev/mem` de la
   capture directe (`AK39_VI_G_PHYS` est dans le patch 0006 depuis le 2026-10-22) ; jour / nuit : plus de luminance
   tirée des octets du JPEG (50 sans `/tmp/cam_luma`, C et shell). `health.cgi` natif gardé.
-- [ ] Le reste des sections 2 et 4 du rapport, et les mesures listées en section 5.
+- [ ] Le reste des sections 2 et 4 du rapport, et les mesures listées en section 5. Fait 2026-11-24 (`[small]`,
+  test-queue `SMALL-A-1124`) : R5, R6, R7, R8, W4, W8. Reste : R1, R2, R3 (R4 fait), W1-W3, W5-W7, W9 et les mesures.
 
 ## Audit du 2026-11-16 (`[audit-1116]`)
 
