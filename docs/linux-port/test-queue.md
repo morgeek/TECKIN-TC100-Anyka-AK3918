@@ -356,6 +356,24 @@ per flash write.
 - **Pass:** the login is refused. If it is accepted, keep FTP off and report: chroot it to the card and require the
   password.
 
+### B1-ONVIF ONVIF sees a password change at once (`[b1-onvif]`, audit 2026-11-24 B1) — `to test`
+- **What:** `tc100-onvifd` read `user.pwd` (and `rtspserver.conf`, `boot.conf`, `rtsp.env`, `timezone.conf`) only at
+  start and on SIGHUP, and nothing sends SIGHUP: after a password change in the web UI the old password kept working on
+  ONVIF until a restart, and a daemon started before the wizard set a password stayed open. Now `user.pwd` is looked at
+  (one `stat`) before every authentication and the five files every 2 s; a change reloads the configuration. A password is
+  never dropped to "open" by a file emptied 2 s ago or less. `all_password` writes `user.pwd` beside it and renames it;
+  if that fails (full file system) the old password stays and the failure is logged (`logger -t all_password`), no
+  in-place fallback.
+- **Revert:** none needed for the reload (it only re-reads what a restart would); the previous build if something breaks.
+- **Test:**
+  1. ONVIF client (ONVIF Device Manager, go2rtc or `curl` with WS-Security) logged in with the current password.
+  2. Change the password in the web UI. Within a second, the old password gets `NotAuthorized` on ONVIF and the new one
+     works, without restarting onvif (`pidof tc100-onvifd` unchanged).
+  3. `ls -l /mnt/config/user.pwd`: mode 0600, no `user.pwd.*.tmp` left; `cfg-persist` saves it (reboot keeps it).
+  4. Change the sub stream or the codec in the web UI: ONVIF `GetProfiles` shows it within 2-3 s.
+  5. CPU: `top` shows no change for `tc100-onvifd` with an NVR polling it.
+- **Pass:** 2 to 4 as described, no restart of onvif, no extra CPU.
+
 ### FAILCOUNT Failure totals of the video server over a day: STAT, /tmp file, memory-hourly.csv (`[failcount]`) â€” `to test` (both cameras, 24 h or more)
 
 - **What:** measurement only, no behaviour change. `src/tc100rtsp/tc100_rtsp.c` counts since the process start

@@ -325,7 +325,8 @@ class OnvifD(unittest.TestCase):
         self.assertEqual(st, 200)
         self.write('user.pwd', '\n')
         self.procs[0].send_signal(signal.SIGHUP)
-        time.sleep(0.5)
+        # B1: a file emptied 2 s ago or less does not drop the password (a writer between truncate and write)
+        time.sleep(3.3)
         st, _, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=False)
         self.assertEqual(st, 200)
 
@@ -362,7 +363,7 @@ class OnvifD(unittest.TestCase):
         self.assertEqual(st, 400)
         st, _, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=security('root', self.password))
         self.assertEqual(st, 200)
-        time.sleep(2.6)                                   # still empty 2 s later: the owner removed it, open as before
+        time.sleep(3.3)                                   # still empty 3 s later: the owner removed it, open as before
         st, _, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=False)
         self.assertEqual(st, 200)
 
@@ -380,7 +381,9 @@ class OnvifD(unittest.TestCase):
         body = src[src.index('all_password()'):]
         body = body[:body.index('\n}\n')]
         self.assertIn('mv -f /mnt/config/user.pwd.$$.tmp /mnt/config/user.pwd', body)
-        self.assertNotIn('echo "$1" > /mnt/config/user.pwd\n}', src)
+        # no in-place fallback: on a full file system it would leave user.pwd empty (= open)
+        self.assertNotIn('> /mnt/config/user.pwd;', body)
+        self.assertNotIn('echo "$1" > /mnt/config/user.pwd', body)
 
     # ---- profiles -----------------------------------------------------------------------------------------------
 

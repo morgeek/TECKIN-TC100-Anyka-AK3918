@@ -406,7 +406,7 @@ static void load_config(void)
 	if (n >= 0 && ini_get(cbuf, "", "RTSP_USER", v, sizeof v) && v[0]) scpy(G.user, sizeof G.user, v);
 
 	/* the password: first line of user.pwd, empty or missing = no authentication. On a reload a password is never
-	 * dropped to "open" by a file that was emptied less than 2 s ago (a writer between truncating and writing it):
+	 * dropped to "open" by a file that was emptied 2 s ago or less (a writer between truncating and writing it):
 	 * the old one stays and the file is looked at again (cfg_sig[0] forced stale) */
 	{
 		char np[sizeof G.pass];
@@ -419,7 +419,7 @@ static void load_config(void)
 			cbuf[strcspn(cbuf, "\r\n")] = 0;
 			scpy(np, sizeof np, cbuf);
 		}
-		if (!np[0] && G.pass[0] && cfg_loaded && stat(path, &st) == 0 && (long long)time(NULL) - (long long)st.st_mtime < 2)
+		if (!np[0] && G.pass[0] && cfg_loaded && stat(path, &st) == 0 && (long long)time(NULL) - (long long)st.st_mtime <= 2)
 			cfg_sig[0].ok = -1;
 		else
 			scpy(G.pass, sizeof G.pass, np);

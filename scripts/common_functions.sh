@@ -700,9 +700,16 @@ all_password()
     rewrite_config /mnt/config/rtspserver.conf USERNAME "$DEFAULT_LOGIN"
     rewrite_config /mnt/config/rtspserver.conf USERPASSWORD "$1"
     # written beside and renamed (audit 2026-11-24 B1): tc100-onvifd re-reads user.pwd when it changes and must never
-    # see it truncated (an empty file means "no password: open")
-    ( umask 077; printf '%s\n' "$1" > /mnt/config/user.pwd.$$.tmp ) && mv -f /mnt/config/user.pwd.$$.tmp /mnt/config/user.pwd \
-        || { rm -f /mnt/config/user.pwd.$$.tmp; echo "$1" > /mnt/config/user.pwd; }
+    # see it truncated (an empty file means "no password: open"). No in-place fallback: on a full file system it would
+    # leave the file empty; the old password then stays in force and the failure is reported.
+    if ( umask 077; printf '%s\n' "$1" > /mnt/config/user.pwd.$$.tmp ) && [ -s /mnt/config/user.pwd.$$.tmp ] \
+        && mv -f /mnt/config/user.pwd.$$.tmp /mnt/config/user.pwd; then
+        return 0
+    fi
+    rm -f /mnt/config/user.pwd.$$.tmp
+    echo "all_password: user.pwd could not be written (file system full?): the old password stays for ONVIF" >&2
+    logger -t all_password "user.pwd could not be written: the old password stays" 2>/dev/null
+    return 1
 }
 
 # Input arg - file with PID
