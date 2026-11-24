@@ -489,8 +489,8 @@ per flash write.
   hold that overlapped a switch lost the blocked seconds (8 s could become the 3-7 s rescue access point, 20 s a plain
   reboot; a press that began during the wait could also gain seconds). Every wait for a child now polls every 50 ms and
   takes the button's one-second samples on time meanwhile (same thresholds: 3-7 s rescue access point, 8-19 s reboot,
-  20 s and more back to the built-in code + reboot; acts on release). `nightmode.sh` is killed after 120 s, with what it
-  started, and the console says `[auto-night] /mnt/scripts/nightmode.sh on did not end within 120 s: killed`.
+  20 s and more back to the built-in code + reboot; acts on release). `nightmode.sh` is killed after 120 s, the script only
+  (what it starts in the background, such as `tc100_rtsp` restarted with `NIGHT_720P=1`, lives on), and the console says `[auto-night] /mnt/scripts/nightmode.sh on did not end within 120 s: killed`.
   The shell fallback (`SUPERVISOR_IMPL=sh`) is unchanged: `button-watch.sh` was always a process of its own.
 - **Revert:** `SUPERVISOR_IMPL=sh` in `/mnt/config/boot.conf` (shell loops), or the previous build.
 - **Test (RAM only, undone by `umount` or a reboot):** make the switch slow so the hold surely overlaps it:
@@ -517,6 +517,8 @@ per flash write.
   clear and runs as before: Home Assistant buttons publish without retain. The shell bridge
   (`MQTT_BRIDGE_IMPL=sh`, persistent listener and windowed subscriber) does the same; its legacy curl stream mode
   (`MQTT_PERSISTENT_SUBSCRIBE=0` with curl) cannot see the flag.
+  Behaviour change: a command published retained on purpose so that it runs when the camera reconnects no longer
+  runs; publish it live instead.
 - **Revert:** the previous build (no switch: a retained command is never wanted).
 - **Test:** from a PC on the LAN (the owner types the credentials):
   1. `mosquitto_pub -h BROKER -u USER -P PASS -t <root>/command -r -m '{"cmd":"snapshot"}'` (a harmless command;

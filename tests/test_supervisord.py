@@ -797,8 +797,9 @@ class Daemon(unittest.TestCase):
         self.assertIsNone(self.proc.poll())
 
     def test_a_hung_nightmode_is_killed_and_the_button_still_works(self):
-        """a nightmode.sh that never ends is killed with what it started after DN_NIGHTMODE_TIMEOUT s and logged; the
-        button works while it hangs and after"""
+        """a nightmode.sh that never ends is killed after DN_NIGHTMODE_TIMEOUT s and logged, the script only: what it
+        started in the background (tc100_rtsp restarted by night-mode, the service watchdog) lives on; the button works
+        while it hangs and after"""
         self.slow_nightmode('sleep 100 &\necho $! > %s/sleep.pid\nwait' % self.d)
         (self.d / 'luma').write_text('10\n')
         (self.d / 'night.flag').write_text('')
@@ -813,7 +814,9 @@ class Daemon(unittest.TestCase):
         (self.d / 'luma').write_text('200\n')                                                # day already: nothing more to switch
         self.assertEqual(self.nmlog(), ['start on'])                                         # killed before its end
         sleeper = int((self.d / 'sleep.pid').read_text())
-        self.assertTrue(self.wait_for(lambda: not proc_alive(sleeper), 5))                   # its child too
+        time.sleep(0.5)
+        self.assertTrue(proc_alive(sleeper))                                                 # its background child lives on
+        os.kill(sleeper, signal.SIGKILL)
         self.rig.press(3.5 * 0.25)
         self.assertTrue(self.wait_for(lambda: self.rig.calls() == ['rescue', 'rescue'], 5))
         self.assertIsNone(self.proc.poll())

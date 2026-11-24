@@ -223,12 +223,15 @@ static int run(const char *const *argv, int wait_it)
 /* the same, but a command that does not end within `secs` seconds is killed (-2): a hung MQTT publish or nightmode.sh
  * must not stop the other jobs of the daemon (the shell loop it replaces would have waited for ever; only a failure
  * case differs) */
-static int run_to(const char *const *argv, int secs)
+/* grp: the child gets a process group of its own and a timeout kills the group (the MQTT publishes: their helpers
+ * end with them); without it only the child is killed (nightmode.sh: what it starts in the background, such as
+ * tc100_rtsp restarted by night-mode with NIGHT_720P=1 or the service watchdog, must survive it) */
+static int run_to(const char *const *argv, int secs, int grp)
 {
-	pid_t pid = spawn(argv, 1);
+	pid_t pid = spawn(argv, grp);
 
 	if (pid < 0) return -1;
-	return wait_child(pid, secs < 1 ? 1 : secs, 1);
+	return wait_child(pid, secs < 1 ? 1 : secs, grp);
 }
 
 static void reap(void)
@@ -505,7 +508,9 @@ static void dn_flap_sample(ll lum)
 }
 
 /* nightmode.sh on|off. A switch takes a few seconds; one that has not ended after DN_NIGHTMODE_TIMEOUT s (120) is
- * killed with what it started, and the next turns decide again from the IR-cut state it left (audit 2026-11-24 R2). */
+ * killed, the script only (review of R2: its process group can hold tc100_rtsp, restarted in the background by
+ * night-mode with NIGHT_720P=1, and the service watchdog), and the next turns decide again from the IR-cut state it
+ * left (audit 2026-11-24 R2). */
 static void dn_nightmode(const char *arg)
 {
 	const char *argv[3];
@@ -515,7 +520,7 @@ static void dn_nightmode(const char *arg)
 	argv[0] = envs("DN_NIGHTMODE", "/mnt/scripts/nightmode.sh");
 	argv[1] = arg;
 	argv[2] = NULL;
-	if (run_to(argv, secs) == -2) console("[auto-night] %s %s did not end within %d s: killed", argv[0], arg, secs);
+	if (run_to(argv, secs, 0) == -2) console("[auto-night] %s %s did not end within %d s: killed", argv[0], arg, secs);
 }
 
 static int dn_switch(int night, const char *why)	/* 1 when it switched */
@@ -1066,7 +1071,7 @@ static int sd_script(const char *name, int need_x, int bg, const char *a1, const
 	if (a3) argv[n++] = a3;
 	if (a4) argv[n++] = a4;
 	argv[n] = NULL;
-	return bg ? run(argv, 0) : run_to(argv, env_num("SD_TIMEOUT", 30));
+	return bg ? run(argv, 0) : run_to(argv, env_num("SD_TIMEOUT", 30), 1);
 }
 
 static void sd_state_pub(const char *topic, const char *val)	/* mqtt-bridge.sh publish TOPIC VAL 1 */
@@ -1373,6 +1378,7 @@ int main(int argc, char **argv)
 	sigaction(SIGINT, &sa, NULL);
 	signal(SIGPIPE, SIG_IGN);
 	signal(SIGHUP, SIG_IGN);
+	signal(SIGCHLD, SIG_DFL);	/* inherited SIG_IGN would make waitpid fail (ECHILD) and skip the timeouts */
 	f = open(pidfile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	if (f >= 0) {
 		char b[24];
