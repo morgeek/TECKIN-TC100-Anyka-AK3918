@@ -2118,7 +2118,11 @@ class Sources(unittest.TestCase):
         src = (SRC / 'tc100_rtsp.c').read_text()
         start = src.index('#ifndef AWB_HOLD')
         end = src.index('\n/* The capture memory is uncached', start)
-        fn = src[start:end]
+        # post_awb_sample steps its grid with awb_grid_next of util.h (W2, audit 2026-11-24)
+        util = (SRC / 'util.h').read_text()
+        grid = util[util.index('static inline void awb_grid_next('):]
+        grid = grid[:grid.index('\n}\n') + 3]
+        fn = grid + src[start:end]
         harness = r"""
 #include <stdint.h>
 #include <stdio.h>

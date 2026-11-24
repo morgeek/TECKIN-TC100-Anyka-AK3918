@@ -230,7 +230,7 @@ HW_FALL = {
     'sound_octal': {'var/run/sound_level': '0%d -3\n' % (time.time() + 600)},
     'sound_control': {'var/run/sound_level': '%d -3\x01\n' % (time.time() + 600)},
     'sound_line_long': {'var/run/sound_level': '%d -3%s\n' % (time.time() + 600, '9' * 300)},
-    'no_clock': {'proc/stat': None},
+    # 'no_clock' is gone (W5): the clock only dated the audit line, which a read-only query no longer writes
 }
 
 
