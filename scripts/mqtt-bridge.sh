@@ -653,7 +653,14 @@ _mqtt_sink_send()
   fi
   [ $((${#3} + ${#4})) -lt 3000 ] || return 1
   _mqtt_daemon_alive || return 1
-  printf '%s%s%s\000%s\000' "$1" "$2" "$3" "$4" 2>/dev/null > "$MQTT_DAEMON_FIFO"
+  # One write() of the whole record (BusyBox printf may split 1-3 KB into several; two publishers would interleave and
+  # mqttd drops the buffer): built in a file, handed over by one dd read and one write, <= PIPE_BUF (atomic).
+  _ss_tmp="/tmp/.mqtt_rec.$$"
+  printf '%s%s%s\000%s\000' "$1" "$2" "$3" "$4" > "$_ss_tmp" 2>/dev/null || { rm -f "$_ss_tmp"; return 1; }
+  dd if="$_ss_tmp" bs=4096 count=1 > "$MQTT_DAEMON_FIFO" 2>/dev/null
+  _ss_rc=$?
+  rm -f "$_ss_tmp"
+  return "$_ss_rc"
 }
 
 mqtt_publish_raw()
