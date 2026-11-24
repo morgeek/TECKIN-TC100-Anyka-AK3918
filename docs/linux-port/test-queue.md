@@ -619,6 +619,16 @@ per flash write.
   KB / 5 s was the dawn light, not the code). rc44 stock on the same scene before: about 400 KB / 5 s (its quality
   QP was 27, no `RTSP_VBR_QP`). Still to see: 2 (a busy / noisy night scene rising above 650 kbit/s), 1 with
   `RTSP_FE_SUBBUF=1`, 3 smart=1, 4 over 24 h, 5. Left running on the .24 from 08:17 UTC.
+- **2026-11-24 08:10, .24 updated to 3.0.2-rc2 too (web update by the owner, same build; no 3.0.1 reference left):**
+  first boot clean this time (no `Failed power on`, `autorun_start` 13.8 s, `rtsp_launched` 26.6 s, `boot_complete`
+  71.8 s), counters at 0, A-MPDU TX off, -56 dBm, ping 4.7 ms. Night set at start (dark room at dawn):
+  `AWB-05 paused (night), ISP auto (day gains kept: rex 288 bex 154)` = the AWB-NIGHT fix as designed. **But the bit
+  rate is at the ceiling anyway:** 5-s samples 157-1967 kbit/s, mostly 1500-1870 over the first 3 min, total gain 26x,
+  exposure 2812 lines (10 fps). So the ceiling is not (only) AWB-05 steering under IR: dawn light rising under the
+  IR and the auto-exposure moving all the time may be enough. To settle: a steady deep night (22 h - 5 h) on both
+  cameras with the server running across the evening switch; if the ceiling remains with AWB-05 paused, look at the
+  night noise reduction (NR levels 64-512 / 512-1024 at 26x), the 3D NR (`NR3D=1`) and R1 (the budget at 10 fps
+  lets a noisy picture use the whole ceiling; `RTSP_FE_FPS=0` caps it at 640 kbit/s as before).
 - **2026-11-24 08:05, first night of 3.0.2-rc2 on the .11 (up 9.2 h since the 22:51 reboot; the .24 on 3.0.1 as the
   reference):**
   - **FAILCOUNT:** `starts=1 pic_fail=0 enc_reopen=0 cap_stall=0 dq_err=0 sub_off=0 exit3=0`, the same in every
