@@ -13,9 +13,11 @@ Rapport : [audit-2026-11-24-optim.md](audit-2026-11-24-optim.md) (lecture seule,
 - [x] **B2 / B3 lecteurs de `boot.conf` trop courts (fait 2026-11-24 `[b2b3-conf]`, tampons 64 Ko, test-queue `B2B3-CONF`) :** `tc100-supervisord` (16 Ko, `REC_WHEN` à l'octet 16 461 : le son ne
   déclenche jamais l'enregistrement en mode « motion ») et `onvifd` (8 Ko, `RTSP_LITE_TALK` jamais lu) ; test CI sur le vrai
   `boot.conf.dist`.
-- [ ] **B4 teinte (HUE) perdue** après la première bascule jour / nuit ; **R1** détection de mouvement par l'encodeur bloquée
-  « en mouvement » après un changement de cadence ; **W1** mode confidentialité : chroma peinte octet par octet ; **W3**
-  double mise à zéro de 7,4 Mo à l'ouverture de l'encodeur.
+- [x] **B4 teinte (HUE) perdue** après la première bascule jour / nuit (fait 2026-11-24 `[video-fix]`, test-queue
+  `B4-HUE`) : réglage (`hue_cfg`) séparé de la table CPU (`p_hue`).
+- [ ] **R1** détection de mouvement par l'encodeur bloquée « en mouvement » après un changement de cadence.
+- [ ] **W1** mode confidentialité : chroma peinte octet par octet.
+- [ ] **W3** double mise à zéro de 7,4 Mo à l'ouverture de l'encodeur.
 - [ ] **R2** le bouton reset bloqué pendant `nightmode.sh` / MQTT ; **R3** commande MQTT retenue exécutée à chaque connexion.
 - [ ] **T1 + B5** faire tourner le test de parité des routes natives de `httpfront`, puis corriger `isp_tune`.
 - [ ] Retirer les optimisations mortes (section 5 du rapport) en un seul nettoyage ; le reste des sections 2 et 4.

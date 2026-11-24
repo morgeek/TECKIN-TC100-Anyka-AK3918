@@ -531,6 +531,13 @@ static int mains_hz(const char *cc)
 
 static int p_sharp, p_dnr, p_expct, p_hz;	/* isp_tune.conf SHARPNESS (-50..50), DENOISE (-50..50), EXPOSURE_MAX_PCT (10..100, 0 = no cap), POWER_HZ (50, 60, 0 = off): done by the ISP */
 static int tune_hw = -1, tune_dirty = 1, bw_want, bw_isp;	/* bw: black and white asked (night), done by the ISP */	/* tune_hw: brightness, contrast, saturation done by the ISP (-1 not tried) */
+/* B4 (audit 2026-11-24): the HUE setting and the CPU hue table are two things. hue_cfg is the setting (post_apply, 0 when
+ * ISP_TUNE is off); hue_hw says whether the ISP takes it (-1 not tried yet, 0 no, 1 yes: AK_ISP_SET_HUE in tune_hw_apply);
+ * hue_want is what the ISP was given; p_hue is the hue of the CPU table (post_copy, post_sub_copy, dm_clean), 0 = no
+ * table. p_hue used to be the setting and the flag at once: set to 0 once the ISP took the hue, so the next
+ * tune_hw_apply (every black-and-white switch) gave the ISP hue 0. */
+static int hue_cfg, hue_hw = -1, hue_want;
+static void hue_cpu_sync(void) { p_hue = hue_hw == 1 ? 0 : hue_cfg; }	/* the table only when the ISP does not take the hue */
 
 static int lut_id(const unsigned char *t) { for (int i = 0; i < 256; i++) if (t[i] != i) return 0; return 1; }
 static int lut_y_id, lut_uv_id;	/* the tables are identity (nothing to apply): worked out when they change, not per picture */
@@ -559,7 +566,7 @@ static void post_apply(void)
 	char v[80];
 
 	p_tune = cfg_get(fn[0], "", "ISP_TUNE", v, sizeof v) && truthy(v);
-	p_bri = p_con = p_sat = p_hue = p_sharp = p_dnr = p_expct = 0; memset(p_mask, 0, sizeof p_mask); p_mcol = 16;
+	p_bri = p_con = p_sat = hue_cfg = p_sharp = p_dnr = p_expct = 0; memset(p_mask, 0, sizeof p_mask); p_mcol = 16;
 	/* anti-flicker applies whatever ISP_TUNE is, like the masks: it is about the lamps, not a matter of taste.
 	 * POWER_HZ=auto (item 16): the mains frequency of the Wi-Fi country (boot.conf WIFI_COUNTRY) */
 	p_hz = 0;
@@ -578,7 +585,7 @@ static void post_apply(void)
 		if (cfg_get(fn[1], "", "EXPOSURE_MAX_PCT", v, sizeof v)) p_expct = atoi_(v);
 		if (cfg_get(fn[1], "", "CONTRAST", v, sizeof v)) p_con = atoi_(v);
 		if (cfg_get(fn[1], "", "SATURATION", v, sizeof v)) p_sat = atoi_(v);
-		if (cfg_get(fn[1], "", "HUE", v, sizeof v)) p_hue = atoi_(v);
+		if (cfg_get(fn[1], "", "HUE", v, sizeof v)) hue_cfg = atoi_(v);
 	}
 	/* privacy masks apply whatever ISP_TUNE is */
 	for (i = 0; i < 4; i++) {
@@ -601,8 +608,9 @@ static void post_apply(void)
 	p_bri = p_bri < -50 ? -50 : p_bri > 50 ? 50 : p_bri;
 	p_con = p_con < -50 ? -50 : p_con > 50 ? 50 : p_con;
 	p_sat = p_sat < -50 ? -50 : p_sat > 50 ? 50 : p_sat;
-	p_hue = p_hue < -50 ? -50 : p_hue > 50 ? 50 : p_hue;
-	p_hue = p_tune ? p_hue : 0;
+	hue_cfg = hue_cfg < -50 ? -50 : hue_cfg > 50 ? 50 : hue_cfg;
+	hue_cfg = p_tune ? hue_cfg : 0;
+	hue_cpu_sync();	/* ISP hue: no table, also in the up to 0.5 s before tune_hw_apply gives the ISP the new value */
 	p_sharp = p_sharp < -50 ? -50 : p_sharp > 50 ? 50 : p_sharp;
 	p_dnr = p_dnr < -50 ? -50 : p_dnr > 50 ? 50 : p_dnr;
 	p_expct = p_expct < 10 || p_expct >= 100 ? 0 : p_expct;
@@ -935,8 +943,7 @@ struct isp_hue1 { unsigned short en; signed char a[65], b[65]; unsigned char s[6
 struct isp_hue { unsigned short mode; struct isp_hue1 man, h[4]; };
 #define ISP_SET_HUE _IOW('I', 119, int)
 #define ISP_GET_HUE _IOR('I', 120, int)
-static struct isp_hue hue0;
-static int hue_hw = -1, hue_want;
+static struct isp_hue hue0;	/* hue_cfg, hue_hw, hue_want: beside tune_hw (B4) */
 static void hue_turn(struct isp_hue1 *d, const struct isp_hue1 *o, int c, int sn)	/* c, sn: cos, sin x 1024 */
 {
 	for (int i = 0; i < 65; i++) {
@@ -970,10 +977,10 @@ static void tune_hw_apply(void)
 	int fd, cf, sf, ya, yb, uva;
 
 	tune_dirty = 0;
-	if (e && e[0] == '0') { if (tune_hw) { tune_hw = 0; post_luts(); } return; }
-	if ((fd = open("/dev/isp_char", O_RDWR)) < 0) { tune_hw = 0; post_luts(); return; }
+	if (e && e[0] == '0') { hue_cpu_sync(); if (tune_hw) { tune_hw = 0; post_luts(); } return; }
+	if ((fd = open("/dev/isp_char", O_RDWR)) < 0) { tune_hw = 0; hue_cpu_sync(); post_luts(); return; }
 	if (tune_hw < 0) {	/* the tuning file's values: the base, read once the video runs */
-		if (ioctl(fd, ISP_GET_YUV_EFFECT, &eff0) < 0 || !eff0.y_a) { LOG("image tuning: no ISP effect control: tables\n"); tune_hw = 0; close(fd); post_luts(); return; }
+		if (ioctl(fd, ISP_GET_YUV_EFFECT, &eff0) < 0 || !eff0.y_a) { LOG("image tuning: no ISP effect control: tables\n"); tune_hw = 0; close(fd); hue_cpu_sync(); post_luts(); return; }
 	}
 	x = eff0;
 	if (p_tune) {
@@ -994,13 +1001,14 @@ static void tune_hw_apply(void)
 	}
 	if (tune_hw == 1) {	/* hue too, when the ISP takes it: then no table at all */
 		if (hue_hw < 0) hue_hw = ioctl(fd, ISP_GET_HUE, &hue0) == 0;
-		if (hue_hw == 1) {
-			hue_want = p_hue;
-			if (hue_hw_set(fd, p_tune ? hue_want : 0) == 0) { if (hue_want) LOG("image tuning: hue %d in the ISP\n", hue_want); p_hue = 0; }
+		if (hue_hw == 1) {	/* always the setting (B4), never the CPU table's 0 */
+			hue_want = hue_cfg;
+			if (hue_hw_set(fd, p_tune ? hue_want : 0) == 0) { if (hue_want) LOG("image tuning: hue %d in the ISP\n", hue_want); }
 			else { LOG("image tuning: the ISP refused the hue: table\n"); hue_hw = 0; }
 		}
 	}
 	close(fd);
+	hue_cpu_sync();
 	post_luts();
 }
 
@@ -1109,7 +1117,7 @@ static void ispx_status(void)	/* /var/run/isp_tune.status: what the web page sho
 	char b[400];
 	int n = snprintf(b, sizeof b, "BRIGHTNESS=%d\nCONTRAST=%d\nSATURATION=%d\nSHARPNESS=%d\nDENOISE=%d\nHUE=%d\nPOWER_HZ=%.0d\n"
 			 "EXPOSURE_MAX_PCT=%d\nMASKS=%d\nMASK_RC=%d\nMASK_HW=%d\nOSD_HW=%d\n",
-			 p_tune ? p_bri : 0, p_tune ? p_con : 0, p_tune ? p_sat : 0, sharp_now, nr_now, p_tune ? hue_want : 0, hz_now,
+			 p_tune ? p_bri : 0, p_tune ? p_con : 0, p_tune ? p_sat : 0, sharp_now, nr_now, p_tune ? (hue_hw == 1 ? hue_want : p_hue) : 0, hz_now,
 			 exp_now_pct, mask_n, mask_rc, mask_hw == 1, osd_hw == 1);
 
 	if (ae_base == 1 && n > 0 && n < (int)sizeof b)
@@ -1298,6 +1306,8 @@ static void pool_guard_check(double tn)
 static int night_style = -1;	/* -1 not read, 0 off, 1 on */
 static void isp_bases_reset(void)
 {
+	/* hue_hw -1: p_hue stays as it is (0 when the ISP had the hue) until tune_hw_apply asks the ISP again, at most 0.5 s
+	 * later: no CPU table on top of an ISP hue the parameter set may have kept */
 	tune_hw = -1; hue_hw = -1; sharp_base = -1; sharp_now = 0; nr_base = -1; nr_now = 0; nr_asked = 0; ae_base = -1; exp_now_pct = 0; hz_now = 0;
 	if (awb_fd >= 0) close(awb_fd);
 	awb_fd = -1; awb_hw = -1; tune_dirty = 1;
@@ -4225,7 +4235,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 		 * invalidation (a TC100 with tuning on went to 95 % CPU), so those cameras keep cached buffers. */
 		const char *ce = getenv("RTSP_CACHED"), *de = getenv("RTSP_DIRECT");
 		post_apply();
-		int tables = p_tune && (p_bri || p_con || p_sat || p_hue) && getenv("RTSP_ISPTUNE") && getenv("RTSP_ISPTUNE")[0] == '0';
+		int tables = p_tune && (p_bri || p_con || p_sat || hue_cfg) && getenv("RTSP_ISPTUNE") && getenv("RTSP_ISPTUNE")[0] == '0';
 		int cached = ce && ce[0] ? ce[0] == '1' : ((de && de[0] == '0') || tables);
 
 		if (tables && !(ce && ce[0])) LOG("capture buffers: cached (live image tuning on: tables over the picture)\n");

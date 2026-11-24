@@ -2520,5 +2520,106 @@ int main(int argc, char **argv)
             return subprocess.run(args, capture_output=True, text=True, check=True).stdout
 
 
+def c_function(src, head):
+    """the text of a C function of src from its head line to its closing brace at column 0"""
+    i = src.index(head)
+    return src[i:src.index('\n}\n', i) + 3]
+
+
+@unittest.skipUnless(shutil.which('gcc'), 'needs gcc')
+class HueKept(unittest.TestCase):
+    """B4 (audit 2026-11-24): the user's HUE survives the black-and-white switches and the ISP re-init, and the CPU hue
+    table never runs on top of an ISP hue (the up to 0.5 s between a config reload and tune_hw_apply)."""
+
+    HARNESS = r"""
+#include <errno.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#define LOG(...) do { printf("LOG "); printf(__VA_ARGS__); } while (0)
+#define O_RDWR 2
+#define CONF "@CONF@"
+static int sharp_base, sharp_now, nr_base, nr_now, nr_asked, ae_base, exp_now_pct, hz_now, awb_fd = -1, awb_hw;
+static int mask_n, mask_rc, mask_hw, osd_hw;
+static unsigned int exp_now, ae0[51];
+static char status[512];
+static int step_hz(unsigned int s) { (void)s; return 0; }
+static void wfile(const char *n, const void *d, size_t l) { (void)n; memcpy(status, d, l); status[l] = 0; }
+static int isp_refuse_hue, isp_b0 = 999, isp_sets;
+static int fake_open(const char *p, int f) { (void)p; (void)f; return 3; }
+static int fake_close(int fd) { (void)fd; return 0; }
+static int fake_ioctl(int, unsigned long, void *);
+#define open fake_open
+#define close fake_close
+#define ioctl fake_ioctl
+@A@
+@B@
+@C@
+@D@
+static int fake_ioctl(int fd, unsigned long c, void *a)
+{
+	(void)fd;
+	if (c == ISP_GET_YUV_EFFECT) { struct isp_effect *e = a; memset(e, 0, sizeof *e); e->y_a = 128; e->uv_a = 128; return 0; }
+	if (c == ISP_SET_YUV_EFFECT) return 0;
+	if (c == ISP_GET_HUE) { struct isp_hue *h = a; memset(h, 0, sizeof *h); for (int i = 0; i < 65; i++) h->man.a[i] = 127; return 0; }
+	if (c == ISP_SET_HUE) { if (isp_refuse_hue) return -1; isp_b0 = ((struct isp_hue *)a)->man.b[0]; isp_sets++; return 0; }
+	return -1;
+}
+static void put(const char *f, const char *t) { char p[512]; snprintf(p, sizeof p, CONF "%s", f); FILE *o = fopen(p, "w"); fputs(t, o); fclose(o); }
+static void show(const char *what) { printf("%s cpu=%d isp=%d hw=%d\n", what, p_hue, isp_b0, hue_hw); }
+int main(void)
+{
+	int day_b0;
+
+	put("boot.conf", "ISP_TUNE=1\n"); put("isp_tune.conf", "HUE=20\n");
+	post_apply(); show("START");			/* before the ISP was asked: the table */
+	tune_hw_apply(); show("APPLY"); day_b0 = isp_b0;	/* the ISP takes it: no table */
+	bw_want = 1; tune_dirty = 1; tune_hw_apply(); show("NIGHT");	/* dusk: black and white */
+	bw_want = 0; tune_dirty = 1; tune_hw_apply(); show("DAY");	/* dawn */
+	isp_bases_reset(); show("RESET"); tune_hw_apply(); show("REINIT");	/* night parameter set switch: bases read again */
+	ispx_status(); printf("STATUS_ISP %s", strstr(status, "HUE="));
+	printf("SAME %d\n", isp_b0 == day_b0 && day_b0 != 0);
+	put("isp_tune.conf", "HUE=-10\n"); post_apply(); show("RELOAD");	/* the window before tune_hw_apply */
+	tune_hw_apply(); show("RELOAD_APPLIED"); printf("OPPOSITE %d\n", (isp_b0 > 0) != (day_b0 > 0) && isp_b0 != 0);
+	isp_refuse_hue = 1; isp_bases_reset(); tune_hw_apply(); show("REFUSED");	/* an ISP without the hue: the table */
+	bw_want = 1; tune_hw_apply(); bw_want = 0; tune_hw_apply(); show("REFUSED_DAY");
+	ispx_status(); printf("STATUS_CPU %s", strstr(status, "HUE="));
+	put("boot.conf", "ISP_TUNE=0\n"); post_apply(); show("TUNE_OFF");
+	return 0;
+}
+"""
+
+    def test_hue_kept_across_switches_and_reinit(self):
+        src = (SRC / 'tc100_rtsp.c').read_text()
+        a = src[src.index('static int atoi_(const char *s)'):src.index('/* hue: rotate (U,V)')]
+        b = src[src.index('struct isp_effect {'):src.index('/* ---- more of the picture work in the ISP')]
+        c = c_function(src, 'static void isp_bases_reset(void)')
+        d = c_function(src, 'static void ispx_status(void)')
+        with tempfile.TemporaryDirectory() as t:
+            h = self.HARNESS.replace('@CONF@', t.replace('\\', '/') + '/')
+            h = h.replace('@A@', a).replace('@B@', b).replace('@C@', c).replace('@D@', d)
+            Path(t, 'h.c').write_text(h)
+            subprocess.run(['gcc', '-Wall', '-Wextra', '-Wno-unused-variable', '-Wno-unused-parameter', '-Wno-unused-function',
+                            '-o', str(Path(t, 'h')), str(Path(t, 'h.c'))], check=True)
+            out = subprocess.run([str(Path(t, 'h'))], capture_output=True, text=True, check=True).stdout
+        cpu = dict(re.findall(r'^(\w+) cpu=(-?\d+)', out, re.M))
+        hw = dict(re.findall(r'^(\w+) cpu=-?\d+ isp=-?\d+ hw=(-?\d+)', out, re.M))
+        self.assertEqual(cpu['START'], '20', out)            # first frames: the table, the ISP was not asked yet
+        self.assertEqual(cpu['APPLY'], '0', out)
+        self.assertEqual((hw['APPLY'], hw['REINIT'], hw['REFUSED']), ('1', '1', '0'), out)
+        for k in ('NIGHT', 'DAY', 'RESET', 'REINIT', 'RELOAD', 'RELOAD_APPLIED'):
+            self.assertEqual(cpu[k], '0', k + ': no CPU table while the ISP has the hue\n' + out)
+        self.assertIn('SAME 1', out)                           # the ISP still gets HUE=20 after night, day and re-init
+        self.assertIn('STATUS_ISP HUE=20\n', out)
+        self.assertIn('OPPOSITE 1', out)                       # HUE=-10 reaches the ISP at the next apply
+        self.assertEqual(cpu['REFUSED'], '-10', out)           # ISP without the hue: the table, kept across switches
+        self.assertEqual(cpu['REFUSED_DAY'], '-10', out)
+        self.assertIn('STATUS_CPU HUE=-10\n', out)
+        self.assertEqual(cpu['TUNE_OFF'], '0', out)
+        self.assertIn('LOG image tuning: the ISP refused the hue: table', out)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -389,6 +389,25 @@ per flash write.
   5. CPU: `top` shows no change for `tc100-onvifd` with an NVR polling it.
 - **Pass:** 2 to 4 as described, no restart of onvif, no extra CPU.
 
+### B4-HUE The user's hue survives the day / night switches (`[video-fix]`, audit 2026-11-24 B4) — `to test`
+- **What:** with `ISP_TUNE=1` and `HUE` not 0, `tc100_rtsp` gave the hue to the ISP and then set its own copy of the
+  setting to 0 (that copy was also the "CPU hue table needed" flag). The next `tune_hw_apply` (every black-and-white
+  switch, every parameter-set switch) gave the ISP hue 0: from the first dawn the day picture had no hue and
+  `/var/run/isp_tune.status` said `HUE=0`, until a config file changed; then for up to 0.5 s the CPU table and the ISP
+  both turned the colours. Now the setting (`hue_cfg`) and the CPU table's hue (`p_hue = hue_hw == 1 ? 0 : hue_cfg`)
+  are kept apart; the per-byte table runs only when the ISP does not take the hue.
+- **Revert:** the previous build (bug fix, no switch). `RTSP_ISPTUNE=0` still forces the tables as before.
+- **Test:**
+  1. Image page: image tuning on, hue +20, saved. `cat /var/run/isp_tune.status`: `HUE=20`; the log has
+     `image tuning: hue 20 in the ISP`; the picture is visibly turned (compare with hue 0).
+  2. `/mnt/scripts/nightmode.sh on`, wait 5 s, `/mnt/scripts/nightmode.sh off`, wait 5 s (or the next real dusk and
+     dawn): `HUE=20` still in the status file, a new `hue 20 in the ISP` line after each switch, the day picture
+     still turned the same way.
+  3. Hue -20 in the Image page: within 3 s the status shows `HUE=-20`; no frame turned twice as far (snapshot burst
+     or VLC recording around the save).
+  4. `pp_ms` of the STAT lines with hue 20 is the same as with hue 0 (no CPU table while the ISP takes the hue).
+- **Pass:** 1 to 4.
+
 ### FAILCOUNT Failure totals of the video server over a day: STAT, /tmp file, memory-hourly.csv (`[failcount]`) â€” `to test` (both cameras, 24 h or more)
 
 - **What:** measurement only, no behaviour change. `src/tc100rtsp/tc100_rtsp.c` counts since the process start

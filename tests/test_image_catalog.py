@@ -54,7 +54,7 @@ class ImageCatalog(unittest.TestCase):
 
     def test_tc100_rtsp_reads_and_bounds(self):
         var = {"BRIGHTNESS": "p_bri", "CONTRAST": "p_con", "SATURATION": "p_sat", "SHARPNESS": "p_sharp",
-               "DENOISE": "p_dnr", "HUE": "p_hue"}
+               "DENOISE": "p_dnr", "HUE": "hue_cfg"}
         for k, e in self.p.items():
             if e["type"] == "rect":
                 continue
