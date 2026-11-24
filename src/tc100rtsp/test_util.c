@@ -209,17 +209,17 @@ int main(void)
 		CHECK(nal_scan(&t, fr, 2) == 0);				/* too short */
 		{ static const unsigned char e[] = { 0, 0, 1 }; CHECK(nal_scan(&t, e, 3) == 0); }	/* start code, nothing after it */
 		{ static const unsigned char n[] = { 1, 2, 3, 4, 5, 6 }; CHECK(nal_scan(&t, n, 6) == 0); }
-		/* copy: aligned (word path), odd lengths, unaligned (memcpy path) */
-		for (int len = 0; len <= (int)sizeof fr; len++) {
-			static uint32_t src[16], dst[16];
+		/* the copy of the encoder output is a plain memcpy (W9, audit 2026-11-24: the volatile word loop nal_copy is
+		 * gone); a frame scanned at any alignment of the copy gives the same table */
+		CHECK(nal_scan(&t, fr, sizeof fr) == 4);
+		for (int at = 0; at < 4; at++) {
+			struct nal_tab t2;
 
-			memcpy(src, fr, sizeof fr); memset(dst, 0xee, sizeof dst);
-			nal_copy(dst, src, len);
-			CHECK(!memcmp(dst, fr, len) && ((unsigned char *)dst)[len] == 0xee);
+			memset(cp, 0xee, sizeof cp);
+			memcpy(cp + at, fr, sizeof fr);
+			CHECK(nal_scan(&t2, cp + at, sizeof fr) == 4 && !memcmp(t2.off, t.off, sizeof t.off[0] * 4) &&
+			      !memcmp(t2.len, t.len, sizeof t.len[0] * 4) && !memcmp(t2.hdr, t.hdr, 4));
 		}
-		memset(cp, 0xee, sizeof cp);
-		nal_copy(cp + 1, fr, sizeof fr);
-		CHECK(!memcmp(cp + 1, fr, sizeof fr) && cp[0] == 0xee);
 		/* a table cap: more NALs than the table holds are ignored, not overrun */
 		{ unsigned char big[NALT_MAX * 6 + 40]; unsigned k, z = 0;
 		  for (k = 0; k < NALT_MAX + 5; k++) { big[z++] = 0; big[z++] = 0; big[z++] = 1; big[z++] = 0x41; big[z++] = 0x11; big[z++] = 0x22; }

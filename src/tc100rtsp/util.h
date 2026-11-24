@@ -214,27 +214,15 @@ static inline void awb_grid_next(int *col, int *yoff, int step, int w)
 }
 
 /* ---- one NAL scan per frame ------------------------------------------------------------------------------------
- * The encoder output is uncached memory: it is copied once (nal_copy, 32-bit reads) and the Annex B start codes are
- * found once in the copy, into a small table (offset of the NAL header byte, length up to the next start code with
- * its leading zeros trimmed, header byte). Same cut as next_nal() of tc100_rtsp.c. */
+ * The encoder output is uncached memory: it is copied once (memcpy) and the Annex B start codes are found once in the
+ * copy, into a small table (offset of the NAL header byte, length up to the next start code with its leading zeros
+ * trimmed, header byte). Same cut as next_nal() of tc100_rtsp.c. */
 #define NALT_MAX 20
 struct nal_tab {
 	int n;
 	unsigned off[NALT_MAX], len[NALT_MAX];
 	unsigned char hdr[NALT_MAX];	/* first NAL byte (H.264: type = hdr & 31, H.265: (hdr >> 1) & 63) */
 };
-
-static inline void nal_copy(void *dst, const void *src, unsigned n)
-{	/* volatile 32-bit reads (never turned back into a byte loop): a byte read of write-combined memory is one bus
-	 * access each, a word read one per 4 bytes. The 0..3 tail bytes are read singly (no read past the buffer). */
-	uint32_t *d = (uint32_t *)dst;
-	const volatile uint32_t *s = (const volatile uint32_t *)src;
-	unsigned i, w = n >> 2;
-
-	if (((uintptr_t)dst | (uintptr_t)src) & 3) { memcpy(dst, src, n); return; }
-	for (i = 0; i < w; i++) d[i] = s[i];
-	for (i = w << 2; i < n; i++) ((unsigned char *)dst)[i] = ((const volatile unsigned char *)src)[i];
-}
 
 /* fills t (at most NALT_MAX NALs, the rest of the frame is ignored); returns t->n */
 static inline int nal_scan(struct nal_tab *t, const unsigned char *d, unsigned len)

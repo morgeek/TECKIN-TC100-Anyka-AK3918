@@ -70,8 +70,10 @@ static long drain(int fd, FILE *out)
 	return total;
 }
 
+/* the clock of live_scan is its argument (W9): every scan is 500 ms after the one before, scan_after() moves it on */
 static uint64_t scan_t = 1000;
 static void scan(void) { scan_t += 500; live_scan(scan_t); }
+static void scan_after(unsigned ms) { scan_t += ms; live_scan(scan_t); }
 
 /* access units of a file (start at an AUD) */
 static unsigned char *in_buf; static long in_len, in_au[20001]; static int in_n;
@@ -188,9 +190,9 @@ int main(int argc, char **argv)
 		scan();
 		for (f = 0; f < 30; f++) { int key = f % 10 == 0, len = make_au(au, f, key, key ? 6000 : 700); live_frame(0, au, (uint32_t)len, 5000000ULL + (uint64_t)f * 66666, key); }
 		CHECK(live_count() == 1 && exists(dir, "100.fifo"), "attached");
-		usleep(700000); scan();
+		scan_after(700);
 		CHECK(live_count() == 1, "not dropped after 0.7 s");
-		usleep(1000000); scan();
+		scan_after(1000);
 		CHECK(live_count() == 0 && !exists(dir, "100.fifo"), "dropped after 1.7 s without a read");
 		/* a viewer whose FIFO is removed is dropped at the next scan */
 		fdB = new_fifo(dir, "101.fifo");

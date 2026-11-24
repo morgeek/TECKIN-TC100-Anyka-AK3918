@@ -62,6 +62,7 @@ static int ready, cur_si = -1, nview;
 static uint64_t last_scan;
 static char status_last[160];
 
+#ifdef TC100_HOST_TEST	/* the test feed's clock; live_scan takes the caller's */
 static uint64_t mono_ms(void)
 {
 	struct timespec t;
@@ -69,6 +70,7 @@ static uint64_t mono_ms(void)
 	clock_gettime(CLOCK_MONOTONIC, &t);
 	return (uint64_t)t.tv_sec * 1000 + (uint64_t)t.tv_nsec / 1000000;
 }
+#endif
 
 static void v_drop(struct viewer *v)
 {
@@ -216,7 +218,7 @@ void live_scan(uint64_t now_ms)
 	DIR *dp;
 	struct dirent *e;
 	int i;
-	uint64_t t = mono_ms();
+	uint64_t t = now_ms;	/* W9 (audit 2026-11-24): the caller's clock (CLOCK_MONOTONIC too), no second read */
 
 #ifdef TC100_HOST_TEST
 	test_feed();

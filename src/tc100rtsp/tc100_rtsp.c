@@ -329,13 +329,14 @@ static uint32_t jpeg_run(uint32_t y, uint32_t uv, int w, int h, int q)
 	return st[1];
 }
 
-/* the JPEG in jbuf is uncached memory read two or three times (two files, the recorder's thumbnail): one word-wise
- * copy to the heap, the readers use that; *own is what to free (NULL: no memory for the copy, jbuf itself) */
+/* the JPEG in jbuf is uncached memory read two or three times (two files, the recorder's thumbnail): one copy to the
+ * heap, the readers use that; *own is what to free (NULL: no memory for the copy, jbuf itself). memcpy: the pool is
+ * mapped write-combined (patch 0008), the libc copy reads it in words and bursts (W9, audit 2026-11-24) */
 static const uint8_t *jpeg_stable(uint32_t n, uint8_t **own)
 {
 	*own = malloc(n);
 	if (!*own) return jbuf + TABLES_SIZE;
-	nal_copy(*own, jbuf + TABLES_SIZE, n);
+	memcpy(*own, jbuf + TABLES_SIZE, n);
 	return *own;
 }
 
@@ -4297,13 +4298,17 @@ int main(int argc, char **argv)
 		time_t nowt = mono_t();
 
 		/* microphone: while an audio client plays or the sound detection needs it; stopped 10 s after that */
-		lis_scan(now_us64() / 1000);
-		live_scan(now_us64() / 1000);
+		{	/* one clock read for the three (W9) */
+			uint64_t nus = now_us64();
+
+			lis_scan(nus / 1000);
+			live_scan(nus / 1000);
 #ifdef TC100_HOST_TEST
-		rtp_test_feed();
+			rtp_test_feed();
 #endif
-		talk_set_aec(aud_aec && (aud_direct || aud_fd < 0) ? aud_aec : NULL);
-		talk_tick(now_us64());
+			talk_set_aec(aud_aec && (aud_direct || aud_fd < 0) ? aud_aec : NULL);
+			talk_tick(nus);
+		}
 		aud_tx = audio_on && na > 0;
 		if (aud_tx || snd_on || rec_audio_wanted() || lis_count()) {
 			aud_unneeded = 0;
@@ -4699,16 +4704,20 @@ int main(int argc, char **argv)
 				s->fails = 0;
 				save_frame(k, st.data, st.len);
 				{
-					/* The encoder output is uncached memory: read it once, word-wise, into the heap (the GOP cache keeps
-					 * that copy), find the NALs once, give the encoder its buffer back, and let everything below read the
-					 * copy. No memory for the copy: the encoder buffer is read in place. */
+					/* The encoder output is uncached memory: read it once into the heap (the GOP cache keeps that copy),
+					 * find the NALs once, give the encoder its buffer back, and let everything below read the copy. No
+					 * memory for the copy: the encoder buffer is read in place. W9 (audit 2026-11-24): memcpy, not a
+					 * volatile word loop. The pool is write-combined (patch 0008: normal uncached memory, any access
+					 * size is right) and the encoder is done with the buffer until p_release. The ARM memcpy of the libc
+					 * reads the source in aligned words and ldm bursts whatever the alignment; the word loop only ran
+					 * when source and copy were both word aligned, and called memcpy otherwise. */
 					unsigned char *own = malloc(st.len), *d = own ? own : st.data;
 					unsigned len = st.len;
 					struct nal_tab nt, *tp = NULL;
 					int kept = 0, i;
 
 					if (own) {
-						nal_copy(own, st.data, len);
+						memcpy(own, st.data, len);
 						p_release(s->enc, &st);
 						nal_scan(&nt, own, len); tp = &nt;
 						for (i = 0; i < nt.n; i++) { int t = NT(s, nt.hdr[i]); if (s->hevc ? (t >= 16 && t <= 21) : t == 5) idr = 1; }
