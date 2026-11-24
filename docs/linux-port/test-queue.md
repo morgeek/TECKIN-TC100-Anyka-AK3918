@@ -408,6 +408,28 @@ per flash write.
   4. `pp_ms` of the STAT lines with hue 20 is the same as with hue 0 (no CPU table while the ISP takes the hue).
 - **Pass:** 1 to 4.
 
+### R1-MDENC Encoder motion detection starts its mean again after a rate change (`[video-fix]`, audit 2026-11-24 R1) — `to test`
+- **What:** `RTSP_MD_ENC` (on by default) compares each main-stream P frame with a running mean of the P frame
+  sizes, and the mean learns calm frames only. When the free encoder's per-picture budget changes (the capture rate
+  in use: night parameter set 10 fps, low-light rate, idle rate; or an ABR bit rate step) the P frames change size
+  for a reason that is not motion: after a step up, every frame stayed above the old mean, which never learned again
+  (motion "on" all night in CBR with a high sensitivity, false events every ~10 s with `IDLE_FPS`). Now the mean
+  and the hit count start again (`md_enc_restart`) when the main free encoder's `fe->fps_now` changes, on an ABR
+  step, when the main encoder is (re)opened (back at the configured bit rate) and when the smart floor is released
+  without motion (as before); the first `MD_ENC_WARM` (16) P frames after a restart only teach the mean (every
+  frame, 1/4 weight: the rate control needs several pictures to reach the new budget), they never trigger.
+- **Revert:** `RTSP_MD_ENC=0` in `/mnt/config/rtsp.env` turns the whole detector off (as before); the previous build
+  for the reset alone.
+- **Test:**
+  1. CBR main stream (vbr 0), motion detection on, sensitivity 90, a still scene, a viewer on the main stream.
+     `/mnt/scripts/nightmode.sh on` (the log shows `free encoder main: capture rate 10 fps`) or wait for the idle
+     rate. The picture change of the switch itself may count as motion for a few seconds (the luma grid); then
+     `/tmp/rec_control` goes back to 0 within ~10 s and stays 0 for the next 5 minutes, no MQTT motion event in
+     that time. Same after `nightmode.sh off`. Old build for comparison: with these settings it stays at 1.
+  2. Walk in front of the camera 30 s after the switch: motion is still seen.
+  3. One night with `REC_WHEN=motion`: no all-night series of motion files in the recordings.
+- **Pass:** 1 to 3.
+
 ### FAILCOUNT Failure totals of the video server over a day: STAT, /tmp file, memory-hourly.csv (`[failcount]`) â€” `to test` (both cameras, 24 h or more)
 
 - **What:** measurement only, no behaviour change. `src/tc100rtsp/tc100_rtsp.c` counts since the process start

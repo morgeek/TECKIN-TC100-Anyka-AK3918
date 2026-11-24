@@ -15,7 +15,9 @@ Rapport : [audit-2026-11-24-optim.md](audit-2026-11-24-optim.md) (lecture seule,
   `boot.conf.dist`.
 - [x] **B4 teinte (HUE) perdue** après la première bascule jour / nuit (fait 2026-11-24 `[video-fix]`, test-queue
   `B4-HUE`) : réglage (`hue_cfg`) séparé de la table CPU (`p_hue`).
-- [ ] **R1** détection de mouvement par l'encodeur bloquée « en mouvement » après un changement de cadence.
+- [x] **R1** détection de mouvement par l'encodeur bloquée « en mouvement » après un changement de cadence (fait
+  2026-11-24 `[video-fix]`, test-queue `R1-MDENC`) : moyenne remise à zéro au changement de cadence ou de débit ABR,
+  16 images P d'apprentissage.
 - [ ] **W1** mode confidentialité : chroma peinte octet par octet.
 - [ ] **W3** double mise à zéro de 7,4 Mo à l'ouverture de l'encodeur.
 - [ ] **R2** le bouton reset bloqué pendant `nightmode.sh` / MQTT ; **R3** commande MQTT retenue exécutée à chaque connexion.

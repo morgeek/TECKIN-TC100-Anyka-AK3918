@@ -3506,9 +3506,16 @@ static void md_frame(const unsigned char *sy, double tn)
  * mean of the P frame sizes; 3 frames in a row above x2 (sensitivity 100) .. x6 (sensitivity 1), x3.6 at the default
  * 60, count as motion (as the grid: /tmp/rec_control, MQTT, recording, idle frame rate). The motion zones do not apply
  * to it (the whole picture). In CBR the encoder evens the frame sizes out: it stays nearly silent there. No pixel is
- * read: no CPU cost. Off by default until checked on the camera (test-queue [md-enc]). */
-static int md_enc_on, md_enc_hits;
+ * read: no CPU cost. Off by default until checked on the camera (test-queue [md-enc]).
+ * R1 (audit 2026-11-24): the mean learns calm frames only, so a new budget per picture (the capture rate in use:
+ * night set, low light, idle rate; an ABR step; a new main encoder) that makes every P frame bigger without motion
+ * left it below them for good: motion all night. md_enc_restart() then starts it again, and the first MD_ENC_WARM P
+ * frames only teach it (every one, 1/4 weight: the rate control takes several pictures to reach a new budget). */
+#define MD_ENC_WARM 16
+static int md_enc_on, md_enc_hits, md_enc_warm;
 static uint32_t md_enc_base;	/* running mean of the P frame sizes, x16 */
+
+static void md_enc_restart(void) { md_enc_base = 0; md_enc_hits = 0; md_enc_warm = MD_ENC_WARM; }
 
 static void md_enc_frame(uint32_t len, int idr, double tn)
 {
@@ -3516,6 +3523,11 @@ static void md_enc_frame(uint32_t len, int idr, double tn)
 
 	if (!md_enc_on || !md_on || priv_on || idr || len < 16) return;
 	if (!md_enc_base) { md_enc_base = len << 4; return; }
+	if (md_enc_warm > 0) {	/* after a restart: learn, never trigger */
+		md_enc_warm--;
+		md_enc_base += (uint32_t)(((int32_t)(len << 4) - (int32_t)md_enc_base) / 4);
+		return;
+	}
 	thr = 20 + (uint32_t)(100 - md_sens) * 40 / 99;			/* x10: 20 (x2) .. 60 (x6) */
 	if ((uint64_t)len * 160 > (uint64_t)md_enc_base * thr) md_enc_hits++;
 	else {
@@ -3752,7 +3764,7 @@ static void abr_tick(unsigned long dropped)
 	if (want == abr_cur) return;
 	r = p_set_br(S[0].enc, want);
 	LOG("ABR: %lu frames skipped in 5 s: main bit rate %d -> %d kbit/s (ak_venc_set_br: %d)\n", d, abr_cur, want, r);
-	if (r == 0) abr_cur = want;
+	if (r == 0) { abr_cur = want; md_enc_restart(); }	/* R1: a new budget per picture */
 	else { abr_on = 0; LOG("ABR: the encoder refused the bit rate, regulation off\n"); }
 }
 
@@ -3818,7 +3830,7 @@ static int strm_reopen(struct strm *s)
 {
 	if (s->enc) p_close(s->enc);
 	s->enc = p_open(&s->pa);
-	if (s == &S[0]) enc_gen++;
+	if (s == &S[0]) { enc_gen++; md_enc_restart(); }	/* R1: back at the configured bit rate (ABR) */
 	smart_setup(s);
 	s->nsent = 0; s->fails = 0;
 	if (!s->enc) pool_log(s);
@@ -4724,8 +4736,10 @@ unsigned char *fpb[2] = { NULL, NULL };
 					int was_fps = fe->fps_now;
 
 					fe_set_fps(fe, enc_rate);
-					if (fe->fps_now != was_fps)
+					if (fe->fps_now != was_fps) {
 						LOG("free encoder %s: capture rate %d fps (configured %d): %ld bytes per picture\n", s->name, fe->fps_now, fe->fps, (long)fe->rc.budget);
+						if (!k) md_enc_restart();	/* R1: a new budget per picture is not motion */
+					}
 				}
 				if (s->smart) {
 					/* the fixed GOP stays on the recorded stream while recording is configured (rec.c starts and rotates
@@ -4741,7 +4755,7 @@ unsigned char *fpb[2] = { NULL, NULL };
 					/* RTSP_MD_ENC: a floor released WITHOUT motion (recording, live view, a lossy client, smart off) makes the
 					 * pictures bigger without a cause: the mean starts again. Released by motion: kept, or the next motion P frame
 					 * would seed the mean and the motion would stop looking like motion */
-					if (was && !fe->still && !k && !moving) { md_enc_base = 0; md_enc_hits = 0; }
+					if (was && !fe->still && !k && !moving) md_enc_restart();
 				}
 			}
 			double tn = now_s();

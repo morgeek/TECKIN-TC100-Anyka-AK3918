@@ -838,7 +838,7 @@ class FreeEncSmartWiring(unittest.TestCase):
         # the MD_ENC mean restarts only when the floor was released without motion
         self.assertIn('int moving = md_motion || t_frame - last <= 8.0;', self.src)
         self.assertIn('fe_set_still(fe, !fixed && md_on && !moving);', self.src)
-        self.assertIn('if (was && !fe->still && !k && !moving) { md_enc_base = 0; md_enc_hits = 0; }', self.src)
+        self.assertIn('if (was && !fe->still && !k && !moving) md_enc_restart();', self.src)
         fe = open(os.path.join(ROOT, 'src/h265enc/freeenc.h'), encoding='utf-8').read()
         self.assertIn('#define FE_SMART_QP_MAX 5', fe)
         self.assertIn('qp_extra > FE_SMART_QP_MAX ? FE_SMART_QP_MAX : qp_extra', fe)
