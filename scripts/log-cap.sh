@@ -7,7 +7,8 @@
 # /tmp/logs above LOG_CAP_KB (boot.conf, default 64) keeps its last LOG_CAP_LINES (200) lines. The file is rewritten in
 # place (same inode): a program that holds it open with O_APPEND (">>", syslogd) keeps writing into it, where a
 # "tail > tmp; mv" would leave it writing into a deleted file that still takes RAM. Rotated copies (*.0, *.1) and
-# tc100_rtsp.log (it rotates itself, and does not open it in append mode) are left alone.
+# tc100_rtsp.log (it rotates itself, and does not open it in append mode) and daynight.log (the daemon rotates it at
+# 400 lines, ~64 KB: the cap would cut that history in half) are left alone.
 #
 #   log-cap.sh [DIR...]   one pass (default: /tmp/log /tmp/logs)
 CONF="${LC_CONF:-/mnt/config/boot.conf}"
@@ -21,7 +22,7 @@ for d in "$@"; do
   [ -d "$d" ] || continue
   for f in "$d"/*; do
     [ -f "$f" ] && [ ! -L "$f" ] || continue
-    case "${f##*/}" in *.0|*.1|*.tmp|tc100_rtsp.log) continue ;; esac
+    case "${f##*/}" in *.0|*.1|*.tmp|tc100_rtsp.log|daynight.log) continue ;; esac
     sz=$(wc -c < "$f" 2>/dev/null); sz=${sz##* }; sz=${sz%%[!0-9]*}
     case "$sz" in ''|*[!0-9]*) continue ;; esac
     [ "$sz" -gt "$max" ] || continue
