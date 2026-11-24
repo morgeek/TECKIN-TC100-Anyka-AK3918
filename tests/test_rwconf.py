@@ -178,6 +178,14 @@ class Expectations(unittest.TestCase):
         self.assertNotEqual(os.stat(f).st_ino, ino)       # a new file renamed over the old one
         self.assertEqual(os.listdir(d), ['c.conf'])       # no temp file left
 
+    def test_temp_name_matches_the_cfg_persist_tmp_exclusion(self):
+        """audit 2026-11-24 R8: FILE.<pid>.tmp (not FILE.tmp<pid>), so a stray temp file left by a kill between create and
+        rename is skipped by the *.tmp exclusions of v3/linux66-sd/cfg-persist instead of saved into the settings slot"""
+        src = (ROOT / 'src/rwconf/rwconf.c').read_text()
+        self.assertIn('"%s.%d.tmp"', src)
+        self.assertNotIn('.tmp%d', src)
+        self.assertIn('*.tmp', (ROOT / 'v3/linux66-sd/cfg-persist').read_text())
+
     def test_unwritable_target_is_silent(self):
         d = tempfile.mkdtemp(dir=TMP)
         r = subprocess.run([MINE, os.path.join(d, 'no', 'such', 'c.conf'), 'w', ' ', 'a', '1'], capture_output=True)

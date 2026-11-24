@@ -146,7 +146,7 @@ static void save(const char *path)
 	char *tmp = malloc(pl + 16);
 	struct stat st;
 	if (!tmp) exit(1);
-	snprintf(tmp, pl + 16, "%s.tmp%d", path, (int)getpid());
+	snprintf(tmp, pl + 16, "%s.%d.tmp", path, (int)getpid());
 	FILE *f = fopen(tmp, "wb");
 	if (!f) { free(tmp); free(real); return; }
 	if (!stat(path, &st)) fchmod(fileno(f), st.st_mode & 07777);
