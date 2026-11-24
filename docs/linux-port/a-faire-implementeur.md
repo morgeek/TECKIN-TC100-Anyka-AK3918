@@ -5,6 +5,20 @@ Les sections datées qui suivent sont des notes historiques des RC précédentes
 foi. La liste d'origine date de rc25 ; les audits des 3, 4 et 6 novembre sont des instantanés, pas des listes de tâches
 à jour.
 
+## Audit du code C d'optimisation, 2026-11-24
+
+Rapport : [audit-2026-11-24-optim.md](audit-2026-11-24-optim.md) (lecture seule, rien n'est encore corrigé). Ordre proposé :
+- [ ] **B1 `onvifd` ne relit pas `user.pwd` :** l'ancien mot de passe reste valable en ONVIF après un changement (sécurité).
+- [ ] **B2 / B3 lecteurs de `boot.conf` trop courts :** `tc100-supervisord` (16 Ko, `REC_WHEN` à l'octet 16 461 : le son ne
+  déclenche jamais l'enregistrement en mode « motion ») et `onvifd` (8 Ko, `RTSP_LITE_TALK` jamais lu) ; test CI sur le vrai
+  `boot.conf.dist`.
+- [ ] **B4 teinte (HUE) perdue** après la première bascule jour / nuit ; **R1** détection de mouvement par l'encodeur bloquée
+  « en mouvement » après un changement de cadence ; **W1** mode confidentialité : chroma peinte octet par octet ; **W3**
+  double mise à zéro de 7,4 Mo à l'ouverture de l'encodeur.
+- [ ] **R2** le bouton reset bloqué pendant `nightmode.sh` / MQTT ; **R3** commande MQTT retenue exécutée à chaque connexion.
+- [ ] **T1 + B5** faire tourner le test de parité des routes natives de `httpfront`, puis corriger `isp_tune`.
+- [ ] Retirer les optimisations mortes (section 5 du rapport) en un seul nettoyage ; le reste des sections 2 et 4.
+
 ## Audit du 2026-11-16 (`[audit-1116]`)
 
 L'audit complet est dans [audit-2026-11-16.md](audit-2026-11-16.md). Les corrections sont dans `main` et attendent
