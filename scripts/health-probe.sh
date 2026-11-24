@@ -57,6 +57,7 @@ probe_service_fast() {
     wifi-rescue)     _pf_file="/var/run/wifi-rescue.pid" ;;
     mdns)            _pf_file="/var/run/mdns.pid" ;;
     whep)            _pf_file="/var/run/whep.pid" ;;
+    ssh-server)      _pf_file="/var/run/dropbear.pid" ;;
     auto-night-detection)
       [ -f /var/run/auto-night-detection.pid ] && _pf_file="/var/run/auto-night-detection.pid" ;;
     motion-detection)
@@ -119,7 +120,12 @@ probe_service_fast() {
       if [ "$_pf_rc" -ne 0 ]; then
         [ "$_pf_svc" = rtsp-h26x ] && echo "0 unhealthy" > "$_pf_df" 2>/dev/null
         _pf_status=unhealthy; [ "$_pf_q" = var ] || echo "$_pf_status"; return
-      fi ;;
+      fi
+      # their "health" prints HEALTHY, not ok:: a 0 exit of it is the verdict (no "status" run behind it)
+      case "$_pf_out" in warn:*) ;; *)
+        [ "$_pf_svc" = rtsp-h26x ] && echo "1 running" > "$_pf_df" 2>/dev/null
+        _pf_status=running; [ "$_pf_q" = var ] || echo "$_pf_status"; return ;;
+      esac ;;
   esac
   [ "$_pf_svc" = rtsp-h26x ] && echo "1 running" > "$_pf_df" 2>/dev/null
   case "$_pf_out" in
