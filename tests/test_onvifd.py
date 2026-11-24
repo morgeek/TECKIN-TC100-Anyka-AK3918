@@ -329,6 +329,59 @@ class OnvifD(unittest.TestCase):
         st, _, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=False)
         self.assertEqual(st, 200)
 
+    # ---- audit 2026-11-24 B1: a settings change is seen without SIGHUP (nothing sends one) ---------------------
+
+    def test_new_password_counts_at_once_without_a_signal(self):
+        self.start()
+        st, _, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=security('root', self.password))
+        self.assertEqual(st, 200)
+        new = secrets.token_hex(8)
+        self.write('user.pwd', new + '\n')
+        st, n, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=security('root', self.password))
+        self.assertEqual(st, 400)                         # the old password no longer opens anything
+        self.assertIn('ter:NotAuthorized', self.fault_sub(n))
+        st, _, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=security('root', new))
+        self.assertEqual(st, 200)
+
+    def test_first_password_closes_a_daemon_started_open(self):
+        self.write('user.pwd', '\n')
+        self.start()
+        st, _, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=False)
+        self.assertEqual(st, 200)                         # no password yet: open, as the RTSP server
+        self.write('user.pwd', self.password + '\n')      # the wizard sets one
+        st, _, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=False)
+        self.assertEqual(st, 400)
+        st, _, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=security('root', self.password))
+        self.assertEqual(st, 200)
+
+    def test_a_file_emptied_a_moment_ago_keeps_the_password(self):
+        # a writer that truncates before it writes: "empty" must not open the daemon in between
+        self.start()
+        self.write('user.pwd', '')
+        st, _, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=False)
+        self.assertEqual(st, 400)
+        st, _, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=security('root', self.password))
+        self.assertEqual(st, 200)
+        time.sleep(2.6)                                   # still empty 2 s later: the owner removed it, open as before
+        st, _, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=False)
+        self.assertEqual(st, 200)
+
+    def test_other_settings_files_are_reread_every_2_s(self):
+        self.start()
+        st, _, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=security('camuser', self.password))
+        self.assertEqual(st, 400)
+        self.write('rtsp.env', 'RTSP_USER=camuser\n')
+        time.sleep(2.6)
+        st, _, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=security('camuser', self.password))
+        self.assertEqual(st, 200)
+
+    def test_all_password_writes_user_pwd_atomically(self):
+        src = (SRC.parents[1] / 'scripts/common_functions.sh').read_text()
+        body = src[src.index('all_password()'):]
+        body = body[:body.index('\n}\n')]
+        self.assertIn('mv -f /mnt/config/user.pwd.$$.tmp /mnt/config/user.pwd', body)
+        self.assertNotIn('echo "$1" > /mnt/config/user.pwd\n}', src)
+
     # ---- profiles -----------------------------------------------------------------------------------------------
 
     def profiles(self, svc='media_service', body='<trt:GetProfiles/>'):

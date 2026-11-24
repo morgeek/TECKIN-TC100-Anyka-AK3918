@@ -21,7 +21,8 @@
  *   tc100-onvifd -p PORT -w WEBPORT -wp http -r RTSPPORT -hwn NAME -vnn VENDOR -loc LOCATION -dn NAME -mod MODEL
  *                [-sp main-primary|sub-primary|main-only|sub-only]
  *                [-rp1 PATH -vw1 W -vh1 H -vc1 H264|H265 -vcb1 KBPS -fps1 N] [-en2 1 -rp2 ... -vw2 ... as 1]
- * Without -rp1 the streams come from rtspserver.conf / boot.conf (read at start and on SIGHUP).
+ * Without -rp1 the streams come from rtspserver.conf / boot.conf (read at start, on SIGHUP, and when a settings file
+ * changes: user.pwd is looked at before every authentication, all of them every 2 s; audit 2026-11-24 B1).
  * Paths can be moved for tests: ONVIFD_CONF_DIR, ONVIFD_SCALE_PARAM, ONVIFD_VERSION_FILE, ONVIFD_SERIAL_FILE,
  * ONVIFD_IFACE, ONVIFD_MAC_FILE, ONVIFD_IP, ONVIFD_DISCOVERY_PORT.
  *
@@ -44,6 +45,7 @@
 #include <sys/ioctl.h>
 #include <sys/select.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
@@ -313,9 +315,39 @@ static int allowed(u_int32_t ip)	/* host order */
 	return 0;
 }
 
-/* ---- configuration (start and SIGHUP) ---- */
+/* ---- configuration (start, SIGHUP, and a change of a settings file) ---- */
 
 static char cbuf[8192];
+
+/* audit 2026-11-24 B1: nothing sends SIGHUP (the password change of the web UI restarts ftp, telnet and rtsp, not this
+ * daemon), so the old password stayed valid here until a restart. The settings files are watched instead: user.pwd
+ * before every authentication (a new password counts at once), all of them every 2 s in the loop. A file is "changed"
+ * when its existence, inode, size or modification time (with nanoseconds) differ from the last look. */
+static const char *const cfg_files[] = { "user.pwd", "rtspserver.conf", "boot.conf", "rtsp.env", "timezone.conf" };
+#define NCFG ((int)(sizeof cfg_files / sizeof cfg_files[0]))
+static struct { long long mt, mtn, sz, ino; int ok; } cfg_sig[NCFG];
+static int cfg_loaded;
+
+/* 1: one of the first nf files changed since the last look; the new state is kept */
+static int cfg_poll(int nf)
+{
+	int i, ch = 0;
+
+	for (i = 0; i < nf; i++) {
+		char path[200];
+		struct stat st;
+		long long mt = 0, mtn = 0, sz = -1, ino = 0;
+		int ok;
+
+		snprintf(path, sizeof path, "%s/%s", p_conf, cfg_files[i]);
+		ok = stat(path, &st) == 0;
+		if (ok) { mt = st.st_mtime; mtn = st.st_mtim.tv_nsec; sz = st.st_size; ino = (long long)st.st_ino; }
+		if (ok != cfg_sig[i].ok || mt != cfg_sig[i].mt || mtn != cfg_sig[i].mtn || sz != cfg_sig[i].sz || ino != cfg_sig[i].ino)
+			ch = 1;
+		cfg_sig[i].ok = ok; cfg_sig[i].mt = mt; cfg_sig[i].mtn = mtn; cfg_sig[i].sz = sz; cfg_sig[i].ino = ino;
+	}
+	return ch;
+}
 
 static void load_config(void)
 {
@@ -373,13 +405,24 @@ static void load_config(void)
 	n = slurp(path, cbuf, sizeof cbuf);
 	if (n >= 0 && ini_get(cbuf, "", "RTSP_USER", v, sizeof v) && v[0]) scpy(G.user, sizeof G.user, v);
 
-	/* the password: first line of user.pwd, empty or missing = no authentication */
-	G.pass[0] = 0;
-	snprintf(path, sizeof path, "%s/user.pwd", p_conf);
-	n = slurp(path, cbuf, 256);
-	if (n > 0) {
-		cbuf[strcspn(cbuf, "\r\n")] = 0;
-		scpy(G.pass, sizeof G.pass, cbuf);
+	/* the password: first line of user.pwd, empty or missing = no authentication. On a reload a password is never
+	 * dropped to "open" by a file that was emptied less than 2 s ago (a writer between truncating and writing it):
+	 * the old one stays and the file is looked at again (cfg_sig[0] forced stale) */
+	{
+		char np[sizeof G.pass];
+		struct stat st;
+
+		np[0] = 0;
+		snprintf(path, sizeof path, "%s/user.pwd", p_conf);
+		n = slurp(path, cbuf, 256);
+		if (n > 0) {
+			cbuf[strcspn(cbuf, "\r\n")] = 0;
+			scpy(np, sizeof np, cbuf);
+		}
+		if (!np[0] && G.pass[0] && cfg_loaded && stat(path, &st) == 0 && (long long)time(NULL) - (long long)st.st_mtime < 2)
+			cfg_sig[0].ok = -1;
+		else
+			scpy(G.pass, sizeof G.pass, np);
 	}
 
 	/* time zone (first line that is not a comment) */
@@ -792,6 +835,7 @@ static int check_auth(const char *b, int n)
 	int al = 0, cl = 0;
 	long long t = now_ms();
 
+	if (cfg_poll(1)) load_config();	/* B1: a changed password counts before this request is judged */
 	if (!G.pass[0]) return 1;
 	if (fail_locked(g_peer, t)) return 0;	/* guessing from this address: refused for the rest of its minute */
 	if (!find_elem(b, end, "UsernameToken", NULL, NULL, &cl)) return 0;
@@ -1865,7 +1909,7 @@ int main(int argc, char **argv)
 {
 	int on = 1, i;
 	struct sockaddr_in a;
-	long long next_disc = 0, next_motion = 0;
+	long long next_disc = 0, next_motion = 0, next_cfg = 0;
 	char buf[96];
 	struct stream *ex = G.ex;
 
@@ -1930,7 +1974,9 @@ int main(int argc, char **argv)
 	if (slurp(p_mac, buf, 40) >= 17) { buf[17] = 0; scpy(G.mac, sizeof G.mac, buf); }
 	device_uuid();
 	g_instance = (unsigned)time(NULL);
+	cfg_poll(NCFG);	/* the state of the settings files first, then what they say (a change in between is seen next time) */
 	load_config();
+	cfg_loaded = 1;
 	motion_poll();
 	parse_allow(getenv("TC100_NET_ALLOW"));
 
@@ -1972,13 +2018,14 @@ int main(int argc, char **argv)
 		struct timeval tv = { 0, 500000 };
 		long long t;
 
-		if (g_hup) { g_hup = 0; load_config(); }
+		if (g_hup) { g_hup = 0; cfg_poll(NCFG); load_config(); }
 		FD_ZERO(&rf);
 		FD_SET(g_lfd, &rf);
 		if (g_ufd >= 0) { FD_SET(g_ufd, &rf); if (g_ufd > mx) mx = g_ufd; }
 		for (i = 0; i < MAXCONN; i++) if (cn[i].fd >= 0) { FD_SET(cn[i].fd, &rf); if (cn[i].fd > mx) mx = cn[i].fd; }
 		r = select(mx + 1, &rf, NULL, NULL, &tv);
 		t = now_ms();
+		if (t >= next_cfg) { if (cfg_poll(NCFG)) load_config(); next_cfg = t + 2000; }	/* B1: the settings files, every 2 s */
 		if (r > 0) {
 			if (FD_ISSET(g_lfd, &rf)) conn_accept();
 			if (g_ufd >= 0 && FD_ISSET(g_ufd, &rf)) udp_in();
