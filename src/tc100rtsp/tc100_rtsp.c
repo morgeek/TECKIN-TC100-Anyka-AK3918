@@ -1705,14 +1705,17 @@ static void dm_clean(unsigned char *p, int w, int h, int bw)
 }
 
 static void fill(unsigned char *y, int w, int h, int x1, int y1, int x2, int y2, int col)
-{
-	int x, yy;
+{	/* the rectangle in luma col and neutral chroma (U = V = 128, whatever col): x1, x2 even, so the chroma rows are
+	 * whole U V pairs and one memset each (W1, audit 2026-11-24: two byte stores per pair into uncached memory before) */
+	int yy;
 
 	x1 &= ~1; y1 &= ~1; x2 &= ~1; y2 &= ~1;
 	x1 = x1 < 0 ? 0 : x1; y1 = y1 < 0 ? 0 : y1; x2 = x2 > w ? w : x2; y2 = y2 > h ? h : y2;
-	if (y2 > y1 && x2 > x1) { if (y1 < dirty_y0) dirty_y0 = y1; if (y2 > dirty_y1) dirty_y1 = y2; }
-	for (yy = y1; yy < y2; yy++) memset(y + yy * w + x1, col, x2 > x1 ? x2 - x1 : 0);
-	for (yy = y1 / 2; yy < y2 / 2; yy++) { unsigned char *r = y + w * h + yy * w; for (x = x1; x < x2; x += 2) { r[x] = 128; r[x + 1] = 128; } }
+	if (y2 <= y1 || x2 <= x1) return;
+	if (y1 < dirty_y0) dirty_y0 = y1;
+	if (y2 > dirty_y1) dirty_y1 = y2;
+	for (yy = y1; yy < y2; yy++) memset(y + yy * w + x1, col, (size_t)(x2 - x1));
+	for (yy = y1 / 2; yy < y2 / 2; yy++) memset(y + w * h + yy * w + x1, 128, (size_t)(x2 - x1));
 }
 
 /* ---- privacy mode (item 25 of the implementer list): while /tmp/tc100_privacy exists (scripts/privacy.sh: web page,

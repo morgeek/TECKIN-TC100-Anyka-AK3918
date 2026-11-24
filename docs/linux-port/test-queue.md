@@ -430,6 +430,20 @@ per flash write.
   3. One night with `REC_WHEN=motion`: no all-night series of motion files in the recordings.
 - **Pass:** 1 to 3.
 
+### W1-PRIVFILL Privacy mode paints the chroma with memset (`[video-fix]`, audit 2026-11-24 W1) — `to test`
+- **What:** `fill()` (privacy mode, CPU masks, the CPU clock box) wrote the chroma rows two bytes per loop turn into
+  the uncached capture memory, ~1 M byte stores per 1080p frame with `/tmp/tc100_privacy`. The chroma rows are now one
+  `memset(…, 128, x2 - x1)` each. Same bytes (U = V = 128 everywhere, x1 and x2 even; a host test compares it with
+  the old loop on random rectangles).
+- **Revert:** the previous build (no behaviour change, no switch).
+- **Test:**
+  1. Note `pp_ms` and `sub_ms` of three STAT lines (`/tmp/logs/tc100_rtsp.log`, every 5 s) without privacy, then
+     `touch /tmp/tc100_privacy` and note three more, on the old build and on this one (`v3/dev/try-rtsp.sh`).
+  2. With privacy on: the picture is black on both streams, the snapshot too; masks and the clock look as before
+     with privacy off.
+- **Pass:** `pp_ms` with `/tmp/tc100_privacy` present is clearly lower than on the old build (estimate 10-40 ms per
+  frame saved), the same without privacy, and 2 unchanged.
+
 ### FAILCOUNT Failure totals of the video server over a day: STAT, /tmp file, memory-hourly.csv (`[failcount]`) â€” `to test` (both cameras, 24 h or more)
 
 - **What:** measurement only, no behaviour change. `src/tc100rtsp/tc100_rtsp.c` counts since the process start

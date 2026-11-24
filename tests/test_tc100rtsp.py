@@ -2621,5 +2621,80 @@ int main(void)
         self.assertIn('LOG image tuning: the ISP refused the hue: table', out)
 
 
+@unittest.skipUnless(shutil.which('gcc'), 'needs gcc')
+class FillMemset(unittest.TestCase):
+    """W1 (audit 2026-11-24): fill() (privacy mode, CPU masks, the CPU clock box) paints the chroma rows with one memset
+    each; the bytes and the dirty rows are those of the old two-bytes-per-turn loop, on random rectangles with odd,
+    negative and out-of-picture coordinates and any luma value (the chroma is 128 whatever col is)."""
+
+    OLD = r"""
+static void fill_old(unsigned char *y, int w, int h, int x1, int y1, int x2, int y2, int col)
+{
+	int x, yy;
+
+	x1 &= ~1; y1 &= ~1; x2 &= ~1; y2 &= ~1;
+	x1 = x1 < 0 ? 0 : x1; y1 = y1 < 0 ? 0 : y1; x2 = x2 > w ? w : x2; y2 = y2 > h ? h : y2;
+	if (y2 > y1 && x2 > x1) { if (y1 < dirty_y0) dirty_y0 = y1; if (y2 > dirty_y1) dirty_y1 = y2; }
+	for (yy = y1; yy < y2; yy++) memset(y + yy * w + x1, col, x2 > x1 ? x2 - x1 : 0);
+	for (yy = y1 / 2; yy < y2 / 2; yy++) { unsigned char *r = y + w * h + yy * w; for (x = x1; x < x2; x += 2) { r[x] = 128; r[x + 1] = 128; } }
+}
+"""
+    MAIN = r"""
+static unsigned rnd_s = 12345;
+static int rnd(int n) { rnd_s = rnd_s * 1103515245u + 12345u; return (int)((rnd_s >> 8) % (unsigned)n); }
+int main(void)
+{
+	static const int ws[] = { 1920, 1280, 640, 64, 2, 18 }, hs[] = { 1080, 720, 360, 37, 3, 1 };
+	static unsigned char a[1920 * 1080 * 3 / 2 + 64], b[sizeof a];
+	int bad = 0, n = 0, painted = 0;
+
+	for (int k = 0; k < 6; k++) {
+		int w = ws[k], h = hs[k], len = w * h * 3 / 2 + 64;
+
+		for (int i = 0; i < len; i++) a[i] = b[i] = (unsigned char)rnd(256);
+		for (int t = 0; t < (k < 3 ? 60 : 4000); t++) {
+			int x1 = rnd(w + 40) - 20, y1 = rnd(h + 40) - 20, x2 = rnd(w + 40) - 20, y2 = rnd(h + 40) - 20;
+			int col = t % 4 == 0 ? 16 : t % 4 == 1 ? 235 : t % 4 == 2 ? 128 : rnd(256), d0, d1;
+
+			if (t % 5 == 0) { x1 = -rnd(30); x2 = w + rnd(30); }	/* the whole width, clamped */
+			if (t % 7 == 0) { x1 = 0; y1 = 0; x2 = w; y2 = h; }	/* priv_black */
+			dirty_y0 = 1 << 30; dirty_y1 = 0; fill_old(a, w, h, x1, y1, x2, y2, col); d0 = dirty_y0; d1 = dirty_y1;
+			dirty_y0 = 1 << 30; dirty_y1 = 0; fill(b, w, h, x1, y1, x2, y2, col);
+			if (memcmp(a, b, (size_t)len) || d0 != dirty_y0 || d1 != dirty_y1) {
+				if (bad++ < 5) printf("DIFF w %d h %d (%d,%d)-(%d,%d) col %d\n", w, h, x1, y1, x2, y2, col);
+			}
+			painted += d1 > d0;
+			n++;
+		}
+	}
+	printf("RECTS %d PAINTED %d BAD %d\n", n, painted, bad);
+	return 0;
+}
+"""
+
+    def test_byte_identical_to_the_old_loop(self):
+        src = (SRC / 'tc100_rtsp.c').read_text()
+        fn = c_function(src, 'static void fill(unsigned char *y, int w, int h, int x1, int y1, int x2, int y2, int col)\n{')
+        self.assertNotIn('r[x + 1] = 128', fn)
+        self.assertIn('memset(y + w * h + yy * w + x1, 128, (size_t)(x2 - x1));', fn)
+        harness = ('#include <stdio.h>\n#include <string.h>\nstatic int dirty_y0, dirty_y1;\n' + self.OLD + fn + self.MAIN)
+        with tempfile.TemporaryDirectory() as t:
+            Path(t, 'f.c').write_text(harness)
+            subprocess.run(['gcc', '-O1', '-Wall', '-Wextra', '-o', str(Path(t, 'f')), str(Path(t, 'f.c'))], check=True)
+            out = subprocess.run([str(Path(t, 'f'))], capture_output=True, text=True, check=True).stdout
+        m = re.search(r'RECTS (\d+) PAINTED (\d+) BAD (\d+)', out)
+        self.assertIsNotNone(m, out)
+        self.assertEqual(m.group(3), '0', out)
+        self.assertGreater(int(m.group(2)), int(m.group(1)) // 8, out)   # a good share really paints something
+
+    def test_every_caller_wants_neutral_chroma(self):
+        # the chroma is 128 whatever col is: privacy black (16), masks (16 / 235 / 128), the clock box (16)
+        src = (SRC / 'tc100_rtsp.c').read_text()
+        calls = re.findall(r'\n\t+(fill\([^;]*;)', src)
+        self.assertEqual(len(calls), 3, calls)                         # priv_black, the masks, the clock box
+        self.assertTrue(all(c.startswith('fill(p, w, h, ') for c in calls), calls)
+        self.assertIn('fill(p, w, h, 0, 0, w, h, 16);', calls)
+
+
 if __name__ == '__main__':
     unittest.main()

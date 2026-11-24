@@ -18,7 +18,8 @@ Rapport : [audit-2026-11-24-optim.md](audit-2026-11-24-optim.md) (lecture seule,
 - [x] **R1** détection de mouvement par l'encodeur bloquée « en mouvement » après un changement de cadence (fait
   2026-11-24 `[video-fix]`, test-queue `R1-MDENC`) : moyenne remise à zéro au changement de cadence ou de débit ABR,
   16 images P d'apprentissage.
-- [ ] **W1** mode confidentialité : chroma peinte octet par octet.
+- [x] **W1** mode confidentialité : chroma peinte octet par octet (fait 2026-11-24 `[video-fix]`, test-queue
+  `W1-PRIVFILL`) : un `memset` par ligne.
 - [ ] **W3** double mise à zéro de 7,4 Mo à l'ouverture de l'encodeur.
 - [ ] **R2** le bouton reset bloqué pendant `nightmode.sh` / MQTT ; **R3** commande MQTT retenue exécutée à chaque connexion.
 - [ ] **T1 + B5** faire tourner le test de parité des routes natives de `httpfront`, puis corriger `isp_tune`.
