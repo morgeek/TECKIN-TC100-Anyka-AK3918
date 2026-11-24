@@ -33,7 +33,12 @@ Rapport : [audit-2026-11-24-optim.md](audit-2026-11-24-optim.md) (lecture seule,
   `T1B5-PARITY`) : il tourne dans `local-ci.sh cross` et dans l'étape GitHub « httpfront under qemu-arm » (un saut
   = échec) ; `isp_tune` natif recopie `_isp_num` / `isp_tune_get` exactement ; la route native `fullconfig` (7) est
   retirée (le CGI répond, cache 5 s) ; `health.cgi` (5) gardée, sans écart.
-- [ ] Retirer les optimisations mortes (section 5 du rapport) en un seul nettoyage ; le reste des sections 2 et 4.
+- [x] Retirer les optimisations mortes (section 5 du rapport) en un seul nettoyage (fait 2026-11-24 `[cleanup]`,
+  test-queue `CLEANUP-1124`) : `tc100_rtsp` sans `RTSP_UDPMMSG`, `RTSP_PACING_US` (règle aussi R4), `RTSP_SNDBUF`,
+  `RTSP_POOLPAD`, `RTSP_ZEROCOPY`, les chemins `RTSP_FRAMECOPY=0` / `RTSP_LIVE_DIRECT=0` ni la recherche `/dev/mem` de la
+  capture directe (`AK39_VI_G_PHYS` est dans le patch 0006 depuis le 2026-10-22) ; jour / nuit : plus de luminance
+  tirée des octets du JPEG (50 sans `/tmp/cam_luma`, C et shell). `health.cgi` natif gardé.
+- [ ] Le reste des sections 2 et 4 du rapport, et les mesures listées en section 5.
 
 ## Audit du 2026-11-16 (`[audit-1116]`)
 

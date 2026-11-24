@@ -576,6 +576,11 @@ per flash write.
      9830400 bytes (ak39_venc.pool), no guard at its start` is gone), and the `/dev/mem` search of the capture buffers
      when the driver gives no physical address (every kernel of `patches/kernel-6.6/series` has `AK39_VI_G_PHYS`,
      patch 0006, since 2026-10-22; without it the server now uses the copy mode).
+  3. Day / night, `luma` source (`DAYNIGHT_SOURCE=luma`, or the fallback when the AE / vendor inputs are missing):
+     without `/tmp/cam_luma` both `tc100-supervisord` and `scripts/auto-night-daemon.sh` took the mean of the first 512
+     bytes of `/tmp/currentpic.cache.jpg` (JPEG header bytes, not light); they now use 50, as for an unreadable file.
+     `tc100_rtsp` writes both files, so while it runs nothing changes; the default `vendor` source falls back to
+     `luma` only when its own inputs are missing.
 - **Switch / revert:** none (removal of non-default paths); the previous build. A `/mnt/config/rtsp.env` that still
   sets one of these variables does no harm: they are ignored.
 - **Test (one camera, then both; a normal run):** install the build, leave it 24 h with the usual viewers (VLC or

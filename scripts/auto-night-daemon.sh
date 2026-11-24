@@ -420,12 +420,11 @@ dn_ir_guard() {
 # the original decision on the picture luminance: two samples in a row beyond the threshold
 dn_step_luma() {
   read_now   # for the minimum time between two switches (dn_switch)
-  # Read luminance directly from real-time streamer or cache
+  # The luminance written by tc100_rtsp; no file, or not a number: 50. (The mean of the first 512 bytes of the cached
+  # JPEG, used when the file was missing, averaged header bytes, not light: removed on 2026-11-24, audit.)
   LUMA=50
   if [ -f "$CAM_LUMA" ]; then
     read -r LUMA < "$CAM_LUMA"
-  elif [ -f /tmp/currentpic.cache.jpg ]; then
-    LUMA=$(hexdump -n 512 -v -e '1/1 "%d\n"' /tmp/currentpic.cache.jpg 2>/dev/null | awk '{s+=$1} END {if (NR>0) print int(s/NR); else print 50}')
   fi
   case "$LUMA" in ''|*[!0-9]*) LUMA=50 ;; esac
 

@@ -67,7 +67,7 @@ the main session in the code.
 | `RTSP_FRAMECOPY=0` and `RTSP_LIVE_DIRECT=0` paths | O-05: no measurable difference; keep the default path only. **Removed 2026-11-24** (the in-place read stays only as the fallback when the copy finds no memory). |
 | Native `fullconfig` (`poll.h` route 7, ~270 lines) | Once per Settings open, already cached 5 s by the CGI; falls back on any value ≥ 24 characters (a Frigate URL already is), small semantic differences (`perf_profile`, Content-Type). |
 | Native `health.cgi` (route 5) | Once per diagnostics visit; the CGI's cache path is already fork-free. Small; keep or remove. |
-| JPEG luma fallback of the day/night logic (`supervisord.c:698-710`, `auto-night-daemon.sh:427-428`) | Averages JPEG header bytes, not light; `tc100_rtsp` writes `/tmp/cam_luma` on 3.0. |
+| JPEG luma fallback of the day/night logic (`supervisord.c:698-710`, `auto-night-daemon.sh:427-428`) | Averages JPEG header bytes, not light; `tc100_rtsp` writes `/tmp/cam_luma` on 3.0. **Removed 2026-11-24**: no file = luma 50 in both. |
 
 To **measure** before deciding: the sender thread (`RTSP_SENDER_THREAD`, the only one with a real expected gain at ≥ 2
 clients; fix R4 first and avoid its double copy), scatter-gather RTP (`RTSP_UDPSG`, with 2-4 TCP clients), AEC

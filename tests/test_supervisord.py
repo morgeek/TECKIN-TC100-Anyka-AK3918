@@ -234,6 +234,23 @@ class AutoNightParity(unittest.TestCase):
         self.assertEqual(calls.split(), ['on', 'off', 'on', 'off', 'on'][:len(calls.split())])
         self.assertGreaterEqual(len(calls.split()), 3)
 
+    def test_a_missing_luma_file_reads_50(self):
+        """CLEANUP-1124: no /tmp/cam_luma gives luma 50 in both (the mean of the cached JPEG's first bytes is gone)"""
+        for night, want in ((60, ['on']), (40, [])):
+            with self.subTest(LUMA_NIGHT=night):
+                sc = Scenario(self.d)
+                sc.add('conf', 'DAYNIGHT_SOURCE=luma\nLUMA_NIGHT=%d\nLUMA_DAY=999\nMIN_SWITCH=0\nIR_LED_MAX_ON=0' % night)
+                sc.add('rmluma')
+                for t in (10, 18, 26):
+                    sc.add('now', t)
+                    sc.add('night')
+                out, calls, _, _ = self.compare(sc)
+                self.assertEqual(calls.split(), want)
+                if want:
+                    self.assertIn('luma=50', out)
+        for f in ('src/supervisord/supervisord.c', 'scripts/auto-night-daemon.sh'):
+            self.assertNotIn('currentpic.cache.jpg', (ROOT / f).read_text(encoding='utf-8'), f)
+
     def test_vendor_source_with_awb_lock_and_stale_counts(self):
         sc = Scenario(self.d)
         sc.add('conf', 'DAYNIGHT_SOURCE=vendor\nMIN_SWITCH=0\nIR_LED_MAX_ON=0\nVENDOR_LOCK=100')

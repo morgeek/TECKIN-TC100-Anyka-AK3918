@@ -733,21 +733,9 @@ static void dn_step_luma(void)	/* the original decision on the picture luminance
 	ll luma = 50;
 
 	read_now();
-	if (access(lf, F_OK) == 0) {
-		if (first_line(lf, b, sizeof b) >= 0 && all_digits(b)) luma = dec(b);
-	} else {	/* no luma file: the mean of the first 512 bytes of the cached picture, as hexdump | awk did */
-		unsigned char p[512];
-		int f = open("/tmp/currentpic.cache.jpg", O_RDONLY), n = 0, i, k;
-		ll s = 0;
-
-		if (f >= 0) {
-			while (n < 512 && (k = read(f, p + n, 512 - n)) > 0) n += k;
-			close(f);
-			for (i = 0; i < n; i++) s += (signed char)p[i];
-			luma = n > 0 ? s / n : 50;
-			if (luma < 0) luma = 50;	/* a negative mean is not made of digits for the shell */
-		}
-	}
+	/* no luma file (tc100_rtsp writes it), or not a number: 50. The mean of the first 512 bytes of the cached JPEG,
+	 * used when the file was missing, averaged header bytes, not light: removed on 2026-11-24 (audit) */
+	if (access(lf, F_OK) == 0 && first_line(lf, b, sizeof b) >= 0 && all_digits(b)) luma = dec(b);
 	read_cut();
 	snprintf(w, sizeof w, "luma=%lld", luma);
 	if (CUR_CUT_ON) {
