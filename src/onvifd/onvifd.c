@@ -317,7 +317,15 @@ static int allowed(u_int32_t ip)	/* host order */
 
 /* ---- configuration (start, SIGHUP, and a change of a settings file) ---- */
 
-static char cbuf[8192];
+/* audit 2026-11-24 B3: boot.conf.dist is 23.7 KB and RTSP_LITE_TALK sits at byte 19 177; read into 8 KB it was never seen
+ * (ONVIF kept advertising the backchannel with two-way audio off). 64 KB, at least twice the largest .dist file
+ * (checked by tests/test_onvifd.py); a file that still fills it is reported (cfg_cut). */
+static char cbuf[65536];
+
+static void cfg_cut(const char *path, int n)
+{
+	if (n >= (int)sizeof cbuf - 1) dprintf(2, "tc100-onvifd: %s is larger than %d bytes: its end is not read\n", path, (int)sizeof cbuf - 1);
+}
 
 /* audit 2026-11-24 B1: nothing sends SIGHUP (the password change of the web UI restarts ftp, telnet and rtsp, not this
  * daemon), so the old password stayed valid here until a restart. The settings files are watched instead: user.pwd
@@ -359,6 +367,7 @@ static void load_config(void)
 	/* rtspserver.conf: port, user, the two streams */
 	snprintf(path, sizeof path, "%s/rtspserver.conf", p_conf);
 	n = slurp(path, cbuf, sizeof cbuf);
+	cfg_cut(path, n);
 	if (n < 0) cbuf[0] = 0;
 	G.rtsp_port = ini_get(cbuf, "", "PORT", v, sizeof v) ? num_at(v, 554) : 554;
 	if (G.rtsp_port < 1 || G.rtsp_port > 65535) G.rtsp_port = 554;
@@ -392,6 +401,7 @@ static void load_config(void)
 	/* boot.conf: sub-stream, audio, backchannel */
 	snprintf(path, sizeof path, "%s/boot.conf", p_conf);
 	n = slurp(path, cbuf, sizeof cbuf);
+	cfg_cut(path, n);
 	if (n < 0) cbuf[0] = 0;
 	G.sub = 1;
 	if (ini_get(cbuf, "", "RTSP_SUBSTREAM", v, sizeof v) && (!strcmp(v, "0") || !strcmp(v, "no") || !strcmp(v, "off") || !strcmp(v, "false"))) G.sub = 0;
@@ -403,6 +413,7 @@ static void load_config(void)
 	/* the RTSP user can be set in rtsp.env (RTSP_USER, what rtsp-launch.sh passes as -u) */
 	snprintf(path, sizeof path, "%s/rtsp.env", p_conf);
 	n = slurp(path, cbuf, sizeof cbuf);
+	cfg_cut(path, n);
 	if (n >= 0 && ini_get(cbuf, "", "RTSP_USER", v, sizeof v) && v[0]) scpy(G.user, sizeof G.user, v);
 
 	/* the password: first line of user.pwd, empty or missing = no authentication. On a reload a password is never

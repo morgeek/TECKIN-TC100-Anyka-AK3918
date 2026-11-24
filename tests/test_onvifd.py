@@ -376,6 +376,26 @@ class OnvifD(unittest.TestCase):
         st, _, _ = self.soap('<trt:GetProfiles/>', 'media_service', auth=security('camuser', self.password))
         self.assertEqual(st, 200)
 
+    def test_talk_off_in_the_real_boot_conf(self):
+        # audit 2026-11-24 B3: boot.conf was read into 8 KB and RTSP_LITE_TALK sits past it in the real file, so ONVIF
+        # kept advertising the backchannel with two-way audio off
+        dist = (ROOT / 'config/boot.conf.dist').read_text()
+        self.assertGreater(dist.index('\nRTSP_LITE_TALK='), 8192)  # keeps this test meaningful
+        self.write('boot.conf', re.sub(r'(?m)^RTSP_LITE_TALK=.*$', 'RTSP_LITE_TALK=0', dist))
+        self.start()
+        n = self.profiles('media2_service', '<tr2:GetProfiles/>')
+        self.assertIsNone(n.find('tr2:Profiles/tr2:Configurations/tr2:AudioOutput', NS))
+        self.write('boot.conf', re.sub(r'(?m)^RTSP_LITE_TALK=.*$', 'RTSP_LITE_TALK=1', dist))
+        time.sleep(2.6)                                   # B1: re-read within 2 s
+        n = self.profiles('media2_service', '<tr2:GetProfiles/>')
+        self.assertIsNotNone(n.find('tr2:Profiles/tr2:Configurations/tr2:AudioOutput', NS))
+
+    def test_config_buffer_holds_twice_the_largest_dist_file(self):
+        src = (SRC / 'onvifd.c').read_text()
+        cap = int(re.search(r'static char cbuf\[(\d+)\];', src).group(1))
+        largest = max(p.stat().st_size for p in (ROOT / 'config').glob('*.dist'))
+        self.assertGreaterEqual(cap, 2 * largest)
+
     def test_all_password_writes_user_pwd_atomically(self):
         src = (SRC.parents[1] / 'scripts/common_functions.sh').read_text()
         body = src[src.index('all_password()'):]

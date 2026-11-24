@@ -1263,6 +1263,33 @@ class SoundParity(unittest.TestCase):
         self.assertNotIn('snapshot-event', out[0])
         self.assertNotIn('notify', out[0])
 
+    def test_rec_when_motion_in_the_real_boot_conf(self):
+        # audit 2026-11-24 B2: boot.conf was read into 16 KB and REC_WHEN sits past 16 KB in the real file, so a sound
+        # event never started a recording with REC_WHEN=motion (the 2-line boot.conf of the test above hid it)
+        dist = (ROOT / 'config/boot.conf.dist').read_text()
+        self.assertGreater(dist.index('\nREC_WHEN='), 16384)      # keeps this test meaningful
+        boot = re.sub(r'(?m)^REC_WHEN=.*$', 'REC_WHEN=motion', dist)
+        self.assertNotEqual(boot, dist)
+        sc = SoundScenario(self.d)
+        sc.add('conf', self.CONF)
+        sc.add('boot', boot.rstrip('\n'))
+        sc.add('mqttconf', 'MQTT_SNAPSHOT_ON_EVENT=0')
+        sc.add('level', self.lv(6000, 1))
+        sc.add('iter')
+        sc.add('level', self.lv(6002, 2))
+        sc.add('up', 102)
+        sc.add('iter')
+        out = self.compare(sc, 'real boot.conf.dist, REC_WHEN=motion', x_notify=False)
+        self.assertTrue(out[4])
+
+    def test_settings_buffers_hold_twice_the_largest_dist_file(self):
+        src = (ROOT / 'src/supervisord/supervisord.c').read_text()
+        cap = int(re.search(r'#define CONF_BUF (\d+)', src).group(1))
+        largest = max(p.stat().st_size for p in (ROOT / 'config').glob('*.dist'))
+        self.assertGreaterEqual(cap, 2 * largest)
+        self.assertIn('static char b[CONF_BUF];', src[src.index('static int sd_rec_motion'):])
+        self.assertIn('static char b[CONF_BUF];', src[src.index('static int sd_prefix_line'):])
+
     def test_log_rotation(self):
         sc = SoundScenario(self.d)
         sc.add('conf', self.CONF)

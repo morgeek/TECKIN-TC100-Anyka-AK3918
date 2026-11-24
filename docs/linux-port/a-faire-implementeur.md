@@ -10,7 +10,7 @@ foi. La liste d'origine date de rc25 ; les audits des 3, 4 et 6 novembre sont de
 Rapport : [audit-2026-11-24-optim.md](audit-2026-11-24-optim.md) (lecture seule, rien n'est encore corrigé). Ordre proposé :
 - [x] **B1 `onvifd` ne relit pas `user.pwd` (fait 2026-11-24 `[b1-onvif]`, à tester : test-queue `B1-ONVIF`) :** l'ancien mot de
   passe restait valable en ONVIF après un changement ; `user.pwd` relu avant chaque authentification, écrit de façon atomique.
-- [ ] **B2 / B3 lecteurs de `boot.conf` trop courts :** `tc100-supervisord` (16 Ko, `REC_WHEN` à l'octet 16 461 : le son ne
+- [x] **B2 / B3 lecteurs de `boot.conf` trop courts (fait 2026-11-24 `[b2b3-conf]`, tampons 64 Ko, test-queue `B2B3-CONF`) :** `tc100-supervisord` (16 Ko, `REC_WHEN` à l'octet 16 461 : le son ne
   déclenche jamais l'enregistrement en mode « motion ») et `onvifd` (8 Ko, `RTSP_LITE_TALK` jamais lu) ; test CI sur le vrai
   `boot.conf.dist`.
 - [ ] **B4 teinte (HUE) perdue** après la première bascule jour / nuit ; **R1** détection de mouvement par l'encodeur bloquée

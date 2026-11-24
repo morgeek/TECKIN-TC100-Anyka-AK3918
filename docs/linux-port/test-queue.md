@@ -356,6 +356,21 @@ per flash write.
 - **Pass:** the login is refused. If it is accepted, keep FTP off and report: chroot it to the card and require the
   password.
 
+### B2B3-CONF Settings files read whole: buffers too small for boot.conf (`[b2b3-conf]`, audit 2026-11-24 B2/B3) — `to test`
+- **What:** `boot.conf.dist` is 23.7 KB. `tc100-supervisord` read it into 16 KB (`REC_WHEN` is at byte 16 461: a sound
+  event never started a recording with `REC_WHEN=motion`) and `mqtt.conf` into 8 KB; `tc100-onvifd` read `boot.conf`,
+  `rtspserver.conf` and `rtsp.env` into 8 KB (`RTSP_LITE_TALK` at byte 19 177 never seen: the backchannel stayed
+  advertised with two-way audio off). All these buffers are 64 KB (tests keep them at least twice the largest `.dist`
+  file), and a file that still fills one is reported on the console / stderr.
+- **Revert:** the previous build (no behaviour switch: only more of the file is read).
+- **Test:**
+  1. `REC_LOCAL=1`, `REC_WHEN=motion`, sound detection on, C supervisor (default): a loud sound starts a recording
+     (`/tmp/motion_detected` touched, a file in the recordings).
+  2. Two-way audio off in Settings (`RTSP_LITE_TALK=0`): within 2-3 s ONVIF Media2 `GetProfiles` has no `AudioOutput`
+     (go2rtc / HA no longer offer the backchannel); on again: it comes back.
+  3. No `is larger than` line on the console or in the onvif log.
+- **Pass:** 1 to 3.
+
 ### B1-ONVIF ONVIF sees a password change at once (`[b1-onvif]`, audit 2026-11-24 B1) — `to test`
 - **What:** `tc100-onvifd` read `user.pwd` (and `rtspserver.conf`, `boot.conf`, `rtsp.env`, `timezone.conf`) only at
   start and on SIGHUP, and nothing sends SIGHUP: after a password change in the web UI the old password kept working on

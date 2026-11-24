@@ -1095,13 +1095,27 @@ static int sd_read_meter(char **w, char *line, int cap)
 	return up - SD_RM_CHANGE <= 10;
 }
 
+/* audit 2026-11-24 B2: a settings file is read whole into a buffer; one that fills it is cut and its later keys are
+ * never seen (boot.conf.dist is 23.7 KB, REC_WHEN at byte 16 461, read into 16 KB: sound never started a recording).
+ * The buffers are 64 KB (at least twice the largest .dist file, checked by tests/test_supervisord.py) and a file
+ * that still fills one is reported once. */
+#define CONF_BUF 65536
+static void conf_cut(const char *path, int n, int cap)
+{
+	static int said;
+
+	if (n >= cap - 1 && !said) { said = 1; console("tc100-supervisord: %s is larger than %d bytes: its end is not read", path, cap - 1); }
+}
+
 static int sd_prefix_line(const char *path, const char *prefix)	/* grep -q '^PREFIX' file */
 {
-	static char b[8192];
+	static char b[CONF_BUF];
 	char *p;
 	size_t l = strlen(prefix);
+	int n = slurp(path, b, sizeof b);
 
-	if (slurp(path, b, sizeof b) < 0) return 0;
+	if (n < 0) return 0;
+	conf_cut(path, n, (int)sizeof b);
 	for (p = b; p; ) {
 		if (!strncmp(p, prefix, l)) return 1;
 		p = strchr(p, '\n');
@@ -1112,10 +1126,13 @@ static int sd_prefix_line(const char *path, const char *prefix)	/* grep -q '^PRE
 
 static int sd_rec_motion(void)	/* read_kv_config_value boot.conf REC_WHEN offline = motion */
 {
-	static char b[16384];
+	static char b[CONF_BUF];
 	char *p, *e, val[64] = "";
+	const char *bc = envs("SD_BOOTCONF", "/mnt/config/boot.conf");
+	int n = slurp(bc, b, sizeof b);
 
-	if (slurp(envs("SD_BOOTCONF", "/mnt/config/boot.conf"), b, sizeof b) >= 0) {
+	if (n >= 0) {
+		conf_cut(bc, n, (int)sizeof b);
 		for (p = b; *p; p = e ? e + 1 : p + strlen(p)) {
 			char *q = p, *eq;
 
