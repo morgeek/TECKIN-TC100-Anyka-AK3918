@@ -6,7 +6,7 @@
  *   headers    paramsets.h + slicehdr.h (H.265), avc.h (H.264): the vendor's bytes
  *   buffers    worktab.h (work), the tables head, zeros; two frame buffers take turns as reconstruction / reference
  *   start      H.265: mask bit 0 (bit 2 clear: set, the core hangs after an H.264 picture), clock bit 15 set,
- *              0x8084 = 2; H.264: mask bit 2 (bit 0 clear), clock bit 15 clear, 2 then 8 (venctrace)
+ *              0x8084 = 2; H.264: mask bit 2 (bit 0 clear), clock bit 15 clear, 2 then 8 (register trace of 2026-11-07)
  *   recovery   no interrupt: the core is reset (fe_hw_init), the picture is lost. After any lost picture the next one is
  *              an IDR into the OTHER frame buffer (as after a good picture); a picture larger than the stream buffer
  *              raises the QP (rc_over). The caller counts the failures in a row: fe_fail_action (reopen, then exit).

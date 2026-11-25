@@ -7,7 +7,7 @@ nothing here runs unless the owner starts it. Nothing has run on a camera yet. T
 ## What is known, what is guessed
 The free encoder gives the core a 0x4040-byte buffer (list word 0x23, `FE_TABLES_SIZE` in `src/h265enc/freeenc.h`).
 
-**Known** (captures of the vendor encoder, 2026-11-07, `capture.py` / `AKUIO_CAPTURE`):
+**Known** (captures of the vendor encoder, 2026-11-07; the capture tools were removed 2026-11-25):
 - only its first 20 bytes are not zero, the same for every picture: six 16-bit values 2500, 1000, 256, 5000, 7000,
   9000; six bytes 1, 3, 10, 1, 2, 3; byte 18 = 25 (31 for an H.264 IDR); byte 19 = 36 for an IDR, 48 for a P picture,
   whatever the QP of the picture. `freeenc.h` writes exactly these bytes (`FE_TABLES_HEAD`, bytes 18 / 19 per picture);

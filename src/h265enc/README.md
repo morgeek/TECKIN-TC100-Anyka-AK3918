@@ -52,15 +52,16 @@ encoder at 1920x1080 (two traces, 40 + 34 H.265 pictures). **Nothing has run on 
 
 The owner's goal: no proprietary library left. The plan, on a test camera (IPCAM2):
 
-1. **Capture** (`v3/dev/h265-step2.sh capture`): tc100_rtsp restarted by hand for 20 s with `AKUIO_CAPTURE` (libakuio
-   writes, after each of the first 12 interrupts, the registers, the command list, the table / work / small buffers, the
-   stream buffer and, once, the NV12 source of the first IDR) and `RTSP_SAVE_FRAMES` (the pictures the vendor returned).
-2. **Analysis** (`python3 capture.py DIR --out DIR/in`): where the picture length is, whether the core writes the
-   parameter sets and the slice header, whether the table buffer is constant, whether the lists of the 3.0 vendor
-   library still follow `build_list`; writes the inputs of h265enc.
-3. **First run** (`v3/dev/h265-step2.sh run`): `h265enc --run` encodes the same NV12 picture with the vendor's IDR list
+1. **Capture** (removed 2026-11-25: `AKUIO_CAPTURE` in libakuio, `RTSP_SAVE_FRAMES` in tc100_rtsp, `capture.py`,
+   `v3/dev/h265-step2.sh`; done, the captures of 2026-11-07 gave the lists, tables and headers now in `cmdlist.py`,
+   `listgen.h`, `paramsets.h` and `freeenc.h`): the registers, the command list, the table / work / small buffers, the
+   stream buffer and the NV12 source of the first IDR after each interrupt of the vendor encoder, and the pictures the
+   vendor returned.
+2. **Analysis**: where the picture length is, whether the core writes the parameter sets and the slice header, whether
+   the table buffer is constant, whether the lists of the 3.0 vendor library still follow `build_list`.
+3. **First run**: `h265enc --run` encodes the same NV12 picture with the vendor's IDR list
    as a template (its own buffers, `patch_list` = the address words of `build_list`, tested), the core alone.
-   Success = `o.h265` decodes, ideally byte for byte the vendor's `f.0.h26x`.
+   Success = `o.h265` decodes, ideally byte for byte the vendor's picture.
 4. Then: P pictures (two frame buffers, the reference), our own VPS/SPS/PPS writer instead of the captured ones, our
    own table buffer if it is constant, a QP rate control; then h265enc becomes the encoder of tc100_rtsp and
    `libakv_encode`, `libmpi_venc_ex`, `libplat_*`, `libstdc++` and the uClibc runtime leave the camera.
@@ -68,19 +69,17 @@ The owner's goal: no proprietary library left. The plan, on a test camera (IPCAM
 ## H.264, the 640x360 sub stream (2026-11-07)
 
 The same core codes the sub stream in H.264 (Main profile, CABAC), with the same list layout. Found on IPCAM2:
-- **Captures** (`v3/dev/h265-step2.sh capture` with `H265_WIDTH=640`: libakuio's `AKUIO_CAPTURE_WIDTH` keeps only the
-  lists of a 640-wide picture): `slice_type_c` = 0 selects H.264, macroblock counts replace the CTB counts, the stream
+- **Captures** (of the vendor encoder, tools removed 2026-11-25; only the lists of a 640-wide picture): `slice_type_c` = 0 selects H.264, macroblock counts replace the CTB counts, the stream
   buffer is in list words 0x3c-0x3f only, `sp_8c` = 10 from QP 28 up (9 below), `sp_d8` changes with every picture
   (0 works). `cmdlist.PROFILE_H264_360P`, `H264_IDR_FIELDS`, `H264_P_FIELDS`; `listgen.h` has both codecs' lists.
 - **Side buffers**: the work buffer holds only the 52 x 4 rate-distortion weights (`h264_work_table`, the vendor's
   bytes: tests WorkTable), the tables head is H.265's with byte 18 = 0x1f for an IDR.
 - **Headers** (`avc.h`): SPS (VUI with a CBR VCL HRD), PPS, slice headers: the vendor's bytes (tests H264liveDry). The
   software writes them, the core writes the CABAC slice data from stream + 0x820 (length: list word 0x41).
-- **Start**: the vendor's lists alone hang the core (state 0x20001 in 0x8300, no interrupt). `venctrace/` (the 3.0 port
-  of the 2.x tracer, preloaded into tc100_rtsp by `h265-step2.sh trace`) showed the H.264 sequence: interrupt mask
+- **Start**: the vendor's lists alone hang the core (state 0x20001 in 0x8300, no interrupt). a trace of the vendor library's register accesses (`venctrace`, removed 2026-11-25) showed the H.264 sequence: interrupt mask
   0x8014 bit 2 (H.265: bit 0), clock register 0xc004 bit 15 clear, list address + 0x8084 = 2 (load), list address
   again + 0x8084 = 8 (encode), mask cleared after the interrupt.
-- **`h264live`** (`h265-step2.sh live264`): from the ISP sub channel (the 640x360 picture after the main one in each
+- **`h264live`** (run by hand on a test camera, tc100_rtsp stopped; `h265-step2.sh`, removed 2026-11-25, started it): from the ISP sub channel (the 640x360 picture after the main one in each
   capture buffer), no vendor library or data: 150 pictures, IDR every 50, 0 decoding errors, 3.7 ms per picture on
   the core; `-b 250` gave 274 kbit/s (the QP alternates by 3 between pictures: the rate control's step is too big
   for 1 KB pictures, to tune).
@@ -101,10 +100,8 @@ Found on the way (IPCAM2):
   busy (0x8300 = 0x20001) and the next start hangs the core and its bus for good (even the vendor library then gets
   no interrupt; only a reboot helps). tc100_rtsp maps them through libakuio and freeenc.h clears the status itself.
 - H.265 after H.264: the interrupt mask bit 2 must be clear (the vendor writes 0x40001 for H.265, 0x40004 for H.264).
-- `vencreset` (soft reset + init) does not free a core hung that way; a picture without interrupt makes
+- `vencreset` (soft reset + init; removed 2026-11-25) did not free a core hung that way; a picture without interrupt makes
   freeenc.h reset the core and code an IDR next.
-- `h265-step2.sh free` / `restore`: tc100_rtsp of this build with `RTSP_FREE_ENC=1` and the video service's
-  arguments (`H265_NOSUB=1`, `H265_FREE_ENV="NO_PRIME=1 NO_JPEG=1 RTSP_DEBUG=1"` for tests).
 
 ## The tables buffer as the QP control buffer: a bench (2026-11-16, T1)
 

@@ -10,7 +10,7 @@
  *   replace ours (tables.bin, work.bin, small.bin; list.bin + plist.bin with H265_VENDOR_LISTS=1, params.bin with
  *   H265_VENDOR_PARAMS=1), for comparisons.
  *
- *   LISTDIR  from `capture.py DIR --out LISTDIR`: list.bin (an IDR list of the vendor encoder, its 64 input words),
+ *   LISTDIR  from `capture.py` (removed 2026-11-25): list.bin (an IDR list of the vendor encoder, its 64 input words),
  *            plist.bin (the P list of cmdlist.build_list for the same buffers), tables.bin, small.bin, work.bin
  *            (params.bin, the vendor's VPS/SPS/PPS, only with H265_VENDOR_PARAMS=1: ours are paramsets.h).
  *            Data read from the camera's vendor encoder: never in git.
@@ -18,7 +18,7 @@
  *            (default 15), -g an IDR every GOP pictures (default 0: only the first; 50 with -b)
  *   -b       target bit rate in kbit/s at 25 fps: one QP per picture (rc.h), -q is then the first one
  *
- * tc100_rtsp must be stopped (it owns the ISP and the encoder): test cameras only (v3/dev/h265-step2.sh live).
+ * tc100_rtsp must be stopped (it owns the ISP and the encoder): test cameras only (by hand).
  * The source is the ISP's capture buffer itself (AK39_VI_G_PHYS gives its physical address, as tc100_rtsp's direct
  * capture): no copy. Two frame buffers in the encoder pool take turns as the reconstruction and the reference.
  *

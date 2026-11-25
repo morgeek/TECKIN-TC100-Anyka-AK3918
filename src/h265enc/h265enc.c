@@ -1,17 +1,17 @@
 /*
  * h265enc: first run of the AK3918EV300 encoder core in H.265 WITHOUT the vendor control software (libakv_encode,
  * libmpi_venc): one IDR picture of a 1920x1080 NV12 frame, at a fixed QP. Step 2 of the free encoder (2026-11-07);
- * see README.md and capture.py.
+ * see README.md (capture.py, removed 2026-11-25, made its inputs).
  *
  *   h265enc [--dry] [--run] [-q QP] [--params params.bin] LISTDIR in.nv12 out.h265
  *
  *   LISTDIR   list.bin (the 64 input words of an IDR command list of the vendor encoder), tables.bin (0x4040 bytes),
- *             and optionally work.bin (0x6400) and small.bin (0x100): written by `capture.py DIR --out LISTDIR` from
- *             captures made on the camera (AKUIO_CAPTURE). Data read from the camera: never in git.
+ *             and optionally work.bin (0x6400) and small.bin (0x100): written by `capture.py` (removed 2026-11-25) from
+ *             captures made on the camera (AKUIO_CAPTURE, removed 2026-11-25). Data read from the camera: never in git.
  *   --dry     (default) build the list with this program's buffers and print it; touches no hardware
  *   --run     encode on the hardware. tc100_rtsp must be stopped (it owns the encoder): ONLY on a test camera.
  *   -q QP     slice QP (default 30; the list's own otherwise)
- *   --params  the VPS/SPS/PPS NALs to put before the picture (capture.py writes the vendor's as params.bin)
+ *   --params  the VPS/SPS/PPS NALs to put before the picture (the vendor's, captured as params.bin)
  *   --head    the start code, NAL header and slice header put before the core's slice data (capture.py: slicehead.bin;
  *             IPCAM2 capture, 2026-11-07: the core writes only the slice data, from stream +0x820, and its length in
  *             list word 0x41; the header bytes depend on the QP: use the template's own QP with the vendor's head)

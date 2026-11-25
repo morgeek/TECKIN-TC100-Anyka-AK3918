@@ -532,12 +532,11 @@ patches/kernel-6.6/ Linux 6.6 patch series (series/), kernel config
 v3/                 3.0 system: boot script (autorun-linux66.sh), initramfs and user space builders, Buildroot base
   install/          SD card install hook, flash install and update, way back to the stock firmware
   linux66-sd/       Glue between the web interface and the free stack, flash writer (flashw), settings slots
-  dev/              Bench helpers for a test camera (try-rtsp.sh, h265-step2.sh, aec-measure.sh, aec-probe.py), not called by the boot or the web UI
+  dev/              Bench helpers for a test camera (try-rtsp.sh, aec-measure.sh, aec-probe.py), not called by the boot or the web UI
 src/tc100rtsp/      tc100_rtsp: RTSP server, recorder, pictures, motion, sound level, two-way audio, live MP4
 src/libakuio/       Free replacement for the vendor encoder-memory library
 src/jpegenc/        Hardware JPEG encoder
 src/h265enc/        Free hardware H.265 / H.264 encoder (freeenc.h, listgen.h, worktab.h) built into tc100_rtsp
-src/h265enc/venctrace/  venctrace.so: records the vendor encoder's hardware accesses (LD_PRELOAD, research only)
 src/httpfront/      Front for busybox httpd (redirects /, one connection per request, local-network filter)
 src/ispflip/        isp_flip: picture flip / mirror through the ISP (called by bin/setconf)
 src/logfwd/         tc100-logfwd: filtered, rate-limited forwarding of the local log to a remote syslog

@@ -53,6 +53,24 @@ HW-09 night part, the patch 0003 `finish_request_epx` fix (a-faire-implementeur.
 (just below, 2026-11-15), and the
 older `to test` entries below.
 
+### TOOLS-CLEANUP-1125 Test and diagnostic tools removed (`[cleanup]`) — `to test` (one camera, with the next rc)
+- **What was removed (owner, 2026-11-25; only tools whose problem is fixed):** `scripts/perf-baseline.sh`,
+  `scripts/wifi-diag.sh` (+ its test; `wifi-stall-watch.sh` stays), `v3/selftest66.sh` and steps 5 (`tc100test/selftest`)
+  and 6 (`tc100test/diag`) of `v3/S39tc100-linux66`, `README-TEST.txt`, the `jpegenc` and `srtp-bench` binaries of the CI
+  test pack, `src/ispfps/`, the free-encoder capture tools (`RTSP_SAVE_FRAMES(_N)` and the `/tmp/c2` override under
+  `RTSP_DEBUG` in tc100_rtsp, `AKUIO_CAPTURE*` in libakuio, `capture.py`, `venctrace/`, `vencreset.c`,
+  `v3/dev/h265-step2.sh`). Kept: `RTSP_DEBUG` (FRAME lines), `src/jpegenc/` (`jpeg_hw.h`), `srtp_bench.c` (RFC vectors, host
+  only), `h265live.c` / `h264live.c` / `h265enc.c`, `fetest`, `rctest`, `pstest`, `wttest`, `qpbench`. The kernel memory
+  guards (`ak39_vi.guard`, venc guard) are NOT touched: after 3.0.2, one kernel change alone, SD kernel first.
+- **Default behaviour:** unchanged (all removed code ran only with a variable, a file on the card or by hand).
+- **Switch:** none (nothing to turn off).
+- **Test (camera, next rc):** boots normally, `/proc/cmdline` as usual; S39 still runs the rescue check (`$RS check stack`
+  in the boot log, rescue mode off); video (RTSP main and sub) and JPEG snapshots (web UI, `getimage`) as before;
+  no `tc100test/selftest` or `tc100test/diag` file is needed or read.
+- **Pass:** same boot log as the previous rc minus the two removed steps; 0 oops; RTSP and snapshots work.
+- **Host tests:** `tests/test_recovery_initrd.py`, `tests/test_h265cmdlist.py` (the capture.py test was removed),
+  `tests/test_jpegenc.py`, `tests/test_whep_srtp.py`.
+
 ### SUBSTREAM-LOOP Why an RTSP client leaves: one log line per close (`[sub-loop]`) — `to test`
 - **What:** `tc100_rtsp` logs ONE line each time it closes an RTSP client (logging only, nothing else changes):
   `rtsp: client 2 (192.168.1.20 sub tcp) closed after 182 s, 5412 frames, 9120 KB: <reason>`. Reasons: `TEARDOWN received`;

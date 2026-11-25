@@ -117,40 +117,6 @@ static int (*p_pinit)(void);
 static volatile int run = 1;
 static int dbg_on;	/* RTSP_DEBUG, read once at start (no getenv per frame) */
 
-/* RTSP_SAVE_FRAMES=PREFIX (step 2 of the free encoder, with AKUIO_CAPTURE of libakuio): the first RTSP_SAVE_FRAMES_N
- * (default 12) pictures of each stream as the vendor encoder returns them, PREFIX.<n>.h26x (main) and
- * PREFIX.sub.<n>.h26x (sub-stream), and one line per picture in PREFIX.log / PREFIX.sub.log: "<n> <virtual address of the data> <length>" (the address places the picture in the stream buffer of
- * the .cap files: src/h265enc/capture.py). Debug tool, off unless the variable is set. */
-static void save_frame(int k, const void *d, unsigned len)
-{
-	static int nn[2], max = -1;
-	static const char *pre;
-	char name[160], line[64];
-	int of, ln, n;
-
-	if (max < 0) {
-		const char *e = getenv("RTSP_SAVE_FRAMES_N");
-
-		pre = getenv("RTSP_SAVE_FRAMES");
-		max = 12;
-		if (e && *e >= '0' && *e <= '9') for (max = 0; *e >= '0' && *e <= '9' && max < 10000; e++) max = max * 10 + (*e - '0');
-	}
-	n = nn[k & 1];
-	if (!pre || n >= max)
-		return;
-	snprintf(name, sizeof name, k ? "%s.sub.%d.h26x" : "%s.%d.h26x", pre, n);
-	of = open(name, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-	if (of >= 0) { (void)!write(of, d, len); close(of); }
-	snprintf(name, sizeof name, k ? "%s.sub.log" : "%s.log", pre);
-	of = open(name, O_WRONLY | O_CREAT | O_APPEND, 0644);
-	if (of >= 0) {
-		ln = snprintf(line, sizeof line, "%d %lx %u\n", n, (unsigned long)(uintptr_t)d, len);
-		(void)!write(of, line, ln);
-		close(of);
-	}
-	nn[k & 1] = n + 1;
-}
-
 static void on_sig(int s) { (void)s; run = 0; }
 static int exit_code;	/* not 0: the server leaves by itself (the free encoder gives no pictures), the service watchdog starts it again */
 
@@ -308,21 +274,6 @@ static uint32_t jpeg_run(uint32_t y, uint32_t uv, int w, int h, int q)
 
 	build_tables_cached(jbuf + JSTREAM, q);
 	ctrl_words(c, w, h, y, uv, jpaddr + JSTREAM, jpaddr, JSTREAM);
-	{ FILE *df = dbg_on && w < 1000 ? fopen("/tmp/c2", "r") : NULL; char hb[16];	/* debug (RTSP_DEBUG only): control word 2 override (hex) */
-	  if (df) {	/* no fscanf: glibc headers turn it into __isoc23_fscanf, which uClibc does not have */
-		if (fgets(hb, sizeof hb, df)) {
-			uint32_t v = 0; int k = 0; const char *p = hb + (hb[0] == '0' && (hb[1] | 32) == 'x' ? 2 : 0);
-
-			for (; *p; p++, k++) {
-				int d = *p >= '0' && *p <= '9' ? *p - '0' : (*p | 32) >= 'a' && (*p | 32) <= 'f' ? (*p | 32) - 'a' + 10 : -1;
-
-				if (d < 0) break;
-				v = v << 4 | (uint32_t)d;
-			}
-			if (k) c[2] = v;
-		}
-		fclose(df);
-	  } }
 	if (!jpeg_inited) { hw_init(); jpeg_inited = 1; }
 	hw_encode(c);
 	p_wait(0);
@@ -5078,7 +5029,6 @@ int main(int argc, char **argv)
 					continue;
 				}
 				s->fails = 0;
-				save_frame(k, st.data, st.len);
 				{
 					/* The encoder output is uncached memory: read it once into the heap (the GOP cache keeps that copy),
 					 * find the NALs once, give the encoder its buffer back, and let everything below read the copy. No

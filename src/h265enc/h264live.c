@@ -10,7 +10,7 @@
  *   pictures (default 0: only the first; 50 with -b). H264_D8=<hex>: list word 0x1f (sp_d8, default 0; the vendor's
  *   changes with every picture).
  *
- * tc100_rtsp must be stopped (it owns the ISP and the encoder): test cameras only (v3/dev/h265-step2.sh live264).
+ * tc100_rtsp must be stopped (it owns the ISP and the encoder): test cameras only (by hand).
  * The kernel's ISP sub channel (ak39_vi.sub_channel, on by default) puts the 640x360 NV12 picture right after the
  * 1920x1080 one in each capture buffer: the core reads it there (AK39_VI_G_PHYS gives the physical address).
  *
@@ -18,7 +18,7 @@
  * slice_type_c = 0, macroblock counts instead of CTB counts, the stream buffer in list words 0x3c-0x3f only, the
  * work buffer with the rate-distortion weights only, the tables head with byte 18 = 0x1f for an IDR (0x19 for a P
  * picture, as H.265); the core writes the CABAC slice data from stream + 0x820, its length in list word 0x41.
- * The start differs from H.265 (src/h265enc/venctrace, the vendor library's register accesses): see encode().
+ * The start differs from H.265 (a trace of the vendor library's register accesses, 2026-11-07): see encode().
  *
  * License: GPL-2.0-or-later
  */
