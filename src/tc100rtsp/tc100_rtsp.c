@@ -1348,6 +1348,12 @@ static void style_switch(int night)
 	nr3d_auto_sync();
 }
 
+/* the total gain, x 1 (low light, NIGHT-CEIL measurement) */
+static int ae_gain(const struct isp_ae_run *r)
+{
+	return (int)(((long long)r->isp_d_gain * (((long long)r->a_gain * r->d_gain) >> 8)) >> 16);
+}
+
 /* R12-02: by day in low light the stock app drops the sensor to 10 fps and lets the exposure run 2.5 x longer
  * (change_fps_pthread: total gain above 14 x -> 10 fps, exposure up to 2812 lines; under 5 x -> back to 25 fps and
  * 1125 lines; 5 s between changes). A brighter, cleaner picture in a dim room, and the light metric of the stock
@@ -1375,7 +1381,7 @@ static void lowlight_check(double tn, const struct isp_ae_run *r)
 		if (on) LOG("low light: %d fps, exposure up to %u lines when the gain is high\n", lowlight_fps, lowlight_exp);
 	}
 	if (!on || bw_want || p_expct || ae_base != 1 || tn - t < 5.0 || ispx_fd < 0) return;
-	g = (int)(((long long)r->isp_d_gain * (((long long)r->a_gain * r->d_gain) >> 8)) >> 16);	/* total gain, x 1 */
+	g = ae_gain(r);
 	if (!lowlight_on && g > 14) {
 		if (lowlight_fps > (stream_fps > 0 && stream_fps < 25 ? stream_fps : 25)) return;
 		f = lowlight_fps; enter = 1;
@@ -1395,6 +1401,8 @@ static void lowlight_check(double tn, const struct isp_ae_run *r)
 	LOG("low light: total gain %dx, sensor %d fps, exposure up to %u lines\n", g, f, a[0]);
 }
 
+static void nc_ae_note(int gain, int lumi, int exp);	/* NIGHT-CEIL measurement (below, beside smart_setup) */
+
 /* the exposure state for day / night, every 2 s (cheap: one ioctl) */
 static void ispx_ae_report(double tn)
 {
@@ -1409,6 +1417,7 @@ static void ispx_ae_report(double tn)
 	if (ioctl(ispx_fd, ISP_GET_AE_RUN_INFO, &r) < 0) return;
 	lowlight_check(tn, &r);
 	nr3d_auto_sync();
+	nc_ae_note(ae_gain(&r), r.lumi, r.exp_time);
 	{
 		unsigned int a[AE_WORDS];
 		unsigned int mx = ioctl(ispx_fd, ISP_GET_AE, a) == 0 ? a[0] : 0;	/* 7th field: the exposure limit now (R12-03) */
@@ -3728,6 +3737,225 @@ static void pool_log(const struct strm *s)
 	    gu ? gu() : 0UL, gf ? gf() : 0UL);
 }
 
+/* ---- NIGHT-CEIL (2026-11-25): what the night bit rate follows, measured without anybody reading the camera ----------
+ * The .24 sat at the ceiling (~1600 kbit/s: 10 fps night set, VBR quality QP 33, 20000 bytes a picture) for a whole
+ * deep night. Checks A (total gain and luma against the bit rate) and B (the same before and after a video restart at
+ * the same light) come from nightceil.csv, next to stability.csv / memory.csv: /mnt/sd/logs when a card is mounted
+ * read-write (the rule of scripts/memwatch.sh), else /mnt/log (RAM); RTSP_NIGHTCEIL_DIR forces the directory. Rows:
+ * - kind=switch NC_SWITCH_S after the start and after each black-and-white change, once the parameter set has been
+ *   applied (post_awb_sample re-reads the bases 0.5 s after the change); entered=start: the first mode of this process
+ *   (a change in its first NC_SWITCH_S too), entered=switch: a day <-> night change of a running server. The window is
+ *   the last STAT interval (5 s), all of it after the change;
+ * - kind=sample every NC_SAMPLE_S of one mode (the window starts again at each change): the mean bit rate and the min /
+ *   max total gain over the window; entered says how the mode in use was entered;
+ * - kind=stop at the end of the process with the window so far (at least NC_STOP_MIN_S): with the switch row of the
+ *   next start, the before / after of a video restart (check B).
+ * gain = (isp_d_gain x ((a_gain x d_gain) >> 8)) >> 16 (ae_gain, as low light), exp_lines and lumi: the AE read every 2 s
+ * (ispx_ae_report, no extra ioctl); nr / sharp / contrast: the DENOISE / SHARPNESS / CONTRAST offsets applied (as in
+ * isp_tune.status); nr3d / nr3d_overflow: /sys/module/ak39_vi/parameters; cap_fps: the sensor rate in use; fps_now,
+ * budget (bytes a picture), vbr, vbr_qp (the quality QP in use) and kbps_set (the rate in force): the main free
+ * encoder's rate control (empty with the vendor encoder); main_frames / main_bytes / main_kbps: the main stream encoded
+ * in the window (0 while nobody watches or records: the encoder is idle). Rows wait in RAM and are appended at most once
+ * an hour, at once after a switch row, and at the stop; the file keeps its last 504 rows in RAM, 2016 on the card
+ * (RTSP_NIGHTCEIL_ROWS). Every call is on the 5 s STAT tick, a black-and-white change or the 2 s AE read: nothing per
+ * picture. RTSP_NIGHTCEIL_LOG=0 (rtsp.env) turns it off; measurement only, nothing is changed. */
+#define NC_HDR "timestamp,uptime_s,kind,bw,entered,gain,gain_min,gain_max,exp_lines,lumi,nr,sharp,contrast,nr3d,nr3d_overflow," \
+	"cap_fps,fps_now,budget,vbr,vbr_qp,kbps_set,window_s,main_frames,main_bytes,main_kbps"
+#define NC_SWITCH_S 5		/* the switch row, after the change */
+#define NC_SAMPLE_S 600		/* a sample row every 10 min of one mode */
+#define NC_FLUSH_S 3600		/* rows wait in RAM at most an hour */
+#define NC_STOP_MIN_S 60	/* a stop row needs a minute of window */
+static int nc_on = -1;		/* RTSP_NIGHTCEIL_LOG (0 = off); -1 not read yet */
+static int nc_started, nc_sw;	/* a mode was marked (frames came); the mode in use came from a switch (1) or the start (0) */
+static time_t nc_t0, nc_due, nc_tflush;	/* the start mark; when the switch row is due (0: none); the last append */
+static int nc_g = -1, nc_gmin, nc_gmax, nc_gn, nc_lumi, nc_exp;	/* AE: the last read (gain -1: none yet); the window's min, max, reads */
+static unsigned long nc_frames, nc_bytes, nc_lframes, nc_lbytes;	/* the sample window; the last STAT interval */
+static long nc_secs, nc_lsecs;
+static char nc_pend[4096];	/* rows not appended yet (~150 bytes each) */
+static int nc_plen;
+
+static int nc_enabled(void)
+{
+	if (nc_on < 0) { const char *e = getenv("RTSP_NIGHTCEIL_LOG"); nc_on = !(e && e[0] == '0'); }
+	return nc_on;
+}
+
+/* every AE read (2 s): the total gain, the mean luma and the exposure lines */
+static void nc_ae_note(int gain, int lumi, int exp)
+{
+	if (!nc_enabled()) return;
+	nc_g = gain; nc_lumi = lumi; nc_exp = exp;
+	if (!nc_gn || gain < nc_gmin) nc_gmin = gain;
+	if (!nc_gn || gain > nc_gmax) nc_gmax = gain;
+	nc_gn++;
+}
+
+static void nc_window_reset(void) { nc_frames = nc_bytes = 0; nc_secs = 0; nc_gn = 0; }
+
+/* the directory: RTSP_NIGHTCEIL_DIR, else /mnt/sd/logs when /mnt/sd is a vfat / exfat card mounted read-write, else
+ * /mnt/log; *sd: on the card (the bigger cap) */
+static const char *nc_dir(int *sd)
+{
+	static char d[96];
+	const char *e = getenv("RTSP_NIGHTCEIL_DIR"), *m = getenv("RTSP_NIGHTCEIL_MOUNTS");	/* MOUNTS: tests */
+	char ln[256], o[136];
+	FILE *f;
+
+	*sd = 0;
+	if (e && *e) { snprintf(d, sizeof d, "%s", e); *sd = !strncmp(d, "/mnt/sd/", 8); return d; }
+	snprintf(d, sizeof d, "/mnt/log");
+	if (!(f = fopen(m && *m ? m : "/proc/mounts", "r"))) return d;
+	while (fgets(ln, sizeof ln, f)) {	/* "dev mountpoint fs options ..." (no sscanf: libc symbol versions) */
+		char *t[4], *p = ln;
+		int k = 0;
+
+		while (k < 4) {
+			while (*p == ' ') p++;
+			if (!*p || *p == '\n') break;
+			t[k++] = p;
+			while (*p && *p != ' ' && *p != '\n') p++;
+			if (*p) *p++ = 0;
+		}
+		if (k < 4 || strcmp(t[1], "/mnt/sd") || (strcmp(t[2], "vfat") && strcmp(t[2], "exfat"))) continue;
+		snprintf(o, sizeof o, ",%s,", t[3]);
+		if (!strstr(o, ",ro,")) { snprintf(d, sizeof d, "/mnt/sd/logs"); *sd = 1; }
+	}
+	fclose(f);
+	return d;
+}
+
+/* keep the header and the last cap rows, once the file is 25 rows over (as memwatch.sh) */
+static void nc_trim(const char *path, int cap)
+{
+	struct stat st;
+	char tmp[160], *b;
+	long i, rows = 0, skip;
+	int fd;
+
+	if (stat(path, &st) || st.st_size < (off_t)(cap + 26) * 40 || st.st_size > (4 << 20)) return;	/* a row is > 40 bytes */
+	if (!(b = malloc((size_t)st.st_size))) return;
+	fd = open(path, O_RDONLY);
+	if (fd < 0 || read(fd, b, (size_t)st.st_size) != (ssize_t)st.st_size) { if (fd >= 0) close(fd); free(b); return; }
+	close(fd);
+	for (i = 0; i < (long)st.st_size; i++) rows += b[i] == '\n';
+	rows--;	/* the header */
+	if (rows > cap + 25) {
+		for (i = 0, skip = rows - cap + 1; i < (long)st.st_size && skip; i++) skip -= b[i] == '\n';	/* past the header and the oldest rows */
+		snprintf(tmp, sizeof tmp, "%s.tmp", path);
+		fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+		if (fd >= 0) {
+			int ok = write(fd, NC_HDR "\n", strlen(NC_HDR "\n")) == (ssize_t)strlen(NC_HDR "\n") &&
+				 write(fd, b + i, (size_t)(st.st_size - i)) == (ssize_t)(st.st_size - i);
+
+			close(fd);
+			if (ok) rename(tmp, path); else unlink(tmp);
+		}
+	}
+	free(b);
+}
+
+/* the rows waiting in RAM go to the file (a directory that cannot be written loses them: RAM stays bounded) */
+static void nc_flush(void)
+{
+	const char *d, *rc = getenv("RTSP_NIGHTCEIL_ROWS");
+	char path[128];
+	int sd, fd, cap;
+
+	nc_tflush = mono_t();
+	if (!nc_plen) return;
+	d = nc_dir(&sd);
+	(void)!mkdir(d, 0755);
+	snprintf(path, sizeof path, "%s/nightceil.csv", d);
+	fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+	if (fd >= 0) {
+		if (lseek(fd, 0, SEEK_END) == 0) (void)!write(fd, NC_HDR "\n", strlen(NC_HDR "\n"));
+		(void)!write(fd, nc_pend, (size_t)nc_plen);
+		close(fd);
+		cap = rc && *rc ? atoi_(rc) : sd ? 2016 : 504;
+		nc_trim(path, cap < 24 ? 24 : cap);
+	}
+	nc_plen = 0;
+}
+
+/* a parameter of ak39_vi, one token ("" when absent) */
+static void nc_sys(const char *name, char *o, int n)
+{
+	char p[96];
+	int fd, r, i;
+
+	o[0] = 0;
+	snprintf(p, sizeof p, "/sys/module/ak39_vi/parameters/%s", name);
+	if ((fd = open(p, O_RDONLY)) < 0) return;
+	r = (int)read(fd, o, (size_t)n - 1);
+	close(fd);
+	if (r < 0) r = 0;
+	o[r] = 0;
+	for (i = 0; o[i]; i++) if (o[i] == '\n' || o[i] == ' ' || o[i] == ',') { o[i] = 0; break; }
+}
+
+/* one row of the given kind over a window of secs seconds */
+static void nc_row(const char *kind, long secs, unsigned long frames, unsigned long bytes)
+{
+	char g[64], enc[80], n3[16], ov[24], r[400];
+	int n;
+
+	if (nc_g >= 0) snprintf(g, sizeof g, "%d,%d,%d,%d,%d", nc_g, nc_gn ? nc_gmin : nc_g, nc_gn ? nc_gmax : nc_g, nc_exp, nc_lumi);
+	else snprintf(g, sizeof g, ",,,,");
+	if (free_enc && S[0].enc) {
+		const struct fe_enc *fe = S[0].enc;
+		int q = fe->rc.vbr_qp > 0 ? fe->rc.vbr_qp : fe->rc.qmin + RC_VBR_QOFF;
+
+		snprintf(enc, sizeof enc, "%d,%ld,%d,%d,%d", fe->fps_now, (long)fe->rc.budget, fe->rc.vbr, q > fe->rc.qmax ? fe->rc.qmax : q,
+			 fe->rc.kbps);
+	} else snprintf(enc, sizeof enc, ",,,,");
+	nc_sys("nr3d", n3, sizeof n3);
+	nc_sys("nr3d_overflow", ov, sizeof ov);
+	n = snprintf(r, sizeof r, "%ld,%ld,%s,%d,%s,%s,%d,%d,%d,%s,%s,%d,%s,%ld,%lu,%lu,%llu\n",
+		     (long)time(NULL), (long)mono_t(), kind, bw_want ? 1 : 0, nc_sw ? "switch" : "start", g, nr_now, sharp_now,
+		     p_tune ? p_con : 0, n3, ov, cap_fps_now(), enc, secs, frames, bytes,
+		     secs > 0 ? (unsigned long long)bytes * 8 / (unsigned long long)secs / 1000 : 0ULL);
+	if (n <= 0 || n >= (int)sizeof r) return;
+	if (nc_plen + n > (int)sizeof nc_pend) nc_flush();
+	memcpy(nc_pend + nc_plen, r, (size_t)n);
+	nc_plen += n;
+}
+
+/* the start (change 0, the first picture) or a black-and-white change (change 1): a switch row is due NC_SWITCH_S later */
+static void nc_mark(int change)
+{
+	time_t now;
+
+	if (!nc_enabled()) return;
+	now = mono_t();
+	if (!change) { nc_t0 = now; nc_sw = 0; }
+	else nc_sw = nc_started && now - nc_t0 >= NC_SWITCH_S;
+	nc_started = 1;
+	nc_due = now + NC_SWITCH_S;
+	nc_window_reset();
+}
+
+/* every STAT tick (5 s): the interval's main stream pictures and bytes */
+static void nc_tick(long secs, unsigned long frames, unsigned long bytes)
+{
+	time_t now;
+
+	if (!nc_enabled() || !nc_started) return;
+	now = mono_t();
+	nc_lsecs = secs; nc_lframes = frames; nc_lbytes = bytes;
+	nc_secs += secs; nc_frames += frames; nc_bytes += bytes;
+	if (nc_due && now >= nc_due) { nc_due = 0; nc_row("switch", nc_lsecs, nc_lframes, nc_lbytes); nc_flush(); }
+	if (nc_secs >= NC_SAMPLE_S) { nc_row("sample", nc_secs, nc_frames, nc_bytes); nc_window_reset(); }
+	if (nc_plen && now - nc_tflush >= NC_FLUSH_S) nc_flush();
+}
+
+/* the end of the process: the window so far, and every row waiting */
+static void nc_stop(void)
+{
+	if (!nc_enabled() || !nc_started) return;
+	if (!nc_due && nc_secs >= NC_STOP_MIN_S) nc_row("stop", nc_secs, nc_frames, nc_bytes);
+	nc_flush();
+}
+
 /* Smart mode of the free encoder (rtspserver.conf [0] smart, exported as RTSP_SMART; RTSP_SMART_SUB for the sub-stream),
  * [fe-smart]: on a still scene the GOP grows to RTSP_FE_SMART_GOP frames (default 250, at most 300) and the lowest QP
  * is raised by RTSP_FE_SMART_QP (default 4); see fe_set_smart in src/h265enc/freeenc.h. It needs VBR (vbr=1), as on
@@ -4402,6 +4630,7 @@ int main(int argc, char **argv)
 				  ct_save();
 				  thr_last += thr_us; snd_wait_us = 0;
 				  abr_tick(drm);
+				  nc_tick((long)(tn.tv_sec - tl.tv_sec), S[0].nfr, S[0].nbytes);	/* NIGHT-CEIL: nightceil.csv */
 				  {	/* the same numbers for www/cgi-bin/metrics.cgi (Prometheus): counts over the last interval */
 					char sb[192];
 					int sn = snprintf(sb, sizeof sb, "interval_s %ld\ncaptured %lu\nmain_bytes %lu\nsub_bytes %lu\nclients %d\ndropped %lu\n",
@@ -4644,6 +4873,7 @@ int main(int argc, char **argv)
 			/* the web pictures are only made often while somebody reads them (a read after a write moves atime) */
 			static double str_iv = 2.0, snap_iv = 10.0, t_fchk;
 			static int bw = 0, snap_req = 0;
+			{ static int nc_first = 1; if (nc_first) { nc_first = 0; nc_mark(0); } }	/* NIGHT-CEIL: the start row */
 			if (tn - t_fchk >= 0.25) {	/* the file checks (2 stat, 2 access) four times a second, not on every frame */
 				struct stat sb; time_t nw = time(NULL);
 
@@ -4653,7 +4883,7 @@ int main(int argc, char **argv)
 				 * fast rate is for a reader that comes more often than that, not for the dashboard's 4 to 10 s polling */
 				snap_iv = !stat("/tmp/currentpic.cache.jpg", &sb) && nw - sb.st_atime < 4 ? 2.0 : 10.0;
 				snap_req = !access("/tmp/snapshot_request", F_OK);
-				bw = !access("/tmp/tc100_bw", F_OK); if (bw != bw_want) { bw_want = bw; tune_dirty = 1; style_switch(bw); }	/* black and white switch */
+				bw = !access("/tmp/tc100_bw", F_OK); if (bw != bw_want) { bw_want = bw; tune_dirty = 1; style_switch(bw); nc_mark(1); }	/* black and white switch */
 				idle_night = bw;
 			}
 			int d_luma = tn - t_luma >= 0.5, d_str = jpeg_ok && tn - t_str >= str_iv;
@@ -4843,5 +5073,6 @@ int main(int argc, char **argv)
 	LOG("tc100_rtsp: stopped after %lu frames\n", ntot);
 	if (exit_code == 3) ct_cur[CT_EXIT3]++;
 	ct_save();
+	nc_stop();
 	return exit_code;
 }

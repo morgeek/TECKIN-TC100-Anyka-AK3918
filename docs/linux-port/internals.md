@@ -491,6 +491,14 @@ Unevictable + SReclaimable + SUnreclaim + KernelStack + PageTables + Percpu + Vm
 If `SUnreclaim` is the one that grows, the next step is an SD test kernel with `CONFIG_SLUB_DEBUG` (`/proc/slabinfo`).
 Test status: `docs/linux-port/test-queue.md` MEMWATCH.
 
+**Night bit rate (`nightceil.csv`, NIGHT-CEIL, 2026-11-25):** `tc100_rtsp` writes, in the same directory, one row 5 s
+after its start and after each day / night change (`kind=switch`, `entered=start|switch`), one every 10 min of one mode
+(`kind=sample`: mean main bit rate, min / max total gain) and one at its stop (`kind=stop`), with the total gain, AE
+luma and exposure, the NR / sharpness / contrast offsets, 3D-NR and its overflow count, the capture rate and the main
+encoder's budget, VBR QP and rate in force. Rows wait in RAM (appended hourly, at once after a switch, and at stop); cap
+504 rows in RAM, 2016 on the card. `RTSP_NIGHTCEIL_LOG=0` in `rtsp.env` turns it off. Columns and reading:
+`test-queue.md` NIGHT-CEIL-AUTO.
+
 ---
 
 

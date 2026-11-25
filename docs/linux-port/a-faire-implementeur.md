@@ -172,6 +172,12 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
   sont confondues par la lumière : la période « normale » (18:22-20:12) était une pièce éclairée faiblement, le
   plafond a commencé à 22:28 (lumières éteintes, gain plus fort), et le débit est redescendu à l'aube **sans
   redémarrage**. Cause la plus probable (~65-70 %) : le bruit de nuit à fort gain (~26x) remplit le budget R1 de nuit.
+  - **Fait le 25/11 (`[night-ceil]`, entrée test-queue NIGHT-CEIL-AUTO) : les relevés A et B sont écrits par la caméra.**
+    `tc100_rtsp` écrit `nightceil.csv` à côté de `stability.csv` (`/mnt/sd/logs` avec carte, sinon `/mnt/log`) : une
+    ligne 5 s après le démarrage et après chaque bascule (`kind=switch`, `entered=start|switch`), une toutes les 10 min
+    (`kind=sample` : débit moyen, gain total min / max), une à l'arrêt (`kind=stop`), avec gain, luma, exposition, NR,
+    netteté, 3D-NR, budget, QP VBR. `RTSP_NIGHTCEIL_LOG=0` l'arrête. Reste : 2-3 nuits sur les deux caméras, et un
+    `controlscripts/rtsp-h26x restart` en pleine nuit au plafond (relevé B), puis lire le fichier.
   - **Relevé A (sans caméra) :** dans le `daynight.log` sauvé de la nuit du 24-25/11 (`tc100-fix/night-2411/`), gain
     total = (isp_d_gain x ((a_gain x d_gain) >> 8)) >> 16 et `lumi` aux trois périodes (18:22-20:12, 22:38-06:50,
     aube). Gain nettement plus bas avant 20:12 et qui baisse avec le débit à l'aube = cause 1 confirmée.

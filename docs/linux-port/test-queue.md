@@ -80,6 +80,45 @@ older `to test` entries below.
 - **Pass:** every close of the night has a line with a reason; the cause of the ~3 min loop is named.
 - **Host tests:** `tests/test_tc100rtsp.py` class `CloseReasons`.
 
+### NIGHT-CEIL-AUTO The night bit rate measured by the camera itself: `nightceil.csv` (`[night-ceil]`) — `to test` (both cameras, 2-3 nights)
+- **Why:** the .24 sat at the ceiling (~1600 kbit/s: 10 fps night set, VBR quality QP 33, 20000 bytes a picture) for a
+  whole deep night (a-faire NIGHT-CEIL). The code analysis of 25/11 found no switch-only state; the most likely cause
+  is the night noise at ~26x total gain filling the R1 night budget. Checks A and B settle it; this entry makes the
+  camera write them, with no manual reading.
+- **What (measurement only, nothing changes):** `tc100_rtsp` writes `nightceil.csv` next to `stability.csv` /
+  `memory.csv`: `/mnt/sd/logs/` with a card mounted read-write, else `/mnt/log/` (RAM). Columns:
+  `timestamp,uptime_s,kind,bw,entered,gain,gain_min,gain_max,exp_lines,lumi,nr,sharp,contrast,nr3d,nr3d_overflow,
+  cap_fps,fps_now,budget,vbr,vbr_qp,kbps_set,window_s,main_frames,main_bytes,main_kbps`.
+  - `kind=switch`: 5 s after the start and after each day <-> night change, once the parameter set is applied;
+    `entered=start` (the first mode of this process) or `switch` (a change of a running server); the window is the
+    last 5 s (all after the change). `kind=sample`: every 10 min of one mode (the window starts again at each change),
+    mean bit rate and min / max gain over the 10 min; `entered` says how the mode in use was entered. `kind=stop`: at the
+    end of the process, the window so far (at least 60 s): with the next start's `switch` row, the before / after of a
+    video restart.
+  - `bw` 1 = night; `gain` = total gain (`(isp_d_gain x ((a_gain x d_gain) >> 8)) >> 16`, as low light), `exp_lines`,
+    `lumi`: the AE read (every 2 s); `nr`, `sharp`, `contrast`: the DENOISE / SHARPNESS / CONTRAST offsets applied (as
+    `isp_tune.status`); `nr3d`, `nr3d_overflow`: `/sys/module/ak39_vi/parameters`; `cap_fps`: the sensor rate in use;
+    `fps_now`, `budget` (bytes a picture), `vbr`, `vbr_qp` (the quality QP in use), `kbps_set` (the rate in force):
+    the main free encoder; `main_frames`, `main_bytes`, `main_kbps`: the main stream encoded in the window (0 while
+    nobody watches or records).
+  - Cost: one row per 10 min, rows kept in RAM and appended at most once an hour, at once after a switch row, and at
+    the stop; the file keeps its last 504 rows in RAM (3.5 days), 2016 on the card. Nothing on the per-picture path.
+- **Switch:** `RTSP_NIGHTCEIL_LOG=0` in `/mnt/config/rtsp.env`, then `controlscripts/rtsp-h26x restart` (on by default).
+- **Test:** nothing to do but let the nights pass (a card in the camera keeps two weeks). Once, in the middle of a deep
+  night at the ceiling, `controlscripts/rtsp-h26x restart` (check B: a `stop` row, then a `switch` row with
+  `entered=start` at the same light). Then copy `nightceil.csv`.
+- **Reading:** `column -s, -t < nightceil.csv | less -S`, or plot `main_kbps` and `gain` against `timestamp` for `bw=1`.
+  - **Noise cause confirmed (check A):** in the night `sample` rows `main_kbps` follows `gain` (the ceiling, ~1600, only
+    at high gain, ~26x; lower in a lit room and at dawn) whatever `entered` says.
+  - **Noise cause confirmed (check B):** the `switch` row of the restart (`entered=start`) and the samples after it show
+    the same `main_kbps` (~1600) at the same `gain` as the `stop` row and the samples before it.
+  - **A switch state instead:** after the restart, ~900 at the same gain, or `entered=switch` nights at the ceiling
+    and `entered=start` nights well under it at the same gain: compare the `nr`, `sharp`, `nr3d`, `vbr_qp`, `budget`
+    columns of the two blocks; only then look for a fix in the switch path.
+- **Pass:** two nights logged on both cameras with no missing row (a sample every 10 min, a switch row at each change),
+  and checks A and B read from the file.
+- **Host tests:** `tests/test_nightceil.py`.
+
 ## Audit of 2026-11-16 (`[audit-1116]`): fixes waiting for the camera
 
 The findings and the reasons are in [audit-2026-11-16.md](audit-2026-11-16.md). Each fix was read by the reviewer agent
