@@ -962,6 +962,21 @@ per flash write.
   cameras with the server running across the evening switch; if the ceiling remains with AWB-05 paused, look at the
   night noise reduction (NR levels 64-512 / 512-1024 at 26x), the 3D NR (`NR3D=1`) and R1 (the budget at 10 fps
   lets a noisy picture use the whole ceiling; `RTSP_FE_FPS=0` caps it at 640 kbit/s as before).
+- **2026-11-25 09:05, .11 updated to 3.0.2-rc4 (web update by the owner, build f9d9c7a; the .24 stays on rc2) — CI-PIN
+  camera smoke test of the rebuilt base:**
+  - Boot clean: no `Failed power on`, `autorun_start` 13.5 s, `rtsp_launched` 26.7 s, `web_ready` 28.0 s,
+    `boot_complete` 69.9 s; counters all 0; video 24 fps by day.
+  - **Rebuilt base runs:** BusyBox 1.36.1, Dropbear v2024.85 (`/mnt/ext/bin`, listening on 22, our ssh session goes
+    through it), wpa_supplicant / wpa_cli 2.10 (joined, -24 dBm, ping 3.0 ms, 0 % loss), iw 5.19, curl 8.11.0 with
+    mbedTLS 2.28.9 (mqtt among its protocols), `tc100-whep` (built 24/11 21:31) started by `controlscripts/whep start`
+    (status 0, listening 127.0.0.1:8889 and UDP), stopped cleanly. MQTT: `tc100-mqttd` up, last publish `ok` a minute
+    before the check (C bridge). Web: `/` 302 to the login, `/whep` 401 without the password: as before.
+  - Still to do for CI-PIN: the web live view in a browser (WebRTC, owner) and the next web update with this build's
+    updater (its `mksquashfs` is not on the camera: it runs in the update / install path only). Reproducibility (two
+    runs, same SHA-256) is the owner's GitHub part.
+  - **WIFIQ-FORKS (1):** `/tmp/wifi-quality` has its seven keys (`rssi=-23`, `rssi_min_1h=-31`, `rssi_avg_1h=-26`,
+    `loss_pct_1h=0`, `retries_1h=0`, `failed_1h=0`, `samples_1h=23` after 23 min, i.e. one a minute), log lines in the
+    same format. (2) and (3) (fork count over 10 min, CPU) after a day.
 - **2026-11-25 08:30, night of 24-25/11 on both cameras, 3.0.2-rc2 (tester; video restarted 24/11 18:22 with
   `RTSP_LOGMAX=1048576`, no restart until the morning; logs saved off the cameras before anything else):**
   - **Stable:** counters `starts=2` (the 18:22 restart) and every failure counter at 0 on both; no reboot; Wi-Fi 0 URB
