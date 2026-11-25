@@ -29,7 +29,7 @@ cp -r www scripts controlscripts sounds VERSION "$T"/
 # the built-in speaker clips as G.711 A-law, half the size (audit 2026-11-06 S7, owner); speaker-play.sh plays both
 python3 scripts/pcm2alaw.py "$T/sounds"
 mkdir -p "$T/v3/linux66-sd" "$T/config"
-cp v3/autorun-linux66.sh v3/selftest66.sh "$T/v3/"
+cp v3/autorun-linux66.sh "$T/v3/"
 for f in v3/linux66-sd/*; do
 	case "${f##*/}" in README.md) continue ;; esac
 	cp "$f" "$T/v3/linux66-sd/"

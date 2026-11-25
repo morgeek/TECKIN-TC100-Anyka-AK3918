@@ -130,8 +130,8 @@ Tracing tool (2.x branch only, not in `main`): `libtc100fix` records the vendor 
   on the command line): `v3/linux66-sd/flashmode-prep.sh` mounts the `stack` squashfs, builds `/mnt` in RAM and restores
   the settings from the newest valid `cfga`/`cfgb` slot; a card, if present, is video storage at `/mnt/sd`. Then it sets
   the root password from `config/user.pwd` (without that file, root login stays disabled), brings Wi-Fi up from
-  `config/wpa_supplicant.conf` and runs `v3/autorun-linux66.sh`. An optional hardware report runs when `tc100test/diag`
-  exists, a self-test when `tc100test/selftest` exists (`v3/selftest66.sh`).
+  `config/wpa_supplicant.conf` and runs `v3/autorun-linux66.sh`. (The boot self-test `selftest66.sh` and
+  the `tc100test/diag` report were removed 2026-11-25.)
 - `v3/autorun-linux66.sh`: V3 services: watchdog keeper, `tc100_rtsp` through `v3/linux66-sd/rtsp-launch.sh` (RTSP on
   port 554 and the web UI pictures), web server (`httpfront`), ONVIF, day/night, MQTT bridge, motion, recording (only
   with a card), `ntpd`, then the services ticked in the web UI (`config/autostart/`). The RTSP login is the camera

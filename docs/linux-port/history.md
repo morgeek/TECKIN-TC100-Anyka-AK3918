@@ -37,8 +37,8 @@ History (the folder was removed on 2026-10-27, 49a2485; 3.0 serves RTSP with its
 - `src/h265enc/cmdlist.py` decodes and encodes the 112-word command list of the H.265 encoder and regenerates it: 0 different words over the 40 recorded frames (`python3 src/h265enc/cmdlist.py`).
 - `src/h265enc/hwseq.py` models the register write sequence (H.265 clock `v | 0x8e00`) and compares it with the traces: 34/34 and 40/41 cycles.
 - Still unknown: where the picture / stream sizes come from. (The physical addresses of the V4L2 buffers are available through `AK39_VI_G_PHYS`, see below.)
-- `v3/selftest66.sh`: self-test run at boot when `tc100test/selftest` exists on the card (Wi-Fi, video, audio, uio0; hardware JPEG when `tc100test/selftest-jpeg` exists). Log: `tc100test/selftest-N.log`.
-- CI (`build-kernel-linux66.yml`) produces the `tc100test/` folder ready to copy (oipc.img, oipcrd66.gz, jpegenc, libakuio.so, selftest66.sh, README-TEST.txt, md5sums.txt).
+- `v3/selftest66.sh` (removed 2026-11-25): self-test run at boot when `tc100test/selftest` exists on the card (Wi-Fi, video, audio, uio0; hardware JPEG when `tc100test/selftest-jpeg` exists). Log: `tc100test/selftest-N.log`.
+- CI (`build-kernel-linux66.yml`) produces the `tc100test/` folder ready to copy (oipc.img, oipcrd66.gz, jpegenc, libakuio.so, selftest66.sh, README-TEST.txt, md5sums.txt; the standalone `jpegenc`, `selftest66.sh` and `README-TEST.txt` were removed from it on 2026-11-25).
 
 ## Encoder access without copies (2026-10-22)
 
