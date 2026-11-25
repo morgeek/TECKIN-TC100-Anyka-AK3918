@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [3.0.2-rc6] - 2026-11-25
+
+### Added
+- **`MQTT_ADMIN_CMDS`** (`[mqtt-admin]`, owner's decision): in `mqtt.conf`, 1 by default (unchanged); 0 refuses the
+  `telnet`, `ftp` and `reboot` commands that come over MQTT (logged, "refused" result) and withdraws the Home Assistant
+  Reboot button; local commands are not affected. Test-queue MQTT-ADMIN.
+
+### Removed
+- Test and diagnostic tools whose problems are closed (`[cleanup]`, owner's request): `perf-baseline.sh`,
+  `wifi-diag.sh`, `selftest66.sh` with the `tc100test/selftest` and `tc100test/diag` boot hooks of the initramfs, the
+  test-pack `jpegenc` and `srtp-bench` binaries and `README-TEST.txt`, `src/ispfps`, and the free-encoder capture tools
+  (`RTSP_SAVE_FRAMES`, `AKUIO_CAPTURE`, `capture.py`, `venctrace`, `vencreset`, `h265-step2.sh`). Default behaviour
+  unchanged; the initramfs changes (two optional SD-card hooks gone). Test-queue TOOLS-CLEANUP-1125.
+
 ## [3.0.2-rc5] - 2026-11-25
 
 ### Added

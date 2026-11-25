@@ -2,6 +2,14 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
+## What is new in 3.0.2-rc6 (test build, branch main)
+Everything of 3.0.2-rc5, plus:
+- **`MQTT_ADMIN_CMDS`** in `mqtt.conf` (1 by default, nothing changes): 0 refuses telnet, ftp and reboot sent over MQTT.
+- **Cleanup:** the test tools made for problems now fixed are gone (self-test and hardware-report hooks of the
+  SD card, benches, capture tools). Nothing changes for normal use.
+- **To test:** `MQTT-ADMIN`, `TOOLS-CLEANUP-1125` (a normal boot, video and snapshots as before), plus the rc5 entries
+  (`SUBSTREAM-LOOP`, `NIGHT-CEIL-AUTO`) and the readiness plan (`docs/linux-port/readiness-3.0.2.md`).
+
 ## What is new in 3.0.2-rc5 (test build, branch main)
 Everything of 3.0.2-rc4, plus two measurements and one option, nothing that changes the default behaviour:
 - **Why the sub-stream client keeps reconnecting:** each RTSP client that leaves now writes one line with the reason in
