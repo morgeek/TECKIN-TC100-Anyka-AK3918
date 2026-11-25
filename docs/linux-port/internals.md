@@ -586,10 +586,8 @@ Daemons and services (`scripts/`):
 - `update_timezone.sh`: sourced; sets and exports `TZ` from `/mnt/config/timezone.conf`.
 - `capability-check.sh`: boot-time probe of the shell tools the firmware depends on (behaviour, not presence).
 - `boot-milestones.sh`: records startup timings from `/proc/uptime` (`boot-milestones.sh <name> [details]`).
-- `perf-baseline.sh [seconds]`: one reference profile (CPU split, interrupts per second, Wi-Fi bytes, memory, last STAT lines), same for every build.
 
 Wi-Fi and network:
-- `wifi-diag.sh`: finds where Wi-Fi ping losses come from; read only, writes to `/tmp`, never touches wlan0 or the driver.
 - `wifi-signal.sh`: the one reader of the Wi-Fi signal (sourced: `wifi_signal_read` sets `WIFI_DBM`).
 - `wifi-aim.sh`: aims the camera without a screen (blue front LED, for `WIFI_AIM_SECONDS` after boot, `WIFI_AIM=1`).
 
