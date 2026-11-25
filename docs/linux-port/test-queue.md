@@ -1738,7 +1738,13 @@ These are the current owner-confirmed work items. The detailed switch-by-switch 
 - **Pass:** no action before an explicit profile selection; saved profiles survive an SD test reboot; applying one
   changes only its four selected actions; manual edits switch the reported mode to Custom and remain in effect; the
   Home Assistant entity and local controls agree; no service or RTSP regression.
-
+- **2026-11-25 12:15, day watch on both cameras in rc4 (09:35-11:15 UTC), tester:** `starts=1`, all other failure
+  counters 0, same video-server pid all the time, mode `day` (source `vendor`) without flap, MemAvailable flat
+  (17.3-17.9 MB). Details and the 30-minute table: [watch-2026-11-25-rc4-day.md](watch-2026-11-25-rc4-day.md). The
+  watch script's bit-rate columns were empty (wrong log), so no bit rate in this series. **For the implementer's
+  NIGHT-CEIL reads A and B** (see `a-faire-implementeur.md`): the tester runs B tonight on the camera that showed the
+  ceiling (IPCAM1) once the night bit rate has settled, and the sub-loop close line from `ced629f` is read in the
+  same pass once the rc5 build is installed (rc4 does not have it).
 
 ---
 Historical dated reports (2026-10-30 onward) were archived to [test-queue-archive.md](test-queue-archive.md).
