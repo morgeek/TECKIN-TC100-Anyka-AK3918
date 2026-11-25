@@ -1863,6 +1863,15 @@ These are the current owner-confirmed work items. The detailed switch-by-switch 
     at 22:28 yesterday, when the lights went out and the gain rose; the decisive part is after that hour tonight.
     `nightceil.csv` held only the two switch rows at 18:30 (no periodic row yet): check at the next read that the
     10-minute rows appear.
+- **2026-11-26 00:15, follow-up of the evening: no real night yet, NIGHT-CEIL not tested (IPCAM1 rc6, IPCAM2 rc4),
+  tester:** counters still 0 on both, MemAvailable flat (17.2-18.3 MB), no restart. `nightceil.csv` does write its
+  10-minute `sample` rows (the missing rows of the 18:30 note were only not due yet). IPCAM1 was in night mode only
+  from 16:57 to about 17:38 UTC (gain 9-11, main stream 780-1070 kbit/s, no ceiling); it then went back to day mode and
+  stayed there until 23:07 UTC with a dimly lit room, at maximum gain (exposure 2810 lines, gain index 75079, lumi
+  line 14389) and 80-130 kbit/s (still scene); brief peaks to 1.3-1.6 Mbit/s with motion. IPCAM2 stayed in day
+  mode too. The room was never dark, so the NIGHT-CEIL condition (dark room, gain rising, night mode entered by the
+  evening switch of a running server) did not occur. Next read: after the lights are off tonight, with the same two
+  files (`nightceil.csv`, STAT) plus the `daynight.log` lines of the switch.
 
 ---
 Historical dated reports (2026-10-30 onward) were archived to [test-queue-archive.md](test-queue-archive.md).
