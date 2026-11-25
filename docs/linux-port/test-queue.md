@@ -1841,6 +1841,14 @@ These are the current owner-confirmed work items. The detailed switch-by-switch 
   NIGHT-CEIL reads A and B** (see `a-faire-implementeur.md`): the tester runs B tonight on the camera that showed the
   ceiling (IPCAM1) once the night bit rate has settled, and the sub-loop close line from `ced629f` is read in the
   same pass once the rc5 build is installed (rc4 does not have it).
+- **2026-11-25 17:58, IPCAM1 (.24) updated to 3.0.2-rc6 by the tester at the owner's request (package md5
+  `5bae53d1bea38b45790e71d507a4791a`), same web update path run over ssh as for rc4** (`cmd=upload`: `{"ok":true,
+  "version":"3.0.2-rc6","current":"3.0.2-rc4"}`, then `cmd=install&nobackup=1`, no SD card). Clean boot after about
+  1 min 45 s: no `Failed power on`, `autorun_start` 14.2 s, `rtsp_launched` 27.0 s, `web_ready` 28.4 s,
+  `boot_complete` 54.4 s; counters 0; settings kept (`rtsp.env` md5 unchanged). `nightceil.csv` is written (in RAM,
+  no card) and shows the first day-to-night switch at 16:57 UTC: gain 11, 750 kbit/s main stream in the first 5 s.
+  IPCAM2 (.11) stays on rc4 tonight as the control. The night read B of the implementer is replaced by this file plus
+  `tc100_rtsp.log` (close reasons); both are read in the evening report.
 
 ---
 Historical dated reports (2026-10-30 onward) were archived to [test-queue-archive.md](test-queue-archive.md).
