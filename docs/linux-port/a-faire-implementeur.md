@@ -165,7 +165,22 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
   seulement si `SUnreclaim` monte (la baisse de ~0,4 Mo / jour n'est pas l'espace utilisateur).
 
 ### B3. Trouvé dans la première nuit en 3.0.2-rc2 (24/11) — en observation, pas encore de correctif
-- [ ] **NIGHT-CEIL, débit de nuit au plafond sur la .24 malgré AWB-NIGHT.** *Testeur, 24/11 18:20 : le
+- [ ] **NIGHT-CEIL, confirmé la nuit du 24-25/11, et ce n'est pas AWB-05 (priorité haute pour la 3.0.2).** La .24 est
+  restée au plafond, 1600 kbit/s, de 22:38 à 06:50 avec AWB-05 en pause (gains neutres). Ce qui décide : **la façon
+  d'entrer en nuit.** Nuit commencée au démarrage du serveur vidéo → 870-960 kbit/s (24/11 18:22-20:12) ou 650
+  kbit/s (17/11 02:10) ; nuit entrée par le passage du soir d'un serveur déjà lancé → plafond toute la nuit (17-18/11,
+  24-25/11). À chercher dans `tc100_rtsp.c` : ce que le passage jour → nuit applique à chaud et que le démarrage en nuit
+  applique autrement (jeu de paramètres de nuit de l'ISP : niveaux NR1 / NR2, 3D-NR, netteté ; état de l'encodeur gardé
+  d'un mode à l'autre : QP, budget, smart). Test simple : à la prochaine nuit, comparer les paramètres ISP lus (NR,
+  3D-NR, netteté) juste après le passage du soir puis après un redémarrage vidéo, au même endroit ; la correction est
+  d'appliquer au passage exactement ce que fait le démarrage. Les lignes du passage de cette nuit sont perdues
+  (rotation du journal de 1 Mo, 8 h gardées).
+- [ ] **SUBSTREAM-LOOP, le sous-flux H.264 est rouvert toutes les ~3 min toute la nuit sur les deux caméras**
+  (`free encoder: H.264 closed after ~1800 pictures`, et sur la .24 `rtsp: 3 connections from one address, client 2
+  closed for a new one`) : un client du sous-flux (Frigate / go2rtc ?) part et revient en boucle. Côté propriétaire :
+  ses journaux. Côté caméra : journaliser pourquoi le client part (fin RTCP, TEARDOWN, erreur d'envoi, délai) pour
+  savoir qui coupe.
+- [ ] **Ancienne entrée NIGHT-CEIL (gardée pour l'historique) : débit de nuit au plafond sur la .24 malgré AWB-NIGHT.** *Testeur, 24/11 18:20 : le
   `nightmode.log` de la .24 montre nuit 08:08 → jour 08:11 (heure locale) : les 3 min au plafond étaient une
   courte nuit juste après le démarrage, à l'aube, pas une nuit établie. Priorité plus basse ; la nuit du 24-25/11
   tranche (journal 1 Mo actif sur les deux caméras depuis 18:22, vidéo non redémarrée jusqu'au matin). Pour la

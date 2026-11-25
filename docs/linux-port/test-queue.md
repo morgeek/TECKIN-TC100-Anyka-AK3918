@@ -962,6 +962,30 @@ per flash write.
   cameras with the server running across the evening switch; if the ceiling remains with AWB-05 paused, look at the
   night noise reduction (NR levels 64-512 / 512-1024 at 26x), the 3D NR (`NR3D=1`) and R1 (the budget at 10 fps
   lets a noisy picture use the whole ceiling; `RTSP_FE_FPS=0` caps it at 640 kbit/s as before).
+- **2026-11-25 08:30, night of 24-25/11 on both cameras, 3.0.2-rc2 (tester; video restarted 24/11 18:22 with
+  `RTSP_LOGMAX=1048576`, no restart until the morning; logs saved off the cameras before anything else):**
+  - **Stable:** counters `starts=2` (the 18:22 restart) and every failure counter at 0 on both; no reboot; Wi-Fi 0 URB
+    error, TCP retransmits 0.08 % / 0.15 %.
+  - **Memory:** `MemAvailable` fell ~2 MB overnight on both (.11 17.7 -> 15.4 MB, .24 17.5 -> 14.9-15.6 MB) with
+    `SUnreclaim` flat (3.44-3.77 MB): the 1.5 MB of video log kept in `/tmp` by `RTSP_LOGMAX`, not a leak.
+  - **Night times (local):** .11 23:19 -> 08:23, one entry, one exit. .24: night at 18:22 (right at the video restart,
+    dim room at 10 fps) -> day 20:12 (lights on), night 22:28 -> day 23:11 -> night 23:14 -> day 08:22. **DN-FLAP:** one
+    round trip on the .24 (3 min), then held all night; none on the .11. Passed (2nd night with no series).
+  - **AWB-NIGHT:** gains neutral (`rex=256`) in every night sample on both: AWB-05 paused at night, as designed. Passed.
+  - **NIGHT-CEIL confirmed, and it is not AWB-05:** the .24 sat at the ceiling, **1600-1620 kbit/s from 22:38 to 06:50**
+    (5-min means, 10 fps), with AWB-05 paused; it came down at dawn (580-1220). The .11, same build, 980-1150 kbit/s
+    all night (650-890 the night before). **What decides it on the .24: how the night was entered.** Night entered at
+    the 18:22 video start: 870-960 kbit/s for 1 h 50; night entered by the evening switch of a running server:
+    ceiling all night. Same as 17-18/11 (ceiling after the evening switch, 650 kbit/s after a restart at night). So
+    something set at a day -> night switch of a running `tc100_rtsp` differs from a start in night mode (night ISP set
+    applied on the fly vs at start: NR / 3D-NR / sharpness levels, or an encoder state kept across the switch). The
+    switch lines were lost to the 1 MB log rotation (8 h kept); next night: capture the non-STAT lines at the switch.
+  - **New: the H.264 sub-stream encoder is reopened every ~3 min all night on both** (`free encoder: H.264 closed after
+    ~1800 pictures`, i.e. a sub-stream client leaves and comes back every 3 min; on the .24 also
+    `rtsp: 3 connections from one address, client 2 closed for a new one`). A client (Frigate / go2rtc detect stream?)
+    reconnecting in a loop: owner side to look at (its logs), and the camera could log why the client left.
+  - `RTSP_LOGMAX` line removed from `/mnt/config/rtsp.env` on both (md5 back to `bf72029f2d2f` / `94fb3ad3be4c`); the
+    running server keeps the 1 MB log until its next start (the RC4 update). Logs: owner's `tc100-fix/night-2411/`.
 - **2026-11-24 18:20, day watch of both cameras on 3.0.2-rc2 (tester; one line every 5 min from 08:07 in
   `/tmp/watch.log`: bit rate, fps, mode, AWB gains, pid, `MemAvailable`, signal, counters):**
   - **Stable all day:** `tc100_rtsp` never restarted (.11 19.5 h, .24 10.2 h since boot), every counter at 0
