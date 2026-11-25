@@ -87,8 +87,7 @@ What each flag gives here:
   changes at every run and an overflow kills the process. musl's `__stack_chk_fail` prints nothing and ends in
   `SIGILL` (`a_crash`). The freestanding programs (no C library) define both names in `src/ssp-freestanding.h`: their
   `_start` takes the guard from `AT_RANDOM` (lowest byte zero, as glibc) before `run()`, and a smashed stack writes
-  `*** stack smashing detected ***` to stderr and ends in `SIGABRT`. `jpegenc` (static glibc, test pack only, not in
-  the flash) is unchanged.
+  `*** stack smashing detected ***` to stderr and ends in `SIGABRT`. The standalone `jpegenc` binary (static glibc, test pack only) was removed from the test pack on 2026-11-25.
 - **`-Wl,-z,relro,-z,now` (enabled).** Our programs are dynamic musl programs, not static ones (only the three
   freestanding programs are static, and they have no GOT, no `.dynamic` and no RELRO segment, so the flag is not
   given to them). Debian's and Ubuntu's `ld` already default to `-z relro`, but that RELRO covered only

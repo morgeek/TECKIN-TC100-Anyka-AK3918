@@ -540,7 +540,6 @@ src/h265enc/        Free hardware H.265 / H.264 encoder (freeenc.h, listgen.h, w
 src/h265enc/venctrace/  venctrace.so: records the vendor encoder's hardware accesses (LD_PRELOAD, research only)
 src/httpfront/      Front for busybox httpd (redirects /, one connection per request, local-network filter)
 src/ispflip/        isp_flip: picture flip / mirror through the ISP (called by bin/setconf)
-src/ispfps/         isp_fps: read or set the sensor frame rate through the ISP
 src/logfwd/         tc100-logfwd: filtered, rate-limited forwarding of the local log to a remote syslog
 src/mdnsd/          tc100-mdnsd: answers <hostname>.local (mDNS), optional DNS-SD records
 src/mqttd/          tc100-mqttd: the MQTT connection and HA discovery in C (default, MQTT_BRIDGE_IMPL=c)

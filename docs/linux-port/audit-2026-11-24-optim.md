@@ -4,7 +4,7 @@ Read-only audit of the C programs that were written to save CPU, RAM, forks or f
 64 MB, uniprocessor, HZ=100, no vDSO): is each optimisation correct against what it replaced, robust, worth its
 complexity, and still used? Three parallel reviews (Opus): video core (`src/tc100rtsp`, `src/h265enc`, `src/libakuio`),
 network daemons (`src/httpfront`, `src/onvifd`, `src/mqttd`, `src/mdnsd`, `src/whep`), system programs
-(`src/supervisord`, `src/logfwd`, `src/rwconf`, `src/netacl`, `src/jpegenc`, `src/ispflip`, `src/ispfps`, and the
+(`src/supervisord`, `src/logfwd`, `src/rwconf`, `src/netacl`, `src/jpegenc`, `src/ispflip`, `src/ispfps` (removed 2026-11-25), and the
 fork-free scripts `memwatch.sh` / `health-snapshot.sh`). Findings of `audit-2026-11-16.md` are not repeated. Nothing
 was run on a camera; costs marked "estimate" are from reading the code. The four bugs of section 1 were re-checked by
 the main session in the code.

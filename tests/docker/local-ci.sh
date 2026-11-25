@@ -1,7 +1,7 @@
 #!/bin/sh
 # Local CI in Docker, run BEFORE pushing (the GitHub runs take 15-20 minutes each).
 #   sh tests/docker/local-ci.sh tests    # Python regressions + frontend tests (as the CI job)
-#   sh tests/docker/local-ci.sh cross    # ARM build of tc100_rtsp, libakuio, jpegenc, httpfront, tc100-mqttd, tc100-onvifd, tc100-logfwd, libnetacl.so (as the kernel job)
+#   sh tests/docker/local-ci.sh cross    # ARM build of tc100_rtsp, libakuio, httpfront, tc100-mqttd, tc100-onvifd, tc100-logfwd, libnetacl.so (as the kernel job)
 #   sh tests/docker/local-ci.sh kernel   # Linux 6.6 + patches/kernel-6.6/series + zImage + dtbs (slow the first time)
 #   sh tests/docker/local-ci.sh whep     # item 35: the WHEP daemon against aiortc (builds mbedTLS, needs network; not part of all)
 #   sh tests/docker/local-ci.sh all      # tests, cross, kernel
@@ -45,14 +45,12 @@ run_cross() {
 		cp -r /src /w && cd /w && rm -rf /w/.claude && set -e
 		# versioned binaries that nothing ships (audit D2): a failed make must not pass on them
 		rm -f src/libakuio/libakuio.so src/tc100rtsp/tc100_rtsp src/mqttd/tc100-mqttd src/supervisord/tc100-supervisord src/onvifd/tc100-onvifd src/rwconf/rwconf src/logfwd/tc100-logfwd src/netacl/libnetacl.so
-		arm-linux-gnueabi-gcc -O2 -Wall -static src/jpegenc/jpegenc.c -o /tmp/jpegenc
 		case "$HARDEN" in 0) FSSP=-fno-stack-protector ;; *) FSSP=-fstack-protector-strong ;; esac
 		arm-linux-gnueabi-gcc -Os -Wall $FSSP -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/httpfront/httpfront.c -o /tmp/httpfront
 		arm-linux-gnueabi-gcc -Os -Wall $FSSP -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/mdnsd/mdnsd.c -o /tmp/tc100-mdnsd
-		# the freestanding ISP tools (audit D3/D9: isp_flip is rebuilt by the release build, isp_fps is a bench tool)
+		# the freestanding ISP tool (audit D3/D9: isp_flip is rebuilt by the release build)
 		arm-linux-gnueabi-gcc -Os -Wall -Werror $FSSP -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/ispflip/isp_flip.c -o /tmp/isp_flip
-		arm-linux-gnueabi-gcc -Os -Wall -Werror -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/ispfps/isp_fps.c -o /tmp/isp_fps
-		# item 35: the SRTP bench, its self-test under qemu (the published vectors, on the instruction set of the camera)
+		# item 35: the SRTP self-test under qemu (the published vectors, on the instruction set of the camera); srtp_bench.c is no longer shipped
 		arm-linux-gnueabi-gcc -O2 -Wall -Wextra -Werror -static -march=armv5te -mtune=arm926ej-s -s -o /tmp/srtp-bench src/whep/srtp_bench.c
 		qemu-arm /tmp/srtp-bench -t | tail -n 1 | grep -q "all ok" || { qemu-arm /tmp/srtp-bench -t; exit 1; }
 		# item 35: STUN (RFC 5769 vectors), SDP and base64 of the WebRTC gateway on the instruction set of the camera

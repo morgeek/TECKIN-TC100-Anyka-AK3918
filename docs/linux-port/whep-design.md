@@ -21,7 +21,7 @@ H.264.
 
 ## Steps
 
-1. **Measure the SRTP cost** (done in code: `src/whep/srtp_bench.c`, `srtp-bench` in the CI test pack). The camera
+1. **Measure the SRTP cost** (done in code: `src/whep/srtp_bench.c`; the camera bench was dropped on 2026-11-25, the file stays for the RFC vectors of `tests/test_whep_srtp.py`). The camera
    runs it during a normal stream; the result decides whether the main stream can be sent too, or only the
    secondary stream. Expected on the ARM926 at 480 MHz: about 10 MB/s, i.e. 1-2 % of the CPU for 1.2 Mbit/s.
 2. **mbedTLS with DTLS-SRTP**: Buildroot's mbedTLS 2.28 is built without `MBEDTLS_SSL_DTLS_SRTP` (off in its
@@ -95,6 +95,6 @@ What exists, and the choices made where the design left them open:
   `whep-interop`, `sh tests/docker/local-ci.sh whep`): builds mbedTLS 2.28.9 with SRTP, the daemon, and runs aiortc as the
   browser against a fake RTSP source (H.264 without SPS/PPS in the stream, PCMA, Basic authentication): a decoded 640x360
   frame, an audio frame, the viewer limit, DELETE.
-- **Still to do, on the camera:** `srtp-bench` during a stream (decides sub or main), delay, CPU and memory with 1-2
+- **Still to do, on the camera:** SRTP cost during a stream (decides sub or main; the `srtp-bench` camera build was dropped 2026-11-25), delay, CPU and memory with 1-2
   viewers, one hour; the Buildroot build of the package is only checked by CI (the host build uses the same sources and
   the same mbedTLS version).

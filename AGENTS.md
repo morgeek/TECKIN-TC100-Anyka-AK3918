@@ -77,7 +77,7 @@ hardware facts, test loop), then `docs/known-issues.md`.
   access to the encoder kernel driver / vendor encoder libraries. `v3/` = boot script and initramfs for 6.6; `controlscripts/`, `www/` = V3 user space.
   The other free programs, all built by CI: `src/httpfront` (web front), `src/whep` (WebRTC gateway, built by Buildroot),
   `src/onvifd`, `src/mqttd`, `src/supervisord`, `src/mdnsd`, `src/logfwd`, `src/netacl`, `src/rwconf`, `src/ispflip`,
-  `src/jpegenc`; bench / research tools: `src/ispfps`, `src/h265enc`; `src/webui` = build steps of the web UI (CSS
+  `src/jpegenc`; research tools: `src/h265enc`; `src/webui` = build steps of the web UI (CSS
   bundles, index bundle, minification, screenshots). Full list: `docs/linux-port/internals.md` "Repository structure".
 - Project notes (status, test results, traps) live in the claude.ai Project "Teckin Camera Alternative Firmware" as `claude/*.md`
   docs; start with the newest (`status-*`, `clock-480mhz-*`, `audio-mqtt-memoire-*`).

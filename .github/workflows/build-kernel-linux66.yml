@@ -216,8 +216,6 @@ jobs:
           cp src/onvifd/tc100-onvifd $P/
           # rc27 R3 (a libc variable crashed tc100-onvifd): the check is for the stand-in libc builds, of which only
           # libnetacl.so is left (the release step); the musl programs link against the real libc
-          # item 35, first step: the SRTP cost bench (test pack only, not in the release)
-          arm-linux-gnueabi-gcc -O2 -Wall -Wextra -Werror -static -march=armv5te -mtune=arm926ej-s -s -o $P/srtp-bench src/whep/srtp_bench.c
           # [t1-qp] the T1 bench of the encoder's QP control buffer (test pack only, docs/linux-port/frontier/t1-qp-bench.md)
           make -C src/h265enc CROSS=arm-linux-gnueabi- qpbench >/dev/null
           cp src/h265enc/qpbench $P/
