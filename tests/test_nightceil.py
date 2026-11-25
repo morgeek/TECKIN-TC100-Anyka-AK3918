@@ -361,6 +361,11 @@ class NightCeilWiring(unittest.TestCase):
         self.assertIn('nc_tick((long)(tn.tv_sec - tl.tv_sec), S[0].nfr, S[0].nbytes);', src[stat:stat + 1400])
         self.assertIn('nc_ae_note(ae_gain(&r), r.lumi, r.exp_time);', src)
         self.assertLess(src.index('nc_stop();'), src.index('return exit_code;\n}'))
+        # review: the stop row reads the main encoder, so it is written before the encoders are closed (freed)
+        self.assertLess(src.index('\tnc_stop();'), src.index('if (S[k].enc) p_close(S[k].enc);'))
+        # review: the card file is trimmed only at the stop, never in the capture loop
+        self.assertIn('if (!sd || at_stop) nc_trim(', src)
+        self.assertIn('nc_flush(1);', src[src.index('static void nc_stop(void)'):])
         # the same total gain as low light
         self.assertIn('g = ae_gain(r);', src)
         self.assertIn('return (int)(((long long)r->isp_d_gain * (((long long)r->a_gain * r->d_gain) >> 8)) >> 16);', src)

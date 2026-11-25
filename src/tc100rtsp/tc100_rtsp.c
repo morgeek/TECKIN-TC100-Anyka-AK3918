@@ -3859,8 +3859,11 @@ static void nc_trim(const char *path, int cap)
 	free(b);
 }
 
-/* the rows waiting in RAM go to the file (a directory that cannot be written loses them: RAM stays bounded) */
-static void nc_flush(void)
+/* the rows waiting in RAM go to the file (a directory that cannot be written loses them: RAM stays bounded). The file
+ * is trimmed here in RAM (/mnt/log, tmpfs: fast); on the card only at the stop (at_stop), never in the capture loop: a
+ * trim reads and rewrites the whole file, a few hundred KB on vfat (review of NIGHT-CEIL); the card file grows by
+ * ~20 KB a day between two starts of the server. */
+static void nc_flush(int at_stop)
 {
 	const char *d, *rc = getenv("RTSP_NIGHTCEIL_ROWS");
 	char path[128];
@@ -3877,7 +3880,8 @@ static void nc_flush(void)
 		(void)!write(fd, nc_pend, (size_t)nc_plen);
 		close(fd);
 		cap = rc && *rc ? atoi_(rc) : sd ? 2016 : 504;
-		nc_trim(path, cap < 24 ? 24 : cap);
+		if (cap > 20000) cap = 20000;	/* RTSP_NIGHTCEIL_ROWS bounded: the trim gives up above 4 MiB */
+		if (!sd || at_stop) nc_trim(path, cap < 24 ? 24 : cap);
 	}
 	nc_plen = 0;
 }
@@ -3920,7 +3924,7 @@ static void nc_row(const char *kind, long secs, unsigned long frames, unsigned l
 		     p_tune ? p_con : 0, n3, ov, cap_fps_now(), enc, night_qp_now, night_kbps_now, secs, frames, bytes,
 		     secs > 0 ? (unsigned long long)bytes * 8 / (unsigned long long)secs / 1000 : 0ULL);
 	if (n <= 0 || n >= (int)sizeof r) return;
-	if (nc_plen + n > (int)sizeof nc_pend) nc_flush();
+	if (nc_plen + n > (int)sizeof nc_pend) nc_flush(0);
 	memcpy(nc_pend + nc_plen, r, (size_t)n);
 	nc_plen += n;
 }
@@ -3948,9 +3952,9 @@ static void nc_tick(long secs, unsigned long frames, unsigned long bytes)
 	now = mono_t();
 	nc_lsecs = secs; nc_lframes = frames; nc_lbytes = bytes;
 	nc_secs += secs; nc_frames += frames; nc_bytes += bytes;
-	if (nc_due && now >= nc_due) { nc_due = 0; nc_row("switch", nc_lsecs, nc_lframes, nc_lbytes); nc_flush(); }
+	if (nc_due && now >= nc_due) { nc_due = 0; nc_row("switch", nc_lsecs, nc_lframes, nc_lbytes); nc_flush(0); }
 	if (nc_secs >= NC_SAMPLE_S) { nc_row("sample", nc_secs, nc_frames, nc_bytes); nc_window_reset(); }
-	if (nc_plen && now - nc_tflush >= NC_FLUSH_S) nc_flush();
+	if (nc_plen && now - nc_tflush >= NC_FLUSH_S) nc_flush(0);
 }
 
 /* the end of the process: the window so far, and every row waiting */
@@ -3958,7 +3962,7 @@ static void nc_stop(void)
 {
 	if (!nc_enabled() || !nc_started) return;
 	if (!nc_due && nc_secs >= NC_STOP_MIN_S) nc_row("stop", nc_secs, nc_frames, nc_bytes);
-	nc_flush();
+	nc_flush(1);
 }
 
 /* ---- NIGHT-CEIL, the night setting of the main stream (the candidate fix; off by default) ----------------------------
@@ -5165,10 +5169,10 @@ int main(int argc, char **argv)
 	lis_close_all();
 	live_close_all();
 	aud_close();
+	nc_stop();	/* before the encoders are closed: its stop row reads the main encoder's state (review of NIGHT-CEIL) */
 	for (int k = 1; k >= 0; k--) if (S[k].enc) p_close(S[k].enc);
 	LOG("tc100_rtsp: stopped after %lu frames\n", ntot);
 	if (exit_code == 3) ct_cur[CT_EXIT3]++;
 	ct_save();
-	nc_stop();
 	return exit_code;
 }
