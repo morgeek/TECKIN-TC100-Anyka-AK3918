@@ -2,6 +2,17 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
+## What is new in 3.0.2-rc5 (test build, branch main)
+Everything of 3.0.2-rc4, plus two measurements and one option, nothing that changes the default behaviour:
+- **Why the sub-stream client keeps reconnecting:** each RTSP client that leaves now writes one line with the reason in
+  `/tmp/logs/tc100_rtsp.log` (look at it after a night, together with the Frigate / go2rtc logs).
+- **The night bit rate measured by the camera:** `nightceil.csv` (on the SD card when there is one) records gain,
+  light, image settings and bit rate at each day/night switch and every 10 minutes. Leave the cameras alone for one
+  night and send the file.
+- **Night setting, off:** `RTSP_NIGHT_VBR_QP_ADD` / `RTSP_NIGHT_KBPS` in `rtsp.env`, to try only if the file shows the
+  night ceiling is noise.
+- **To test:** `SUBSTREAM-LOOP`, `NIGHT-CEIL-AUTO`, plus the rc4 entries.
+
 ## What is new in 3.0.2-rc4 (test build, branch main)
 Everything of 3.0.2-rc3, plus:
 - **Lighter Wi-Fi quality job:** 8 processes a minute instead of 13, same Wi-Fi page and MQTT values.

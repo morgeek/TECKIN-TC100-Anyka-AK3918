@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [3.0.2-rc5] - 2026-11-25
+
+### Added
+- **Why an RTSP client left** (`[sub-loop]`): every close of an RTSP client logs one line with the path, transport,
+  duration, frames, KB and the reason (TEARDOWN, peer closed, socket error, send failure or stall, keepalive timeout,
+  replaced by a new connection, stream stopped, shutdown), at most 20 lines a minute. For the sub-stream that is
+  reopened every ~3 min all night (SUBSTREAM-LOOP): `grep 'rtsp: client .* closed' /tmp/logs/tc100_rtsp.log`.
+- **NIGHT-CEIL measured by the camera** (`[night-ceil]`): `nightceil.csv` next to `stability.csv` (`/mnt/sd/logs` with
+  a card, else `/mnt/log`): one row 5 s after the start and after each day/night switch, one every 10 min and one at
+  the stop, with the total gain, luma, exposure, the ISP noise / 3D-NR / sharpness values, the encoder state and the
+  main bit rate. One undisturbed night tells whether the night bit rate follows the gain (night noise) or how the night
+  was entered. `RTSP_NIGHTCEIL_LOG=0` turns it off. Test-queue NIGHT-CEIL-AUTO.
+- **Night setting of the main stream, off by default** (`[night-ceil]`): `RTSP_NIGHT_VBR_QP_ADD=N` (VBR quality QP
+  + N at night) and `RTSP_NIGHT_KBPS=N` (main bit rate at most N kbit/s at night) in `rtsp.env`; with both at 0 (the
+  default) nothing changes. To try only once `nightceil.csv` shows night noise; risk: a softer night picture.
+
 ## [3.0.2-rc4] - 2026-11-24
 
 ### Changed
