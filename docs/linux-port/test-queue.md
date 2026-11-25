@@ -1872,6 +1872,22 @@ These are the current owner-confirmed work items. The detailed switch-by-switch 
   mode too. The room was never dark, so the NIGHT-CEIL condition (dark room, gain rising, night mode entered by the
   evening switch of a running server) did not occur. Next read: after the lights are off tonight, with the same two
   files (`nightceil.csv`, STAT) plus the `daynight.log` lines of the switch.
+- **2026-11-26 00:20, NIGHT-CEIL read B, first dark night on rc6 (IPCAM1) with IPCAM2 on rc4 as control, tester
+  (lights off at about 00:10 Paris; the switch to night came at 23:12 UTC):**
+  - **IPCAM1 (rc6), as the implementer asked:** three reads of `cam_ae`, `cam_awb`, `isp_tune.status`, `nr3d`,
+    `nr3d_overflow` 15 s apart: exposure 2812 lines, gain term 3723 (stable), `nr3d=1`, `nr3d_overflow=0`, all tune
+    values 0. `nightceil.csv` row of the switch: main 1646 kbit/s in the first 5 s. STAT over 20 s before the
+    restart: 1850, 1650, 1630, 1510 kbit/s (mean about 1660, the 1600 ceiling again, at the very switch).
+  - **After `rtsp-h26x restart`** (same dark room, gain term 3691, same night parameter set lines, `starts=2`, other
+    counters 0): 1870, 1420, 1210, 1630, 1750, 1300, 1480, 1430 kbit/s (mean about 1500). So the rate is about the
+    same before and after the restart at the same gain: **no switch-only state; cause 1 of the implementer's analysis
+    (night noise at high gain fills the budget)** is what this read supports.
+  - **IPCAM2 (rc4) at the same time, same exposure but a lower gain term (2905):** 460-1050 kbit/s, mean about 800.
+    So the two cameras differ by gain (noise), not by the code path: the same build family, the same night entry.
+  - **Limits:** one night, one restart, a 90 s window per block, the light of the two scenes differs; the 1600 value is
+    also the configured main-stream rate (`kbps_set`), so a ceiling here means the rate control is at its target.
+  - **Next, for the implementer:** the rc6 night settings (`RTSP_NIGHT_VBR_QP_ADD`, `RTSP_NIGHT_KBPS`, both off by
+    default) are the candidate: the tester runs them on IPCAM1 only on the owner's word.
 
 ---
 Historical dated reports (2026-10-30 onward) were archived to [test-queue-archive.md](test-queue-archive.md).
