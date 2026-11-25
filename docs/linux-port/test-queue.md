@@ -1849,6 +1849,20 @@ These are the current owner-confirmed work items. The detailed switch-by-switch 
   no card) and shows the first day-to-night switch at 16:57 UTC: gain 11, 750 kbit/s main stream in the first 5 s.
   IPCAM2 (.11) stays on rc4 tonight as the control. The night read B of the implementer is replaced by this file plus
   `tc100_rtsp.log` (close reasons); both are read in the evening report.
+- **2026-11-25 18:30, evening report, first hour of the night (IPCAM1 on rc6, IPCAM2 on rc4), tester:**
+  - **Counters:** `starts=1`, all others 0 on both; IPCAM2 up 9 h 49 min without a video restart; MemAvailable flat
+    (17.2-18.1 MB on both). Day to night switch of IPCAM1 at about 16:57-17:02 UTC, no flap on either.
+  - **SUBSTREAM-LOOP, answered by the rc5 close line (IPCAM1):** the sub-stream client of a LAN host leaves five times
+    in 33 min after 187, 509, 356, 503 and 223 s, every time with `TEARDOWN received`: the **client** ends the
+    session itself, the camera does not drop it (no timeout, no send error on the sub stream). One earlier main-stream
+    client ended after 10 s with `send failed (errno=32)` (the peer vanished). The 127.0.0.1 `main no-transport`
+    lines are a local probe opening and closing at once. So the loop is on the client side (Frigate / go2rtc restart
+    of the ffmpeg input), not in `tc100_rtsp`; the owner reads the Frigate / go2rtc logs for the same minutes.
+  - **NIGHT-CEIL, too early to say:** IPCAM1 main stream 590-880 kbit/s in the first hour (STAT 5 s window, 10 fps,
+    7-11 KB per picture), well under the 1600 ceiling; gain still low (lumi 2274 line, exposure 2812). The ceiling began
+    at 22:28 yesterday, when the lights went out and the gain rose; the decisive part is after that hour tonight.
+    `nightceil.csv` held only the two switch rows at 18:30 (no periodic row yet): check at the next read that the
+    10-minute rows appear.
 
 ---
 Historical dated reports (2026-10-30 onward) were archived to [test-queue-archive.md](test-queue-archive.md).
