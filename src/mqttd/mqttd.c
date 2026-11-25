@@ -72,7 +72,7 @@ static const char *g_dump;
 static struct {
 	char host[128], port[8], user[128], pass[128], cid[140], root[160], cmd[256];
 	char dprefix[128], node[140], devname[256], sw[64];	/* discovery (print-config HA_*) */
-	int disc_c, ha_on, ha_camera, ha_isp;
+	int disc_c, ha_on, ha_camera, ha_isp, ha_noadmin;
 	int enable, health_s, ping_s, bo_init, bo_max, bo_mul, cb_thresh, cb_cool;
 } C;
 
@@ -607,7 +607,10 @@ static void discovery_publish(void)
 		dpub("switch", "isp_tune", "{\"name\":\"%s Image Tuning\",\"uniq_id\":\"%s_isp_tune\",\"stat_t\":\"%s\",\"val_tpl\":\"{{ 'ON' if value_json.enabled == 1 else 'OFF' }}\",\"cmd_t\":\"%s\",\"pl_on\":\"{\\\"cmd\\\":\\\"isp_tune\\\",\\\"value\\\":\\\"on\\\"}\",\"pl_off\":\"{\\\"cmd\\\":\\\"isp_tune\\\",\\\"value\\\":\\\"off\\\"}\",\"ent_cat\":\"config\",\"avty_t\":\"%s\",\"ic\":\"mdi:tune\"," DEV "}", dn, di, ist, cj, av, di, dn);
 	}
 
-	dpub("button", "reboot", "{\"name\":\"%s Reboot\",\"uniq_id\":\"%s_reboot\",\"cmd_t\":\"%s\",\"payload_press\":\"{\\\"cmd\\\":\\\"reboot\\\"}\",\"avty_t\":\"%s\",\"ic\":\"mdi:restart\"," DEV "}", dn, di, cj, av, di, dn);
+	if (C.ha_noadmin)
+		dpub_raw("button", "reboot", "");	/* MQTT_ADMIN_CMDS=0: the button would only be refused, withdrawn */
+	else
+		dpub("button", "reboot", "{\"name\":\"%s Reboot\",\"uniq_id\":\"%s_reboot\",\"cmd_t\":\"%s\",\"payload_press\":\"{\\\"cmd\\\":\\\"reboot\\\"}\",\"avty_t\":\"%s\",\"ic\":\"mdi:restart\"," DEV "}", dn, di, cj, av, di, dn);
 	dpub("button", "snapshot", "{\"name\":\"%s Take Snapshot\",\"uniq_id\":\"%s_snapshot\",\"cmd_t\":\"%s\",\"payload_press\":\"{\\\"cmd\\\":\\\"snapshot\\\"}\",\"avty_t\":\"%s\",\"ic\":\"mdi:camera\"," DEV "}", dn, di, cj, av, di, dn);
 	dpub_raw("button", "chime", "");	/* the chime was removed on 2026-11-06: drops the button older versions announced */
 	dpub("button", "siren", "{\"name\":\"%s Sound Siren\",\"uniq_id\":\"%s_siren\",\"cmd_t\":\"%s\",\"payload_press\":\"{\\\"cmd\\\":\\\"play_sound\\\",\\\"value\\\":\\\"siren\\\"}\",\"avty_t\":\"%s\",\"ic\":\"mdi:bullhorn\"," DEV "}", dn, di, cj, av, di, dn);
@@ -829,6 +832,7 @@ static void cfg_set(const char *k, const char *v)
 	S("MQTT_HOST", host) S("MQTT_PORT", port) S("MQTT_USER", user) S("MQTT_PASSWORD", pass)
 	S("MQTT_CLIENT_ID", cid) S("MQTT_TOPIC_ROOT", root) S("MQTT_TOPIC_COMMAND", cmd)
 	S("HA_DISCOVERY_PREFIX", dprefix) S("HA_NODE_ID", node) S("HA_DEVICE_NAME", devname) S("HA_SW", sw)
+	if (!strcmp(k, "HA_ADMIN_CMDS")) { C.ha_noadmin = !n; return; }	/* MQTT_ADMIN_CMDS=0: no reboot button */
 	I("HA_DISCOVERY", ha_on) I("HA_CAMERA", ha_camera) I("HA_ISP", ha_isp)
 	if (!strcmp(k, "MQTT_DISCOVERY_IMPL")) { C.disc_c = !strcmp(v, "c"); return; }
 	I("MQTT_ENABLE", enable) I("MQTT_HEALTH_INTERVAL_SECONDS", health_s) I("MQTT_KEEPALIVE_PING_SECONDS", ping_s)

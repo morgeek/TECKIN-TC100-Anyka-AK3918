@@ -839,6 +839,10 @@ Configures the MQTT bridge. Changes take effect after an async MQTT service rest
 | `ha_discovery_enable` | `1`/`0` — enable HA discovery |
 | `ha_discovery_prefix` | HA discovery prefix (default `homeassistant`) |
 
+The commands `telnet`, `ftp` and `reboot` published on the MQTT command topic rest on trust in the broker (clear TCP).
+`MQTT_ADMIN_CMDS=0` in `/mnt/config/mqtt.conf` (default `1`) refuses these three when they come over MQTT; the other
+commands, the web UI and this API are not affected. The Home Assistant Reboot button is withdrawn then.
+
 **Response:** JSON or HTML
 
 ```sh

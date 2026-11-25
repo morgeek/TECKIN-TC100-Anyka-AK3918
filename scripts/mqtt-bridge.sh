@@ -247,6 +247,8 @@ load_config()
   MQTT_SNAPSHOT_ON_EVENT="${MQTT_SNAPSHOT_ON_EVENT:-0}"
   MQTT_HA_DISCOVERY_ENABLE="${MQTT_HA_DISCOVERY_ENABLE:-1}"
   MQTT_HA_DISCOVERY_PREFIX="${MQTT_HA_DISCOVERY_PREFIX:-homeassistant}"
+  # 0 refuses the telnet, ftp and reboot commands that come over MQTT (the broker is trusted over clear TCP only)
+  MQTT_ADMIN_CMDS="${MQTT_ADMIN_CMDS:-1}"
   POWER_ESTIMATE_ENABLE="${POWER_ESTIMATE_ENABLE:-0}"
   sanitize_int_range "${POWER_ESTIMATE_BASE_MW:-1700}" 500 10000 1700 var; POWER_ESTIMATE_BASE_MW="$SANITIZE_INT_VAL"
   sanitize_int_range "${POWER_ESTIMATE_CPU_SCALE_MW:-500}" 0 5000 500 var; POWER_ESTIMATE_CPU_SCALE_MW="$SANITIZE_INT_VAL"
@@ -286,6 +288,12 @@ mqtt_enabled()
 ha_discovery_enabled()
 {
   is_truthy_local "$MQTT_HA_DISCOVERY_ENABLE"
+}
+
+mqtt_admin_cmds_enabled()
+{
+  case "$MQTT_ADMIN_CMDS" in 0|false|no|off) return 1 ;; esac
+  return 0
 }
 
 power_estimate_enabled()
@@ -1149,6 +1157,8 @@ DIAG
   # Maintenance Entities (Buttons/Select)
   reboot_btn_topic="${discovery_prefix}/button/${node_id}/reboot/config"
   reboot_btn_payload="$(printf '{"name":"%s Reboot","uniq_id":"%s_reboot","cmd_t":"%s","payload_press":"{\"cmd\":\"reboot\"}","avty_t":"%s","ic":"mdi:restart","dev":{"ids":["%s"],"name":"%s","mf":"Morgeek","mdl":"TC100/AK3918"}}' "$device_name_json" "$device_id_json" "$cmd_json" "$avail_topic_json" "$device_id_json" "$device_name_json")"
+  # MQTT_ADMIN_CMDS=0: the button would only be refused, so it is withdrawn (empty retained payload)
+  mqtt_admin_cmds_enabled || reboot_btn_payload=""
   publish_discovery_config "$reboot_btn_topic" "$reboot_btn_payload"
 
   snapshot_btn_topic="${discovery_prefix}/button/${node_id}/snapshot/config"
@@ -2191,6 +2201,18 @@ handle_command_payload()
   refresh_state=0
   command_rc=0
 
+  # MQTT_ADMIN_CMDS=0: telnet, ftp and reboot are refused when they come over MQTT (local sources are not)
+  if [ "$command_source" = "mqtt" ] && ! mqtt_admin_cmds_enabled; then
+    case "$cmd" in
+      reboot|telnet|ftp)
+        log_msg "MQTT admin command refused: MQTT_ADMIN_CMDS=0 (${cmd})"
+        publish_event_simple "command.${cmd}" "refused:admin_cmds"
+        publish_command_result "$cmd" "refused" "admin command refused: MQTT_ADMIN_CMDS=0" 0 "$command_source" command
+        return 1
+        ;;
+    esac
+  fi
+
   case "$cmd" in
     reboot)
       publish_event_simple "command.reboot" "accepted"
@@ -3169,6 +3191,8 @@ print_config_mode()
     _pc_v=0
     command -v isp_tune_json >/dev/null 2>&1 && _pc_v=1
     printf 'HA_ISP=%s\n' "$_pc_v"
+    _pc_v=1; mqtt_admin_cmds_enabled || _pc_v=0
+    printf 'HA_ADMIN_CMDS=%s\n' "$_pc_v"
   fi
 }
 

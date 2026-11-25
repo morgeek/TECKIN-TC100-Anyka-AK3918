@@ -92,7 +92,7 @@ les tests caméra `AUDIT-1116-*` de `test-queue.md`. Ce qui reste ouvert, par or
   RELRO complet (`-z now` met la GOT en lecture seule) pour les programmes musl. Pas de `_FORTIFY_SOURCE` (sans effet
   avec musl, binaires identiques) ni de PIE (+8 Ko xz, code plus lent sur l'ARM926). Interrupteur de build `HARDEN=0`
   (make, local-ci, entrée CI `harden`). Reste le test caméra **HARDEN** de `test-queue.md` (24 h, CPU identique).
-- [ ] MQTT (décidé le 25/11 : interrupteur `MQTT_ADMIN_CMDS`, actif par défaut) : les commandes `telnet`, `ftp` et `reboot` ne dépendent que de la confiance accordée au broker (TCP en
+- [x] MQTT (fait, `[mqtt-admin]`, test MQTT-ADMIN ; décidé le 25/11 : interrupteur `MQTT_ADMIN_CMDS`, actif par défaut) : les commandes `telnet`, `ftp` et `reboot` ne dépendent que de la confiance accordée au broker (TCP en
   clair). Décision du propriétaire : ajouter un interrupteur, ou documenter les ACL du broker.
   *Décision du propriétaire 25/11 :* un interrupteur dans `mqtt.conf`, actif par défaut (comportement actuel) ; 0 refuse
   ces trois commandes par MQTT.

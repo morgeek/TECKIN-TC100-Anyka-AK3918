@@ -159,6 +159,23 @@ older `to test` entries below.
     rows as before. **Risk:** a softer night picture (look at a night snapshot / recording before keeping it).
 - **Host tests:** `tests/test_nightceil.py` (`NightCeilLog`, `NightSetting`), `tests/test_abr.py`, `tests/test_md_enc.py`.
 
+### MQTT-ADMIN The `telnet`, `ftp` and `reboot` commands over MQTT can be refused: `MQTT_ADMIN_CMDS` (`[mqtt-admin]`) — `to test`
+
+- **What:** owner decision of 2026-11-25. These three commands rest on trust in the broker alone (clear TCP).
+  `MQTT_ADMIN_CMDS` in `/mnt/config/mqtt.conf` (the only place): `1` or absent = unchanged (default); `0` = the three
+  commands are refused when they come over MQTT (command result `refused`, "admin command refused: MQTT_ADMIN_CMDS=0",
+  event `command.<cmd>` = `refused:admin_cmds`, line in `mqtt-bridge.log`). Every other command keeps working; the
+  web UI and local callers are not affected. With `0` the Home Assistant Reboot button is withdrawn (empty retained
+  discovery payload, in the shell and in the `tc100-mqttd` discovery; there is no HA switch for telnet/ftp).
+- **Switch:** `MQTT_ADMIN_CMDS=1` (default). Restart the MQTT bridge (or reboot) after changing it.
+- **Test:** (a) key absent: check that `{"cmd":"telnet","value":"off"}` is applied. (b) set `MQTT_ADMIN_CMDS=0`,
+  restart the bridge: publish `{"cmd":"reboot"}`, `{"cmd":"telnet","value":"on"}` and `{"cmd":"ftp","value":"on"}` on
+  the command topic; the camera does not reboot, `<root>/command/result` says `refused`, `mqtt-bridge.log` has the
+  refusal line. Publish `{"cmd":"snapshot"}`: still works. In Home Assistant the Reboot button is gone after the
+  bridge restart. (c) back to `1`: the button returns and `{"cmd":"reboot"}` reboots.
+- **Pass:** as above; no reboot with `0`. Host tests: `tests/test_mqttd.py` (`test_admin_cmds_off_*`, parity case
+  `admin commands off`).
+
 ## Audit of 2026-11-16 (`[audit-1116]`): fixes waiting for the camera
 
 The findings and the reasons are in [audit-2026-11-16.md](audit-2026-11-16.md). Each fix was read by the reviewer agent

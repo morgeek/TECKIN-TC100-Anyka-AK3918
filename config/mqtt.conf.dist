@@ -61,6 +61,12 @@ MQTT_SUBSCRIBE_BACKOFF_MULTIPLIER=2
 MQTT_CIRCUIT_BREAKER_THRESHOLD=50
 MQTT_CIRCUIT_BREAKER_COOLDOWN_SECONDS=300
 
+# Administration commands over MQTT. The broker is reached over clear TCP, so these three commands rest on trust in
+# the broker alone: {"cmd":"telnet"}, {"cmd":"ftp"} and {"cmd":"reboot"}. 1 = accepted (default); 0 = refused when
+# they come over MQTT (result "refused", log line "admin command refused: MQTT_ADMIN_CMDS=0"; the Home Assistant
+# Reboot button is withdrawn too). All other commands keep working; the web UI is not affected.
+MQTT_ADMIN_CMDS=1
+
 # Home Assistant MQTT Discovery (retained config topics).
 # Keep enabled for one-click entity creation in HA.
 MQTT_HA_DISCOVERY_ENABLE=1

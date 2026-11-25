@@ -581,6 +581,56 @@ class Worker(unittest.TestCase):
                 if payload:
                     self.assertEqual(json.loads(payload)['dev']['ids'], ['Cam-One'])
 
+    def test_admin_cmds_off_refuses_telnet_ftp_reboot_from_mqtt_only(self):
+        import json
+        env = {'MQTT_HOST_RESOLVED': 'x'}
+        conf = self.mnt / 'config' / 'mqtt.conf'
+        base = conf.read_text()
+        (self.mnt / 'controlscripts').mkdir(parents=True, exist_ok=True)
+        shutil.copy(ROOT / 'controlscripts/privacy', self.mnt / 'controlscripts/privacy')
+        priv = self.mnt / 'controlscripts/privacy'
+        priv.write_text(priv.read_text().replace('/tmp/', str(self.tmp) + '/').replace('/mnt/', str(self.mnt) + '/'))
+        priv.chmod(0o755)
+        (self.mnt / 'config/boot.conf').write_text('PRIVACY_SCREEN=0\n')
+
+        def result(payload, source='mqtt'):
+            (self.tmp / 'mqtt_cmd_last').unlink(missing_ok=True)
+            r, data = self.run_script('command', payload, source, env=env, sink=True)
+            recs = dict((k, v) for k, v, _ in sink_records(data))
+            return json.loads(recs['cam/one/command/result']) if 'cam/one/command/result' in recs else None, r
+
+        conf.write_text(base + '\nMQTT_ADMIN_CMDS=0\n')
+        for c in ('reboot', 'telnet', 'ftp'):
+            res, r = result('{"cmd":"%s","value":"on"}' % c)
+            self.assertIsNotNone(res, (c, r.stderr))
+            self.assertFalse(res['ok'], c)
+            self.assertEqual(res['status'], 'refused', res)
+            self.assertIn('MQTT_ADMIN_CMDS=0', res['detail'])
+        res, _ = result('{"cmd":"privacy","value":"on"}')                           # the other commands keep working
+        self.assertTrue(res['ok'])
+        res, _ = result('{"cmd":"telnet","value":"on"}', 'local')                   # only what comes over MQTT is refused
+        self.assertNotEqual((res or {}).get('status'), 'refused')
+        for conf_text in (base, base + '\nMQTT_ADMIN_CMDS=1\n'):                    # key absent or 1: unchanged
+            conf.write_text(conf_text)
+            res, _ = result('{"cmd":"ftp","value":"on"}')
+            self.assertNotEqual((res or {}).get('status'), 'refused')
+            res, _ = result('{"cmd":"telnet","value":"off"}')
+            self.assertNotEqual((res or {}).get('status'), 'refused')
+
+    def test_admin_cmds_off_withdraws_the_reboot_button_of_the_shell_discovery(self):
+        conf = self.mnt / 'config' / 'mqtt.conf'
+        base = conf.read_text()
+        env = {'MQTT_HOST_RESOLVED': 'x'}
+        want = 'homeassistant/button/Cam-One/reboot/config'
+        for text, kept in ((base, True), (base + '\nMQTT_ADMIN_CMDS=1\n', True), (base + '\nMQTT_ADMIN_CMDS=0\n', False)):
+            conf.write_text(text)
+            r, data = self.run_script('discovery', env=env, sink=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            recs = dict((k, v) for k, v, _ in sink_records(data))
+            self.assertIn(want, recs)
+            self.assertEqual(recs[want] != b'', kept)                                # empty retained payload = entity removed
+            self.assertIn('homeassistant/button/Cam-One/snapshot/config', recs)
+
     def test_publish_modes_use_the_fifo_of_a_live_daemon_else_the_one_shot_connection(self):
         fifo, pid = self.tmp / 'mqtt-bridge.pub', self.d / 'run' / 'tc100-mqttd.pid'
         os.mkfifo(fifo)
@@ -675,6 +725,7 @@ PARITY_CASES = {
     'camera entity from snapshots on events': ({'MQTT_HA_CAMERA_ENTITY_ENABLE': '0', 'MQTT_SNAPSHOT_ON_EVENT': '1'}, 'cam-host', '3.0.1-test', False),
     'no image tuning script': ({}, 'cam-host', '3.0.1-test', True),
     'discovery disabled': ({'MQTT_HA_DISCOVERY_ENABLE': '0'}, 'cam-host', '3.0.1-test', False),
+    'admin commands off': ({'MQTT_ADMIN_CMDS': '0'}, 'cam-host', '3.0.1-test', False),
     'device name needing escapes': ({}, 'Cam "Front"\\Door\tx 100% %s %d', '3.0.1-test', False),
     'quote before a backslash (quirk of json_escape)': ({}, 'a"b\\c', '3.0.1-test', False),
     'client id and root with odd characters': ({'MQTT_CLIENT_ID': 'My Cam#1!', 'MQTT_TOPIC_ROOT': 'cam/"q"/x'}, 'cam-host', '3.0.1-test', False),
@@ -794,6 +845,10 @@ class DiscoveryParity(unittest.TestCase):
         self.assertIn('MQTT_DISCOVERY_IMPL=sh\n', self.print_config())
         self.configure({}, 'cam-host', '3.0.1-test', False)
         out = self.print_config()
+        self.assertIn('HA_ADMIN_CMDS=1\n', out)
+        self.configure({'MQTT_ADMIN_CMDS': '0'}, 'cam-host', '3.0.1-test', False)
+        self.assertIn('HA_ADMIN_CMDS=0\n', self.print_config())
+        self.configure({}, 'cam-host', '3.0.1-test', False)
         for line in ('MQTT_DISCOVERY_IMPL=c', 'HA_DISCOVERY=1', 'HA_DISCOVERY_PREFIX=homeassistant', 'HA_NODE_ID=Cam-One',
                      'HA_DEVICE_NAME=cam-host', 'HA_SW=3.0.1-test', 'HA_CAMERA=1', 'HA_ISP=1'):
             self.assertIn(line + '\n', out)
