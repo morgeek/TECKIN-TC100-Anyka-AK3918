@@ -962,6 +962,15 @@ per flash write.
   cameras with the server running across the evening switch; if the ceiling remains with AWB-05 paused, look at the
   night noise reduction (NR levels 64-512 / 512-1024 at 26x), the 3D NR (`NR3D=1`) and R1 (the budget at 10 fps
   lets a noisy picture use the whole ceiling; `RTSP_FE_FPS=0` caps it at 640 kbit/s as before).
+- **2026-11-25 09:10, .24 updated to 3.0.2-rc4 by the tester at the owner's request (same package, md5
+  `17a3d92363c3572bef5ca0de8cc5c358`), through the web update path itself:** the browser extension cannot send a
+  5.97 MB file (3.8 MB limit), so `www/cgi-bin/update.cgi` was run over ssh as the web page runs it (`POST cmd=upload`
+  with the tar as the body and the camera's CSRF token, answer `{"ok":true,"kind":"linux66","version":"3.0.2-rc4"}`
+  after `update66.sh check`; then `POST cmd=install&nobackup=1`, no SD card, as the owner confirms on the page).
+  `update66.sh apply` stopped the services, wrote the flash and restarted in about 1 min 40 s. Boot clean: no
+  `Failed power on`, `autorun_start` 11.9 s, `rtsp_launched` 24.8 s, `web_ready` 26.1 s, `boot_complete` 54.5 s;
+  counters 0; Dropbear 2024.85 from the rebuilt base; Wi-Fi joined (ping 3.1 ms); settings kept (`rtsp.env` md5
+  unchanged `94fb3ad3be4c`). Both cameras on rc4 from here.
 - **2026-11-25 09:05, .11 updated to 3.0.2-rc4 (web update by the owner, build f9d9c7a; the .24 stays on rc2) — CI-PIN
   camera smoke test of the rebuilt base:**
   - Boot clean: no `Failed power on`, `autorun_start` 13.5 s, `rtsp_launched` 26.7 s, `web_ready` 28.0 s,
