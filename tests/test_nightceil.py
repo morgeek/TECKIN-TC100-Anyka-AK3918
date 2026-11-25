@@ -2,7 +2,10 @@
 A switch row 5 s after the start and after each black-and-white change (entered=start / switch), a sample row every
 10 min of one mode (mean bit rate, min / max total gain), a stop row; rows wait in RAM and are appended at most once an
 hour, at once after a switch row and at the stop; the file keeps its last rows; the directory follows memwatch.sh;
-RTSP_NIGHTCEIL_LOG=0 writes nothing. Measurement only: no encoder or ISP call."""
+RTSP_NIGHTCEIL_LOG=0 writes nothing. Measurement only: no encoder or ISP call.
+The night setting (RTSP_NIGHT_VBR_QP_ADD, RTSP_NIGHT_KBPS, night_enc_sync) with abr_tick and a fake encoder: the night
+QP and the night ceiling applied at night, again on a new encoder, restored by day; the ceiling and ABR give the lower
+of the two; with both keys at 0 the run is the same, call for call, as one without night_enc_sync."""
 from pathlib import Path
 import csv
 import io
@@ -35,6 +38,56 @@ struct strm { void *enc; };
 static struct strm S[2];
 static int free_enc = 1, bw_want, nr_now, sharp_now = 5, p_tune = 1, p_con = -3, cap_fps = 25;
 static int cap_fps_now(void) { return cap_fps; }
+static int (*p_set_br)(void *, int);
+static int n_sets, n_qps, n_restarts;
+static void md_enc_restart(void) { n_restarts++; printf("MDRESTART\n"); }
+static void fe_set_vbr_qp(struct fe_enc *e, int qp) { rc_set_vbr_qp(&e->rc, qp); n_qps++; printf("QPSET %d\n", e->rc.vbr_qp); }
+static int fake_br(void *h, int k) { struct fe_enc *e = h; rc_set_rate(&e->rc, k, 0); n_sets++; printf("SET %d\n", k); return 0; }
+'''
+
+NIGHT_MAIN = r'''
+static struct fe_enc fe0, fe1;
+static int use_sync = 1;
+static void open_enc(struct fe_enc *e, int vbr)
+{
+	memset(e, 0, sizeof *e);
+	rc_init(&e->rc, 2000, 25, 22, 48, 30);	/* -b 2000, 25 fps */
+	rc_set_vbr(&e->rc, vbr); if (vbr) rc_set_vbr_qp(&e->rc, 33);
+	e->fps_now = 25;
+	S[0].enc = e; enc_gen++;
+}
+static void fps(int f) { struct fe_enc *e = S[0].enc; rc_set_rate(&e->rc, 0, f); e->fps_now = f; }
+static void sync_(void) { if (use_sync) night_enc_sync(); }
+static void step(const char *name)
+{
+	struct fe_enc *e = S[0].enc;
+
+	printf("STEP %s qp=%d kbps=%d budget=%ld abr=%d cap=%d sets=%d qps=%d restarts=%d\n", name, e->rc.vbr_qp, e->rc.kbps,
+	       (long)e->rc.budget, abr_cur, night_kbps_now, n_sets, n_qps, n_restarts);
+}
+int main(int argc, char **argv)
+{
+	int vbr = argc > 2 ? atoi(argv[2]) : 1;
+
+	use_sync = argc > 1 ? atoi(argv[1]) : 1;
+	p_set_br = fake_br; abr_on = 1; abr_base = 2000; abr_min = 500;
+	open_enc(&fe0, vbr);
+	sync_(); step("day0");
+	abr_tick(0); sync_(); step("abr_sync");
+	bw_want = 1; fps(10); sync_(); step("night");
+	sync_(); sync_(); step("night_again");
+	abr_tick(5); sync_(); step("abr_down");
+	for (int i = 0; i < 6; i++) { abr_tick(5); sync_(); }
+	step("abr_up");
+	open_enc(&fe1, vbr); fps(10); sync_(); step("reopen");
+	abr_tick(5); sync_(); step("abr_resync");
+	abr_tick(9); sync_(); step("abr_down2");
+	bw_want = 0; fps(25); sync_(); step("day");
+	sync_(); step("day_again");
+	bw_want = 1; fps(10); sync_(); step("night2");
+	bw_want = 0; fps(25); sync_(); step("day2");
+	return 0;
+}
 '''
 
 MAIN = r'''
@@ -104,15 +157,24 @@ def block(src):
     return src[src.index('/* ---- NIGHT-CEIL (2026-11-25)'):src.index('/* Smart mode of the free encoder')]
 
 
+def abr_block(src):
+    return src[src.index('static int abr_on, abr_cur'):src.index('/* RTSP_PROFILE=1: kernel (system) CPU time')]
+
+
+def build(t, name, main):
+    src = SRC.read_text(encoding='utf-8')
+    (t / (name + '.c')).write_text(HEAD + abr_block(src) + block(src) + main)
+    subprocess.run(['gcc', '-Wall', '-Wextra', '-Wno-unused-function', '-Wno-unused-parameter', '-Wno-unused-variable',
+                    '-I', str(ROOT / 'src/h265enc'), '-o', str(t / name), str(t / (name + '.c'))], check=True)
+
+
 @unittest.skipUnless(shutil.which('gcc'), 'needs gcc')
 class NightCeilLog(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         t = Path(cls.tmp.name)
-        (t / 'n.c').write_text(HEAD + block(SRC.read_text(encoding='utf-8')) + MAIN)
-        subprocess.run(['gcc', '-Wall', '-Wextra', '-Wno-unused-function', '-Wno-unused-parameter', '-I', str(ROOT / 'src/h265enc'),
-                        '-o', str(t / 'n'), str(t / 'n.c')], check=True)
+        build(t, 'n', MAIN)
         (t / 'mounts_rw').write_text('/dev/root / squashfs ro 0 0\n/dev/mmcblk0p1 /mnt/sd vfat rw,relatime,fmask=0022 0 0\n')
         (t / 'mounts_ro').write_text('/dev/mmcblk0p1 /mnt/sd vfat ro,relatime 0 0\ntmpfs /mnt/log tmpfs rw 0 0\n')
 
@@ -144,7 +206,8 @@ class NightCeilLog(unittest.TestCase):
         hdr = text.splitlines()[0].split(',')
         self.assertEqual(hdr, ['timestamp', 'uptime_s', 'kind', 'bw', 'entered', 'gain', 'gain_min', 'gain_max', 'exp_lines',
                                'lumi', 'nr', 'sharp', 'contrast', 'nr3d', 'nr3d_overflow', 'cap_fps', 'fps_now', 'budget',
-                               'vbr', 'vbr_qp', 'kbps_set', 'window_s', 'main_frames', 'main_bytes', 'main_kbps'])
+                               'vbr', 'vbr_qp', 'kbps_set', 'night_qp_add', 'night_kbps', 'window_s', 'main_frames',
+                               'main_bytes', 'main_kbps'])
         for line in text.splitlines()[1:]:
             self.assertEqual(len(line.split(',')), len(hdr), line)
         start, s1, sw, s2 = rows[0], rows[1], rows[2], rows[3]
@@ -154,6 +217,7 @@ class NightCeilLog(unittest.TestCase):
         self.assertEqual((start['nr'], start['sharp'], start['contrast'], start['cap_fps']), ('0', '5', '-3', '25'))
         self.assertEqual((start['fps_now'], start['budget'], start['vbr'], start['vbr_qp'], start['kbps_set']),
                          ('25', '10000', '1', '33', '2000'))
+        self.assertEqual((start['night_qp_add'], start['night_kbps']), ('0', '0'))     # no night setting in force
         self.assertEqual((s1['kind'], s1['entered'], s1['window_s'], s1['main_kbps']), ('sample', 'start', '600', '1600'))
         self.assertEqual((s1['gain_min'], s1['gain_max']), ('2', '6'))      # over the 10 min
         self.assertEqual((sw['kind'], sw['entered'], sw['bw'], sw['gain']), ('switch', 'switch', '1', '26'))
@@ -191,6 +255,103 @@ class NightCeilLog(unittest.TestCase):
         self.assertIn('dir_none /mnt/log 0', out)
 
 
+@unittest.skipUnless(shutil.which('gcc'), 'needs gcc')
+class NightSetting(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        build(Path(cls.tmp.name), 's', NIGHT_MAIN)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def run_s(self, qp=None, kbps=None, sync='1', vbr='1'):
+        env = {k: v for k, v in os.environ.items() if not k.startswith('RTSP_NIGHT')}
+        if qp is not None:
+            env['RTSP_NIGHT_VBR_QP_ADD'] = qp
+        if kbps is not None:
+            env['RTSP_NIGHT_KBPS'] = kbps
+        out = subprocess.run([str(Path(self.tmp.name) / 's'), sync, vbr], env=env, capture_output=True, text=True,
+                             check=True).stdout
+        steps = {}
+        for name, rest in re.findall(r'^STEP (\w+) (.*)$', out, re.M):
+            steps[name] = {a: int(b) for a, b in (kv.split('=') for kv in rest.split())}
+        return out, steps
+
+    def test_both_keys_at_0_change_nothing(self):
+        ref, _ = self.run_s(sync='0')                     # night_enc_sync never called: today's behaviour
+        for qp, kbps in ((None, None), ('0', '0'), ('0', None), (None, '0'), ('-2', '-5')):
+            out, st = self.run_s(qp, kbps)
+            self.assertEqual(out, ref, (qp, kbps))       # call for call, log line for log line
+            self.assertNotIn('night setting', out)
+            self.assertNotIn('MDRESTART', out)
+            self.assertNotIn('QPSET', out)
+            self.assertEqual(st['night']['qp'], 33)
+            self.assertEqual(st['night']['budget'], 2000 * 125 // 10)   # R1 alone: 25000 bytes at 10 fps
+        out, _ = self.run_s('0', '0', vbr='0')
+        self.assertEqual(out, self.run_s(sync='0', vbr='0')[0])
+
+    def test_night_qp_applied_at_night_and_restored_by_day(self):
+        out, st = self.run_s(qp='3')
+        self.assertEqual(st['day0']['qp'], 33)
+        self.assertEqual(st['night']['qp'], 36)
+        self.assertEqual(st['night']['restarts'], 1)                 # md_enc_restart at the change
+        self.assertEqual(st['night_again']['qps'], st['night']['qps'])   # nothing more while the mode stays
+        self.assertEqual(st['reopen']['qp'], 36)                     # a new encoder at night gets it too
+        self.assertEqual(st['reopen']['restarts'], 2)
+        self.assertEqual(st['day']['qp'], 33)                        # the configured value by day
+        self.assertEqual(st['day']['restarts'], 3)
+        self.assertEqual(st['day_again']['qps'], st['day']['qps'])
+        self.assertEqual((st['night2']['qp'], st['day2']['qp']), (36, 33))
+        self.assertEqual(st['day2']['sets'], self.run_s(sync='0')[1]['day2']['sets'])   # only ABR's rate calls ...
+        self.assertEqual(st['abr_down']['kbps'], 1400)               # ... ABR as before
+        self.assertIn('night setting (night): VBR quality QP 33 -> 36 (RTSP_NIGHT_VBR_QP_ADD=3)', out)
+        self.assertIn('night setting (night, new main encoder): VBR quality QP 33 -> 36', out)
+        self.assertIn('night setting (day): VBR quality QP 36 -> 33', out)
+        _, big = self.run_s(qp='99')                                  # clamped to 6
+        self.assertEqual(big['night']['qp'], 39)
+        out, cbr = self.run_s(qp='3', vbr='0')                       # CBR: the quality QP is not used
+        self.assertIn('VBR quality QP unchanged (CBR)', out)
+        self.assertEqual(cbr['night']['qps'], 0)
+        self.assertEqual(cbr['night']['restarts'], 0)
+
+    def test_night_ceiling_applied_and_restored_with_abr(self):
+        out, st = self.run_s(kbps='900')
+        self.assertEqual((st['day0']['kbps'], st['day0']['cap']), (2000, 0))
+        self.assertEqual((st['night']['kbps'], st['night']['cap']), (900, 900))
+        self.assertEqual(st['night']['budget'], 900 * 125 // 10)       # R1: the ceiling over the 10 fps in use
+        self.assertEqual(st['night']['restarts'], 1)
+        self.assertEqual(st['night']['qp'], 33)                        # no QP change without RTSP_NIGHT_VBR_QP_ADD
+        self.assertEqual(st['night_again']['sets'], st['night']['sets'])
+        self.assertEqual((st['abr_down']['abr'], st['abr_down']['kbps']), (1400, 900))   # ABR above the ceiling: ceiling
+        self.assertEqual((st['abr_up']['abr'], st['abr_up']['kbps']), (1600, 900))
+        self.assertEqual((st['reopen']['kbps'], st['reopen']['cap']), (900, 900))        # a new encoder gets it too
+        self.assertEqual((st['abr_resync']['abr'], st['abr_resync']['kbps']), (2000, 900))
+        self.assertEqual(st['abr_down2']['kbps'], 900)
+        self.assertEqual((st['day']['kbps'], st['day']['cap']), (1400, 0))   # by day: ABR's rate again
+        self.assertEqual(st['day']['budget'], 1400 * 125 // 25)
+        self.assertEqual(st['day_again']['sets'], st['day']['sets'])
+        self.assertEqual((st['night2']['kbps'], st['day2']['kbps']), (900, 1400))
+        self.assertIn('night setting (night): main bit rate 2000 -> 900 kbit/s', out)
+        self.assertIn('night setting (day): main bit rate 900 -> 1400 kbit/s', out)
+        self.assertIn('the night ceiling (RTSP_NIGHT_KBPS) keeps the encoder at 900 kbit/s', out)
+        # a ceiling above ABR's rate: ABR's step down still acts, a step up stops at the ceiling
+        _, hi = self.run_s(kbps='1500')
+        self.assertEqual(hi['night']['kbps'], 1500)
+        self.assertEqual(hi['abr_down']['kbps'], 1400)
+        self.assertEqual(hi['abr_up']['kbps'], 1500)
+        self.assertEqual(hi['day']['kbps'], 1400)
+        # above the configured rate: nothing to do
+        out, over = self.run_s(kbps='5000')
+        self.assertNotIn('night setting', out)
+        self.assertEqual(over['night']['kbps'], 2000)
+        # both keys
+        _, both = self.run_s(qp='2', kbps='900')
+        self.assertEqual((both['night']['qp'], both['night']['kbps'], both['night']['restarts']), (35, 900, 1))
+        self.assertEqual((both['day']['qp'], both['day']['kbps']), (33, 1400))
+
+
 class NightCeilWiring(unittest.TestCase):
     def test_hooks(self):
         src = SRC.read_text(encoding='utf-8')
@@ -208,6 +369,12 @@ class NightCeilWiring(unittest.TestCase):
         for call in ('ioctl(', 'p_set_br', 'fe_set_', 'rc_set_', 'md_enc_'):
             self.assertNotIn(call, b[:b.index('/* ---- NIGHT-CEIL, the night setting') if '/* ---- NIGHT-CEIL, the night setting' in b else len(b)])
         self.assertIn('nc_on = !(e && e[0] == \'0\')', b)                                 # on unless RTSP_NIGHTCEIL_LOG=0
+        # the night setting: once the encoders are open, before the free encoders' per-picture settings (fe_set_fps)
+        i = src.index('night_enc_sync();\t/* NIGHT-CEIL')
+        self.assertLess(src.index('if (fail_main) { LOG("ak_venc_open failed'), i)
+        self.assertLess(i, src.index('fe_set_fps(fe, enc_rate);'))
+        self.assertEqual(src.count('night_enc_sync();'), 1)
+        self.assertIn('r = p_set_br(S[0].enc, night_kbps_now > 0 && want > night_kbps_now ? night_kbps_now : want);', src)
 
 
 if __name__ == '__main__':

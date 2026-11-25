@@ -194,7 +194,7 @@ class MdEnc(unittest.TestCase):
         self.assertIn('#define MD_ENC_WARM_N 6', src)
         self.assertIn('#define MD_ENC_WARM_S 1.5', src)
         self.assertIn('if (!k) md_enc_track((uint32_t)fe->rc.budget, !fe->rc.vbr);', src)
-        self.assertEqual(src.count('md_enc_restart();'), 2)     # md_enc_budget (bigger) and the smart floor
+        self.assertEqual(src.count('md_enc_restart();'), 3)     # md_enc_budget (bigger), the smart floor, a night setting change
         self.assertIn('if (was && !fe->still && !k && !moving) md_enc_restart();', src)
         self.assertNotIn('md_enc_restart', src[src.index('static void abr_tick('):src.index('static void abr_tick(') + 1500])
 

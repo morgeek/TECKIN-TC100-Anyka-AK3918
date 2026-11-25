@@ -3695,6 +3695,7 @@ static int abr_on, abr_cur, abr_base, abr_min, abr_calm;
 static unsigned long abr_last_dr;
 static void *abr_enc;
 static unsigned enc_gen, abr_gen;	/* bumped at every main-encoder (re)open: after strm_reopen calloc may return the same address */
+static int night_kbps_now;	/* NIGHT-CEIL: the night ceiling in force (RTSP_NIGHT_KBPS at night, night_enc_sync), 0 = none */
 
 static void abr_tick(unsigned long dropped)
 {
@@ -3708,8 +3709,10 @@ static void abr_tick(unsigned long dropped)
 	if (d >= 3) { want = abr_cur * 7 / 10; if (want < abr_min) want = abr_min; abr_calm = 0; }
 	else if (abr_cur < abr_base && ++abr_calm >= 6) { want = abr_cur + abr_base / 10; if (want > abr_base) want = abr_base; abr_calm = 0; }
 	if (want == abr_cur) return;
-	r = p_set_br(S[0].enc, want);
+	/* NIGHT-CEIL: under a night ceiling the encoder gets the lower of the two; ABR keeps its own rate (abr_cur) */
+	r = p_set_br(S[0].enc, night_kbps_now > 0 && want > night_kbps_now ? night_kbps_now : want);
 	LOG("ABR: %lu frames skipped in 5 s: main bit rate %d -> %d kbit/s (ak_venc_set_br: %d)\n", d, abr_cur, want, r);
+	if (night_kbps_now > 0 && want > night_kbps_now) LOG("ABR: the night ceiling (RTSP_NIGHT_KBPS) keeps the encoder at %d kbit/s\n", night_kbps_now);
 	if (r == 0) abr_cur = want;	/* R1: md_enc_track sees the new budget per picture at the next picture */
 	else { abr_on = 0; LOG("ABR: the encoder refused the bit rate, regulation off\n"); }
 }
@@ -3754,13 +3757,14 @@ static void pool_log(const struct strm *s)
  * (ispx_ae_report, no extra ioctl); nr / sharp / contrast: the DENOISE / SHARPNESS / CONTRAST offsets applied (as in
  * isp_tune.status); nr3d / nr3d_overflow: /sys/module/ak39_vi/parameters; cap_fps: the sensor rate in use; fps_now,
  * budget (bytes a picture), vbr, vbr_qp (the quality QP in use) and kbps_set (the rate in force): the main free
- * encoder's rate control (empty with the vendor encoder); main_frames / main_bytes / main_kbps: the main stream encoded
+ * encoder's rate control (empty with the vendor encoder); night_qp_add / night_kbps: the night setting in force
+ * (night_enc_sync below, 0 = none); main_frames / main_bytes / main_kbps: the main stream encoded
  * in the window (0 while nobody watches or records: the encoder is idle). Rows wait in RAM and are appended at most once
  * an hour, at once after a switch row, and at the stop; the file keeps its last 504 rows in RAM, 2016 on the card
  * (RTSP_NIGHTCEIL_ROWS). Every call is on the 5 s STAT tick, a black-and-white change or the 2 s AE read: nothing per
  * picture. RTSP_NIGHTCEIL_LOG=0 (rtsp.env) turns it off; measurement only, nothing is changed. */
 #define NC_HDR "timestamp,uptime_s,kind,bw,entered,gain,gain_min,gain_max,exp_lines,lumi,nr,sharp,contrast,nr3d,nr3d_overflow," \
-	"cap_fps,fps_now,budget,vbr,vbr_qp,kbps_set,window_s,main_frames,main_bytes,main_kbps"
+	"cap_fps,fps_now,budget,vbr,vbr_qp,kbps_set,night_qp_add,night_kbps,window_s,main_frames,main_bytes,main_kbps"
 #define NC_SWITCH_S 5		/* the switch row, after the change */
 #define NC_SAMPLE_S 600		/* a sample row every 10 min of one mode */
 #define NC_FLUSH_S 3600		/* rows wait in RAM at most an hour */
@@ -3773,6 +3777,7 @@ static unsigned long nc_frames, nc_bytes, nc_lframes, nc_lbytes;	/* the sample w
 static long nc_secs, nc_lsecs;
 static char nc_pend[4096];	/* rows not appended yet (~150 bytes each) */
 static int nc_plen;
+static int night_qp_now;	/* the night QP step in force (night_enc_sync, below), 0 = none */
 
 static int nc_enabled(void)
 {
@@ -3910,9 +3915,9 @@ static void nc_row(const char *kind, long secs, unsigned long frames, unsigned l
 	} else snprintf(enc, sizeof enc, ",,,,");
 	nc_sys("nr3d", n3, sizeof n3);
 	nc_sys("nr3d_overflow", ov, sizeof ov);
-	n = snprintf(r, sizeof r, "%ld,%ld,%s,%d,%s,%s,%d,%d,%d,%s,%s,%d,%s,%ld,%lu,%lu,%llu\n",
+	n = snprintf(r, sizeof r, "%ld,%ld,%s,%d,%s,%s,%d,%d,%d,%s,%s,%d,%s,%d,%d,%ld,%lu,%lu,%llu\n",
 		     (long)time(NULL), (long)mono_t(), kind, bw_want ? 1 : 0, nc_sw ? "switch" : "start", g, nr_now, sharp_now,
-		     p_tune ? p_con : 0, n3, ov, cap_fps_now(), enc, secs, frames, bytes,
+		     p_tune ? p_con : 0, n3, ov, cap_fps_now(), enc, night_qp_now, night_kbps_now, secs, frames, bytes,
 		     secs > 0 ? (unsigned long long)bytes * 8 / (unsigned long long)secs / 1000 : 0ULL);
 	if (n <= 0 || n >= (int)sizeof r) return;
 	if (nc_plen + n > (int)sizeof nc_pend) nc_flush();
@@ -3954,6 +3959,96 @@ static void nc_stop(void)
 	if (!nc_enabled() || !nc_started) return;
 	if (!nc_due && nc_secs >= NC_STOP_MIN_S) nc_row("stop", nc_secs, nc_frames, nc_bytes);
 	nc_flush();
+}
+
+/* ---- NIGHT-CEIL, the night setting of the main stream (the candidate fix; off by default) ----------------------------
+ * rtsp.env, the environment of the process (read at the start and at each black-and-white change; after an edit of the
+ * file: controlscripts/rtsp-h26x restart):
+ * - RTSP_NIGHT_VBR_QP_ADD=N (0..6, default 0): at night the VBR quality QP is the encoder's day one (RTSP_VBR_QP, 33;
+ *   qmin + 2 when that is 0) + N, clamped to qmax (fe_set_vbr_qp); by day the day value again. Free encoder in VBR only
+ *   (CBR does not use the quality QP: logged, nothing done).
+ * - RTSP_NIGHT_KBPS=N (0 = off, the default; at least 100): at night the main bit rate is at most N kbit/s (p_set_br);
+ *   by day the rate without it again.
+ *   Precedence: the rate in force is min(base, N); base = ABR's current rate (abr_cur) once ABR follows this encoder,
+ *   else the configured rate (-b: ABR off, or an encoder just opened at the setting). ABR keeps regulating abr_cur
+ *   between RTSP_ABR_MIN and the setting as before, and abr_tick hands the encoder min(abr_cur, ceiling)
+ *   (night_kbps_now): an ABR step down under the ceiling still acts, a step up never passes it. R1: fe_set_fps divides
+ *   the rate in force by the capture rate in use, so the budget a picture at the 10 fps night set follows the ceiling
+ *   (900 kbit/s: 11250 bytes instead of 20000 at 1600).
+ * Applied at the first picture after the change (night_enc_sync: two compares a picture otherwise), and again to a main
+ * encoder opened anew (after an idle period, a reopen after failures: it opens at the configured values). A change
+ * restarts the encoder motion mean (md_enc_restart: a QP step changes the frame sizes without motion; md_enc_track also
+ * follows the new budget). One log line per change. Both keys at 0: nothing is called, as before. */
+static int night_qp_add, night_kbps;	/* RTSP_NIGHT_VBR_QP_ADD, RTSP_NIGHT_KBPS */
+static int ns_bw = -1, ns_qp_on, ns_day_qp;	/* the mode applied (-1: none yet); the night QP is on; the day value it replaced */
+static unsigned ns_gen;
+static void *ns_enc;
+
+static void night_cfg_read(void)
+{
+	const char *q = getenv("RTSP_NIGHT_VBR_QP_ADD"), *k = getenv("RTSP_NIGHT_KBPS");
+	int a = q && *q ? atoi_(q) : 0, b = k && *k ? atoi_(k) : 0;
+
+	night_qp_add = a < 0 ? 0 : a > 6 ? 6 : a;
+	night_kbps = b <= 0 ? 0 : b < 100 ? 100 : b;
+}
+
+/* the main bit rate without the night ceiling */
+static int main_kbps_base(void)
+{
+	return abr_on && abr_cur > 0 && abr_enc == S[0].enc && abr_gen == enc_gen ? abr_cur : abr_base;
+}
+
+/* every picture, once the encoders are open: the night setting follows bw_want and a new main encoder */
+static void night_enc_sync(void)
+{
+	void *e = S[0].enc;
+	struct fe_enc *fe = free_enc ? e : NULL;
+	int fresh, night, base, old_r, new_r, cap, want, chg = 0, n = 0;
+	char m[240];
+
+	if (!e || (bw_want == ns_bw && enc_gen == ns_gen && e == ns_enc)) return;
+	fresh = enc_gen != ns_gen || e != ns_enc;
+	if (bw_want != ns_bw) night_cfg_read();
+	ns_bw = bw_want; ns_gen = enc_gen; ns_enc = e;
+	night = bw_want != 0;
+	m[0] = 0;
+	if (fresh) ns_qp_on = 0;	/* a new encoder is at the configured QP */
+	want = night && night_qp_add > 0;
+	if (want && !ns_qp_on && (!fe || !fe->rc.vbr)) {
+		n += snprintf(m + n, sizeof m - n, ", VBR quality QP unchanged (%s)", fe ? "CBR" : "vendor encoder");
+	} else if (want && !ns_qp_on) {
+		int b;
+
+		ns_day_qp = fe->rc.vbr_qp;
+		b = ns_day_qp > 0 ? ns_day_qp : fe->rc.qmin + RC_VBR_QOFF;
+		fe_set_vbr_qp(fe, b + night_qp_add);
+		ns_qp_on = 1; chg = 1;
+		n += snprintf(m + n, sizeof m - n, ", VBR quality QP %d -> %d (RTSP_NIGHT_VBR_QP_ADD=%d)", b, fe->rc.vbr_qp, night_qp_add);
+	} else if (!want && ns_qp_on) {
+		int was = fe->rc.vbr_qp;
+
+		fe_set_vbr_qp(fe, ns_day_qp);
+		ns_qp_on = 0; chg = 1;
+		n += snprintf(m + n, sizeof m - n, ", VBR quality QP %d -> %d", was, ns_day_qp > 0 ? ns_day_qp : fe->rc.qmin + RC_VBR_QOFF);
+	}
+	night_qp_now = ns_qp_on ? night_qp_add : 0;
+	cap = night && night_kbps > 0 ? night_kbps : 0;
+	base = main_kbps_base();
+	old_r = fresh ? abr_base : night_kbps_now > 0 && night_kbps_now < base ? night_kbps_now : base;
+	new_r = cap > 0 && cap < base ? cap : base;
+	if (new_r != old_r && n < (int)sizeof m - 80) {
+		if (!p_set_br) n += snprintf(m + n, sizeof m - n, ", main bit rate unchanged (no rate call)");
+		else {
+			int r = p_set_br(e, new_r);
+
+			if (!r) chg = 1;
+			n += snprintf(m + n, sizeof m - n, ", main bit rate %d -> %d kbit/s%s", old_r, new_r, r ? " refused" : "");
+		}
+	}
+	night_kbps_now = p_set_br ? cap : 0;
+	if (chg) md_enc_restart();
+	if (n > 2) LOG("night setting (%s%s): %s\n", night ? "night" : "day", fresh ? ", new main encoder" : "", m + 2);
 }
 
 /* Smart mode of the free encoder (rtspserver.conf [0] smart, exported as RTSP_SMART; RTSP_SMART_SUB for the sub-stream),
@@ -4833,6 +4928,7 @@ int main(int argc, char **argv)
 				}
 			}
 			if (fail_main) { LOG("ak_venc_open failed\n"); break; }
+			night_enc_sync();	/* NIGHT-CEIL: RTSP_NIGHT_VBR_QP_ADD / RTSP_NIGHT_KBPS (nothing when both are 0) */
 			rsi = rec_sub && S[1].on ? 1 : 0;
 			for (k = 0; k < 2; k++) {	/* smart mode: still scene and keyframe requests, handed to the encoder */
 				struct strm *s = &S[k];

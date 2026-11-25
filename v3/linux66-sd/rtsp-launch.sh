@@ -123,6 +123,8 @@ export RTSP_SENDER_THREAD="${RTSP_SENDER_THREAD:-0}"
 # is refused. Lower it (2) against a flooding host; raise it (4) for many players behind one address (NAT).
 # RTSP_NIGHTCEIL_LOG (single key: /mnt/config/rtsp.env, read by tc100_rtsp itself, default on, 0 = off): nightceil.csv next
 # to stability.csv (NIGHT-CEIL measurement: gain, NR, encoder budget and bit rate at each day / night change and every 10 min).
+# RTSP_NIGHT_VBR_QP_ADD (0-6) and RTSP_NIGHT_KBPS (kbit/s) (single keys: /mnt/config/rtsp.env, read by tc100_rtsp, default 0 =
+# off): at night the main stream's VBR quality QP + N and / or a bit rate ceiling (the lower of it and ABR's rate); by day as set.
 # RTSP_CAPTURE_STALL_S (single key: /mnt/config/rtsp.env, read by tc100_rtsp itself, default 30, 0 = off): seconds without a
 # captured frame (or 100 VIDIOC_DQBUF errors in a row) after which the server exits with status 3 and the service watchdog
 # starts it again with the same arguments. Read once at start.

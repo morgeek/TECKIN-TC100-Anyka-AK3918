@@ -497,7 +497,8 @@ after its start and after each day / night change (`kind=switch`, `entered=start
 luma and exposure, the NR / sharpness / contrast offsets, 3D-NR and its overflow count, the capture rate and the main
 encoder's budget, VBR QP and rate in force. Rows wait in RAM (appended hourly, at once after a switch, and at stop); cap
 504 rows in RAM, 2016 on the card. `RTSP_NIGHTCEIL_LOG=0` in `rtsp.env` turns it off. Columns and reading:
-`test-queue.md` NIGHT-CEIL-AUTO.
+`test-queue.md` NIGHT-CEIL-AUTO. The candidate fix beside it, off by default: `RTSP_NIGHT_VBR_QP_ADD` (night VBR
+quality QP + N) and `RTSP_NIGHT_KBPS` (night ceiling; the rate in force is the lower of it and ABR's), same entry.
 
 ---
 

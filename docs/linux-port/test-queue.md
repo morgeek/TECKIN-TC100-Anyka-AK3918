@@ -88,7 +88,7 @@ older `to test` entries below.
 - **What (measurement only, nothing changes):** `tc100_rtsp` writes `nightceil.csv` next to `stability.csv` /
   `memory.csv`: `/mnt/sd/logs/` with a card mounted read-write, else `/mnt/log/` (RAM). Columns:
   `timestamp,uptime_s,kind,bw,entered,gain,gain_min,gain_max,exp_lines,lumi,nr,sharp,contrast,nr3d,nr3d_overflow,
-  cap_fps,fps_now,budget,vbr,vbr_qp,kbps_set,window_s,main_frames,main_bytes,main_kbps`.
+  cap_fps,fps_now,budget,vbr,vbr_qp,kbps_set,night_qp_add,night_kbps,window_s,main_frames,main_bytes,main_kbps`.
   - `kind=switch`: 5 s after the start and after each day <-> night change, once the parameter set is applied;
     `entered=start` (the first mode of this process) or `switch` (a change of a running server); the window is the
     last 5 s (all after the change). `kind=sample`: every 10 min of one mode (the window starts again at each change),
@@ -99,7 +99,8 @@ older `to test` entries below.
     `lumi`: the AE read (every 2 s); `nr`, `sharp`, `contrast`: the DENOISE / SHARPNESS / CONTRAST offsets applied (as
     `isp_tune.status`); `nr3d`, `nr3d_overflow`: `/sys/module/ak39_vi/parameters`; `cap_fps`: the sensor rate in use;
     `fps_now`, `budget` (bytes a picture), `vbr`, `vbr_qp` (the quality QP in use), `kbps_set` (the rate in force):
-    the main free encoder; `main_frames`, `main_bytes`, `main_kbps`: the main stream encoded in the window (0 while
+    the main free encoder; `night_qp_add`, `night_kbps`: the night setting below in force (0 = none);
+    `main_frames`, `main_bytes`, `main_kbps`: the main stream encoded in the window (0 while
     nobody watches or records).
   - Cost: one row per 10 min, rows kept in RAM and appended at most once an hour, at once after a switch row, and at
     the stop; the file keeps its last 504 rows in RAM (3.5 days), 2016 on the card. Nothing on the per-picture path.
@@ -117,7 +118,28 @@ older `to test` entries below.
     columns of the two blocks; only then look for a fix in the switch path.
 - **Pass:** two nights logged on both cameras with no missing row (a sample every 10 min, a switch row at each change),
   and checks A and B read from the file.
-- **Host tests:** `tests/test_nightceil.py`.
+- **Candidate fix, off by default (second `[night-ceil]` commit), only once the noise cause is confirmed:** two keys of
+  `/mnt/config/rtsp.env`, read at the start and at each day / night change, then `controlscripts/rtsp-h26x restart`:
+  - `RTSP_NIGHT_VBR_QP_ADD=N` (0-6, default 0): at night the VBR quality QP is the configured one (`RTSP_VBR_QP`, 33)
+    + N; the configured value again by day. Free encoder in VBR only (CBR: logged, nothing done). Try `3`.
+  - `RTSP_NIGHT_KBPS=N` (0 = off, default; at least 100): at night the main bit rate is at most N kbit/s; the rate
+    without it again by day. Try `900`.
+  - **Precedence:** the rate in force is the lower of the night ceiling and ABR's current rate (the configured rate
+    when ABR is off or the encoder was just opened). ABR keeps regulating under the configured rate as before; a step
+    down under the ceiling still acts, a step up stops at the ceiling (`ABR: the night ceiling (RTSP_NIGHT_KBPS) keeps
+    the encoder at N kbit/s`). R1 divides the rate in force by the capture rate in use: at the 10 fps night set,
+    900 kbit/s = 11250 bytes a picture instead of 20000. A ceiling above the configured rate does nothing.
+  - Applied at the first picture after the change and again to a main encoder opened anew (after an idle period or a
+    reopen); each change restarts the encoder motion mean (`md_enc_restart`, no false motion from a QP step). One log
+    line: `night setting (night): VBR quality QP 33 -> 36 (RTSP_NIGHT_VBR_QP_ADD=3), main bit rate 1600 -> 900 kbit/s`,
+    `night setting (day): ...` on the way back. `nightceil.csv` shows them in force (`night_qp_add`, `night_kbps`,
+    `vbr_qp`, `kbps_set`, `budget`).
+  - **Switch:** both keys absent or 0 = exactly the behaviour before (host test: the same calls and log lines as a run
+    without the night setting).
+  - **Test:** one night with `RTSP_NIGHT_VBR_QP_ADD=3` (or `RTSP_NIGHT_KBPS=900`) on the .24: the night `sample` rows
+    under ~1000 kbit/s at the same `gain`, the log line at each change, no false motion events at the switch, the day
+    rows as before. **Risk:** a softer night picture (look at a night snapshot / recording before keeping it).
+- **Host tests:** `tests/test_nightceil.py` (`NightCeilLog`, `NightSetting`), `tests/test_abr.py`, `tests/test_md_enc.py`.
 
 ## Audit of 2026-11-16 (`[audit-1116]`): fixes waiting for the camera
 

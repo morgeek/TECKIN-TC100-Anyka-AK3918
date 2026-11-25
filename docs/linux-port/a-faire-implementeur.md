@@ -178,6 +178,11 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
     (`kind=sample` : débit moyen, gain total min / max), une à l'arrêt (`kind=stop`), avec gain, luma, exposition, NR,
     netteté, 3D-NR, budget, QP VBR. `RTSP_NIGHTCEIL_LOG=0` l'arrête. Reste : 2-3 nuits sur les deux caméras, et un
     `controlscripts/rtsp-h26x restart` en pleine nuit au plafond (relevé B), puis lire le fichier.
+  - **Correctif candidat en place, éteint par défaut (`[night-ceil]`, même entrée) :** `RTSP_NIGHT_VBR_QP_ADD=N` (0-6,
+    QP de qualité VBR + N la nuit) et `RTSP_NIGHT_KBPS=N` (plafond de nuit en kbit/s) dans `rtsp.env`, lus au
+    démarrage et à chaque bascule, remis à la valeur configurée le jour, `md_enc_restart()` à chaque changement. Avec
+    l'ABR : le débit en vigueur est le plus bas des deux. Les deux à 0 = comportement d'avant (test hôte). À essayer
+    seulement si A/B confirment le bruit : `RTSP_NIGHT_VBR_QP_ADD=3` ou `RTSP_NIGHT_KBPS=900` sur la .24, une nuit.
   - **Relevé A (sans caméra) :** dans le `daynight.log` sauvé de la nuit du 24-25/11 (`tc100-fix/night-2411/`), gain
     total = (isp_d_gain x ((a_gain x d_gain) >> 8)) >> 16 et `lumi` aux trois périodes (18:22-20:12, 22:38-06:50,
     aube). Gain nettement plus bas avant 20:12 et qui baisse avec le débit à l'aube = cause 1 confirmée.
