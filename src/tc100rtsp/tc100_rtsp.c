@@ -2296,7 +2296,8 @@ struct cli {
 	unsigned long dropped;
 	int kill;			/* the sender thread found the connection dead: the main loop closes it (never the sender) */
 	int kerr;			/* errno at that moment (0: queue limit) */
-	unsigned long nfr, nby;		/* frames and bytes of video sent (the log line of a close) */
+	unsigned long nfr;		/* frames of video sent (the log line of a close) */
+	unsigned long long nby;		/* bytes: 64 bits, a 32-bit count wraps after ~5 h at 2 Mbit/s (review) */
 	unsigned long skip_seq;		/* sender thread: queued frames up to this number came with the GOP burst of PLAY already */
 };
 static struct cli cl[MAXCLI];
@@ -2376,7 +2377,7 @@ static void cli_end(struct cli *c, const char *fmt, ...)
 	va_end(ap);
 	inet_ntop(AF_INET, &c->peer, ip, sizeof ip);
 	snprintf(path, sizeof path, "%s%s%s", c->si ? "sub" : "main", c->a_ok ? "+audio" : "", c->b_ok ? "+talk" : "");
-	LOG("rtsp: client %d (%s %s %s) closed after %ld s, %lu frames, %lu KB: %s\n", (int)(c - cl), ip, path,
+	LOG("rtsp: client %d (%s %s %s) closed after %ld s, %lu frames, %llu KB: %s\n", (int)(c - cl), ip, path,
 	    c->tcp ? "tcp" : (c->v_set || c->a_ok ? "udp" : "no-transport"), (long)(t - c->t_acc), c->nfr, c->nby / 1024, why);
 	cli_close(c);
 }
