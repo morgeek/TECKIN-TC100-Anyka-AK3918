@@ -27,6 +27,7 @@
 #include <arpa/inet.h>
 #include <dlfcn.h>
 #include <errno.h>
+#include <stdarg.h>
 #include <fcntl.h>
 #ifndef TC100_HOST_TEST
 #include <linux/videodev2.h>
@@ -72,6 +73,11 @@ static int W = 1920, H = 1080;
 #define MAXCLI 4
 #define CLI_AUTH_S 30		/* a connection that never completes an authenticated request (OPTIONS alone does not count) */
 #define CLI_IDLE_S 60		/* an authenticated client that does not play and sends nothing */
+#define CLI_UDP_S 90		/* a UDP client (it plays or not) that sends no accepted request for this long: RTCP over UDP is not read */
+#define SESS_TO_S 60		/* announced in the SETUP reply, "Session: <id>;timeout=60" (RFC 2326: the client must send a request within it) */
+#define STR_(x) #x
+#define STR(x) STR_(x)
+static int idle_s = CLI_IDLE_S, idle_udp_s = CLI_UDP_S;	/* TC100_TEST_IDLE_S / TC100_TEST_UDP_S change them in the host test build only */
 #define RTP_PAYLOAD 1400
 #define CACHE_MAX (1536 * 1024)
 #define CACHE_MAX_SUB (384 * 1024)
@@ -2289,6 +2295,8 @@ struct cli {
 	time_t qprog, qtrim_t;
 	unsigned long dropped;
 	int kill;			/* the sender thread found the connection dead: the main loop closes it (never the sender) */
+	int kerr;			/* errno at that moment (0: queue limit) */
+	unsigned long nfr, nby;		/* frames and bytes of video sent (the log line of a close) */
 	unsigned long skip_seq;		/* sender thread: queued frames up to this number came with the GOP burst of PLAY already */
 };
 static struct cli cl[MAXCLI];
@@ -2342,6 +2350,35 @@ static void cli_close(struct cli *c)
 	free(c->q);
 	memset(c, 0, sizeof *c);
 	c->fd = -1;
+}
+
+/* every close of a client goes through here: ONE line with the slot, address, path, transport, time connected, what was
+ * sent and the reason (SUBSTREAM-LOOP). Greppable: "rtsp: client N (ip path transport) closed after S s, F frames, K KB: reason".
+ * Closes are rare, but a flood of refused connections must not flood the log: at most CLOSE_LOG_MAX lines a minute, then one
+ * "N more" line at the start of the next minute. Never called per packet. */
+#define CLOSE_LOG_MAX 20
+static void cli_end(struct cli *c, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+static void cli_end(struct cli *c, const char *fmt, ...)
+{
+	static time_t win; static int nlog, nskip;
+	time_t t = mono_t();
+	char why[160], ip[16] = "?", path[24];
+	va_list ap;
+
+	if (t - win >= 60) {
+		if (nskip) LOG("rtsp: %d more client closes in the last minute not logged\n", nskip);
+		win = t; nlog = nskip = 0;
+	}
+	if (nlog >= CLOSE_LOG_MAX) { nskip++; cli_close(c); return; }
+	nlog++;
+	va_start(ap, fmt);
+	vsnprintf(why, sizeof why, fmt, ap);
+	va_end(ap);
+	inet_ntop(AF_INET, &c->peer, ip, sizeof ip);
+	snprintf(path, sizeof path, "%s%s%s", c->si ? "sub" : "main", c->a_ok ? "+audio" : "", c->b_ok ? "+talk" : "");
+	LOG("rtsp: client %d (%s %s %s) closed after %ld s, %lu frames, %lu KB: %s\n", (int)(c - cl), ip, path,
+	    c->tcp ? "tcp" : (c->v_set || c->a_ok ? "udp" : "no-transport"), (long)(t - c->t_acc), c->nfr, c->nby / 1024, why);
+	cli_close(c);
 }
 
 /* output queue: the socket is non-blocking; a slow client never stalls the encoder, it just skips to the next IDR */
@@ -2651,7 +2688,7 @@ static void aud_send(const unsigned char *pl, int n)
 		if (c->tcp) {
 			if (qfree(c) < 4096) continue;	/* congested: audio is dropped before video is */
 			pk[0] = '$'; pk[1] = c->a_ch; pk[2] = (12 + n) >> 8; pk[3] = (12 + n) & 255;
-			if (qsend(c, pk, 16 + n) || qflush(c)) cli_close(c);
+			if (qsend(c, pk, 16 + n) || qflush(c)) cli_end(c, "audio send failed (queue limit or socket error, errno=%d)", errno);
 		} else {
 			(void)sendto(udpfd, pk + 4, 12 + n, MSG_DONTWAIT | MSG_NOSIGNAL, (struct sockaddr *)&c->a_udp, sizeof c->a_udp);
 		}
@@ -2890,6 +2927,7 @@ static int send_frame(struct cli *c, const unsigned char *d, int n, uint32_t ts,
 	}
 	for (i = 0; i < k; i++)
 		if (send_nal(c, ts, d + nl[i].s, nl[i].l, i == k - 1)) return -1;
+	c->nfr++; c->nby += n;
 	return 0;
 }
 
@@ -2920,10 +2958,13 @@ static void bcast_x(int si, const unsigned char *d, int n, uint32_t ts, int idr,
 				break;
 			}
 			c->wait_idr = 0;
+			errno = 0;
 			if (idr && HAVE_PS(&S[si])) {	/* parameter sets in band before every IDR that lacks them */
-				if (send_ps(c, ts)) { if (in_snd) c->kill = 1; else cli_close(c); break; }
+				if (send_ps(c, ts)) { if (in_snd) { c->kerr = errno; c->kill = 1; } else cli_end(c, "send failed (queue limit if errno=0, errno=%d)", errno); break; }
 			}
-			if (send_frame(c, d, n, ts, tab) || (c->tcp && qflush(c))) { if (in_snd) c->kill = 1; else cli_close(c); }
+			if (send_frame(c, d, n, ts, tab) || (c->tcp && qflush(c))) {
+				if (in_snd) { c->kerr = errno; c->kill = 1; } else cli_end(c, "send failed (queue limit if errno=0, errno=%d)", errno);
+			}
 		} while (0);
 		if (in_snd) pthread_mutex_unlock(&cl_mu);
 	}
@@ -2982,7 +3023,7 @@ static void reply(struct cli *c, int code, const char *txt, int cseq, const char
 		n += snprintf(b + n, sizeof b - n, "Content-Type: application/sdp\r\nContent-Length: %d\r\n\r\n%s", (int)strlen(body), body);
 	else
 		n += snprintf(b + n, sizeof b - n, "\r\n");
-	if (qsend(c, b, n) || qflush(c)) cli_close(c);
+	if (qsend(c, b, n) || qflush(c)) cli_end(c, "reply send failed (queue limit or socket error, errno=%d)", errno);
 }
 
 static const char *hdr(const char *req, const char *name, char *o, int osz)
@@ -3020,20 +3061,20 @@ static void play_burst(struct cli *c)
 
 	if (cok && s->ncache && (!c->tcp || qfree(c) > need)) {
 		c->wait_idr = 0;	/* before the burst: an unpaced UDP GOP that hits backpressure sets it again (udp_err_ok) and must stay set */
-		if (HAVE_PS(s) && send_ps(c, s->cache[0].ts)) { cli_close(c); return; }
+		if (HAVE_PS(s) && send_ps(c, s->cache[0].ts)) { cli_end(c, "send failed in the GOP burst of PLAY (errno=%d)", errno); return; }
 		for (int i = 0; i < s->ncache; i++)
-			if (send_frame(c, s->cache[i].d, s->cache[i].len, s->cache[i].ts, NULL)) { cli_close(c); return; }
-		if (c->tcp && qflush(c)) { cli_close(c); return; }
+			if (send_frame(c, s->cache[i].d, s->cache[i].len, s->cache[i].ts, NULL)) { cli_end(c, "send failed in the GOP burst of PLAY (errno=%d)", errno); return; }
+		if (c->tcp && qflush(c)) { cli_end(c, "send failed in the GOP burst of PLAY (errno=%d)", errno); return; }
 	} else if (qburst_on && c->tcp && cok && s->ncache && qfree(c) > 400 + frame_need(s->cache[0].len)) {
 		/* the whole GOP does not fit the (smaller) queue: send the IDR and the P frames that fit, then wait for the next
 		 * IDR: the client has a picture at once instead of after up to a GOP */
 		int k = 0, sum = 400;
 
 		while (k < s->ncache && sum + frame_need(s->cache[k].len) < qfree(c)) sum += frame_need(s->cache[k++].len);
-		if (HAVE_PS(s) && send_ps(c, s->cache[0].ts)) { cli_close(c); return; }
+		if (HAVE_PS(s) && send_ps(c, s->cache[0].ts)) { cli_end(c, "send failed in the GOP burst of PLAY (errno=%d)", errno); return; }
 		for (int i = 0; i < k; i++)
-			if (send_frame(c, s->cache[i].d, s->cache[i].len, s->cache[i].ts, NULL)) { cli_close(c); return; }
-		if (qflush(c)) { cli_close(c); return; }
+			if (send_frame(c, s->cache[i].d, s->cache[i].len, s->cache[i].ts, NULL)) { cli_end(c, "send failed in the GOP burst of PLAY (errno=%d)", errno); return; }
+		if (qflush(c)) { cli_end(c, "send failed in the GOP burst of PLAY (errno=%d)", errno); return; }
 		c->wait_idr = 1; want_idr(c->si);
 	} else {
 		c->wait_idr = 1; want_idr(c->si);	/* e.g. the GOP is longer than the cache (smart mode): the next keyframe soon */
@@ -3126,7 +3167,7 @@ static void handle(struct cli *c, char *req, int cseq_default)
 				char *q = strstr(tr, "interleaved=");
 
 				c->b_tcp = 1; c->b_ch = q ? num(q + 12) : 4;
-				snprintf(ex, sizeof ex, "Transport: RTP/AVP/TCP;unicast;interleaved=%d-%d\r\nSession: %s;timeout=60\r\n", c->b_ch, c->b_ch + 1, c->sess);
+				snprintf(ex, sizeof ex, "Transport: RTP/AVP/TCP;unicast;interleaved=%d-%d\r\nSession: %s;timeout=" STR(SESS_TO_S) "\r\n", c->b_ch, c->b_ch + 1, c->sess);
 			} else {
 				char *q = strstr(tr, "client_port=");
 				struct sockaddr_in pe;
@@ -3134,7 +3175,7 @@ static void handle(struct cli *c, char *req, int cseq_default)
 
 				if (!q || getpeername(c->fd, (struct sockaddr *)&pe, &pl)) { reply(c, 461, "Unsupported Transport", cseq, NULL, NULL); return; }
 				c->b_tcp = 0; c->b_udp = pe; c->b_udp.sin_port = htons(num(q + 12));
-				snprintf(ex, sizeof ex, "Transport: RTP/AVP;unicast;client_port=%d-%d;server_port=%d-%d\r\nSession: %s;timeout=60\r\n",
+				snprintf(ex, sizeof ex, "Transport: RTP/AVP;unicast;client_port=%d-%d;server_port=%d-%d\r\nSession: %s;timeout=" STR(SESS_TO_S) "\r\n",
 					 num(q + 12), num(q + 12) + 1, srv_rtp, srv_rtp + 1, c->sess);
 			}
 			c->b_ok = 1;
@@ -3146,7 +3187,7 @@ static void handle(struct cli *c, char *req, int cseq_default)
 				char *q = strstr(tr, "interleaved=");
 
 				c->tcp = 1; c->a_ch = q ? num(q + 12) : 2;
-				snprintf(ex, sizeof ex, "Transport: RTP/AVP/TCP;unicast;interleaved=%d-%d\r\nSession: %s;timeout=60\r\n", c->a_ch, c->a_ch + 1, c->sess);
+				snprintf(ex, sizeof ex, "Transport: RTP/AVP/TCP;unicast;interleaved=%d-%d\r\nSession: %s;timeout=" STR(SESS_TO_S) "\r\n", c->a_ch, c->a_ch + 1, c->sess);
 			} else {
 				char *q = strstr(tr, "client_port=");
 				struct sockaddr_in pe;
@@ -3154,7 +3195,7 @@ static void handle(struct cli *c, char *req, int cseq_default)
 
 				if (!q || getpeername(c->fd, (struct sockaddr *)&pe, &pl)) { reply(c, 461, "Unsupported Transport", cseq, NULL, NULL); return; }
 				c->tcp = 0; c->a_udp = pe; c->a_udp.sin_port = htons(num(q + 12));
-				snprintf(ex, sizeof ex, "Transport: RTP/AVP;unicast;client_port=%d-%d;server_port=%d-%d\r\nSession: %s;timeout=60\r\n",
+				snprintf(ex, sizeof ex, "Transport: RTP/AVP;unicast;client_port=%d-%d;server_port=%d-%d\r\nSession: %s;timeout=" STR(SESS_TO_S) "\r\n",
 					 num(q + 12), num(q + 12) + 1, srv_rtp, srv_rtp + 1, c->sess);
 			}
 			c->a_seq = (uint16_t)(time(NULL) * 17);
@@ -3166,7 +3207,7 @@ static void handle(struct cli *c, char *req, int cseq_default)
 			char *q = strstr(tr, "interleaved=");
 
 			c->tcp = 1; c->ch = q ? num(q + 12) : 0;
-			snprintf(ex, sizeof ex, "Transport: RTP/AVP/TCP;unicast;interleaved=%d-%d\r\nSession: %s;timeout=60\r\n", c->ch, c->ch + 1, c->sess);
+			snprintf(ex, sizeof ex, "Transport: RTP/AVP/TCP;unicast;interleaved=%d-%d\r\nSession: %s;timeout=" STR(SESS_TO_S) "\r\n", c->ch, c->ch + 1, c->sess);
 		} else {
 			char *q = strstr(tr, "client_port=");
 			struct sockaddr_in pe;
@@ -3174,7 +3215,7 @@ static void handle(struct cli *c, char *req, int cseq_default)
 
 			if (!q || getpeername(c->fd, (struct sockaddr *)&pe, &pl)) { reply(c, 461, "Unsupported Transport", cseq, NULL, NULL); return; }
 			c->tcp = 0; c->udp = pe; c->udp.sin_port = htons(num(q + 12));
-			snprintf(ex, sizeof ex, "Transport: RTP/AVP;unicast;client_port=%d-%d;server_port=%d-%d\r\nSession: %s;timeout=60\r\n",
+			snprintf(ex, sizeof ex, "Transport: RTP/AVP;unicast;client_port=%d-%d;server_port=%d-%d\r\nSession: %s;timeout=" STR(SESS_TO_S) "\r\n",
 				 num(q + 12), num(q + 12) + 1, srv_rtp, srv_rtp + 1, c->sess);
 		}
 		c->seq = (uint16_t)(time(NULL) * 31);
@@ -3193,7 +3234,7 @@ static void handle(struct cli *c, char *req, int cseq_default)
 		reply(c, 200, "OK", cseq, ex, NULL);
 	} else if (!strcmp(m, "TEARDOWN")) {
 		reply(c, 200, "OK", cseq, NULL, NULL);
-		cli_close(c);
+		if (c->fd >= 0) cli_end(c, "TEARDOWN received");
 	} else {
 		reply(c, 501, "Not Implemented", cseq, NULL, NULL);
 	}
@@ -3234,16 +3275,14 @@ static int accept_slot(uint32_t ip, time_t nowt)
 	if (!ip_exempt(ip) && cli_count_ip(ip) >= perip_max) {	/* one address may not take the slots of the others */
 		v = cli_victim(ip, 1, nowt);
 		if (v < 0) return -1;
-		LOG("rtsp: %d connections from one address, client %d closed for a new one\n", perip_max, v);
-		cli_close(&cl[v]);
+		cli_end(&cl[v], "replaced by a new connection from the same address (RTSP_PERIP=%d, idle %ld s)", perip_max, (long)(nowt - cl[v].last));
 		return v;
 	}
 	for (i = 0; i < MAXCLI && cl[i].fd >= 0; i++) ;
 	if (i < MAXCLI) return i;
 	v = cli_victim(0, 0, nowt);
 	if (v < 0) return -1;
-	LOG("rtsp: full, client %d closed for a new one\n", v);
-	cli_close(&cl[v]);
+	cli_end(&cl[v], "replaced by a new connection, table full (%d slots, idle %ld s)", MAXCLI, (long)(nowt - cl[v].last));
 	return v;
 }
 
@@ -3254,7 +3293,8 @@ static void cli_read(struct cli *c)
 
 	if (r <= 0) {
 		if (r < 0 && (errno == EAGAIN || errno == EINTR)) return;
-		cli_close(c);
+		if (r == 0) cli_end(c, "peer closed (recv 0, last request %ld s ago)", (long)(mono_t() - c->last));
+		else cli_end(c, "socket error on recv, errno=%d (%s)", errno, strerror(errno));
 		return;
 	}
 	c->blen += r;
@@ -3286,11 +3326,11 @@ static void cli_read(struct cli *c)
 		}
 		e = strstr(c->buf, "\r\n\r\n");
 		if (!e) {
-			if (c->blen >= (int)sizeof c->buf - 1) cli_close(c);
+			if (c->blen >= (int)sizeof c->buf - 1) cli_end(c, "request larger than the buffer (no header end in %d bytes)", c->blen);
 			return;
 		}
 		used = e + 4 - c->buf;
-		if (used > c->blen) { cli_close(c); return; }	/* never past what was received */
+		if (used > c->blen) { cli_end(c, "malformed request"); return; }	/* never past what was received */
 		{	/* Content-Length: SET_PARAMETER, GET_PARAMETER and ANNOUNCE may carry a body; it is consumed with the request
 			 * (else it would be read as the next request), waited for if it has not all arrived, never past the buffer */
 			char sv = e[2], cv[24];
@@ -3300,7 +3340,7 @@ static void cli_read(struct cli *c)
 			if (hdr(c->buf, "Content-Length", cv, sizeof cv)) bl = num(cv);
 			e[2] = sv;
 			if (bl > 0) {
-				if (bl > (int)sizeof c->buf - 1 - used) { cli_close(c); return; }
+				if (bl > (int)sizeof c->buf - 1 - used) { cli_end(c, "request body of %d bytes does not fit the buffer", bl); return; }
 				if (c->blen < used + bl) return;
 				used += bl;
 			}
@@ -3745,7 +3785,7 @@ static void sub_off(const char *why)
 	s->enc = NULL; s->on = 0; s->active = 0;
 	cache_reset(s);
 	cl_lock();
-	for (int i = 0; i < MAXCLI; i++) if (cl[i].fd >= 0 && cl[i].si == 1) cli_close(&cl[i]);
+	for (int i = 0; i < MAXCLI; i++) if (cl[i].fd >= 0 && cl[i].si == 1) cli_end(&cl[i], "stream stopped (sub-stream off: %s)", why);
 	cl_unlock();
 }
 
@@ -4237,7 +4277,12 @@ int main(int argc, char **argv)
 	ct_save();
 #ifdef TC100_HOST_TEST
 	{ const char *e = getenv("TC100_TEST_NO_EXEMPT"); no_exempt = e && e[0] == '1'; }
+	{ const char *e = getenv("TC100_TEST_IDLE_S"); if (e && num(e) > 0) idle_s = num(e); }
+	{ const char *e = getenv("TC100_TEST_UDP_S"); if (e && num(e) > 0) idle_udp_s = num(e); }
 #endif
+	LOG("rtsp: SETUP announces Session timeout=%d s; a request (any accepted RTSP method, e.g. OPTIONS / GET_PARAMETER) resets the idle clock, "
+	    "RTCP does not; limits: %d s not playing, %d s UDP, none for a playing TCP client; close lines: grep 'rtsp: client .* closed'\n",
+	    SESS_TO_S, idle_s, idle_udp_s);
 	LOG("tc100_rtsp: rtsp://<ip>:%d/  %dx%d %d fps %d kbit/s %s; sub-stream (/video1, /ch1, /sub) %s %dx%d %d kbit/s %s\n",
 	    port, W, H, fps, kbps, hevc ? "H.265" : "H.264", sub_on ? "on" : "off", SW, SH, sub_kbps, sub_hevc ? "H.265" : "H.264");
 	LOG("tc100_rtsp: vbr main %u sub %u; client queue %d KB; rtp scatter-gather %d\n",
@@ -4411,24 +4456,24 @@ int main(int argc, char **argv)
 		}
 		np[0] = np[1] = 0; na = 0; lossy[0] = lossy[1] = 0;
 		for (i = 0; i < MAXCLI; i++) {
-			if (cl[i].fd >= 0 && cl[i].kill) cli_close(&cl[i]);	/* the sender thread saw it fail */
-			if (cl[i].fd >= 0 && FD_ISSET(cl[i].fd, &ws) && qflush(&cl[i])) cli_close(&cl[i]);
-			if (cl[i].fd >= 0 && cl[i].qpos < cl[i].qlen && mono_t() - cl[i].qprog > 20) cli_close(&cl[i]);
+			if (cl[i].fd >= 0 && cl[i].kill) cli_end(&cl[i], "send failed in the sender thread (queue limit if errno=0, errno=%d)", cl[i].kerr);
+			if (cl[i].fd >= 0 && FD_ISSET(cl[i].fd, &ws) && qflush(&cl[i])) cli_end(&cl[i], "socket error on send, errno=%d (%s)", errno, strerror(errno));
+			if (cl[i].fd >= 0 && cl[i].qpos < cl[i].qlen && mono_t() - cl[i].qprog > 20)
+				cli_end(&cl[i], "send stalled: %d KB queued, no progress for %ld s (send-queue limit %d KB)",
+				        (cl[i].qlen - cl[i].qpos) / 1024, (long)(mono_t() - cl[i].qprog), q_cap / 1024);
 			if (cl[i].fd >= 0) qtrim(&cl[i], nowt);
 			if (cl[i].fd >= 0 && FD_ISSET(cl[i].fd, &fs)) cli_read(&cl[i]);
-			if (cl[i].fd >= 0 && !cl[i].tcp && mono_t() - cl[i].last > 90) cli_close(&cl[i]);
+			if (cl[i].fd >= 0 && !cl[i].tcp && mono_t() - cl[i].last > idle_udp_s)
+				cli_end(&cl[i], "keepalive timeout (UDP: no RTSP request for %ld s, limit %d s, announced timeout=%d; RTCP is not counted)",
+				        (long)(mono_t() - cl[i].last), idle_udp_s, SESS_TO_S);
 			/* OPTIONS alone does not authenticate a client: that path expires at 30 s.
 			 * Authenticated, non-playing clients use the separate 60 s idle deadline. */
 			if (cl[i].fd >= 0 && !cl[i].authed && mono_t() - cl[i].t_acc > CLI_AUTH_S) {
-				LOG("rtsp: client slot %d expired unauthenticated after %ld s (CLI_AUTH_S=%d)\n",
-				    i, (long)(mono_t() - cl[i].t_acc), CLI_AUTH_S);
-				cli_close(&cl[i]);
+				cli_end(&cl[i], "auth timeout (no authenticated request in %ld s, limit %d s)", (long)(mono_t() - cl[i].t_acc), CLI_AUTH_S);
 			}
-			if (cl[i].fd >= 0 && !cl[i].playing && mono_t() - cl[i].last > CLI_IDLE_S) {
-				LOG("rtsp: client slot %d expired idle after %ld s (CLI_IDLE_S=%d)\n",
-				    i, (long)(mono_t() - cl[i].last), CLI_IDLE_S);
-				cli_close(&cl[i]);
-			}
+			if (cl[i].fd >= 0 && !cl[i].playing && mono_t() - cl[i].last > idle_s)
+				cli_end(&cl[i], "keepalive timeout (not playing: no RTSP request for %ld s, limit %d s, announced timeout=%d)",
+				        (long)(mono_t() - cl[i].last), idle_s, SESS_TO_S);
 			if (cl[i].fd >= 0 && cl[i].playing && !(cl[i].b_ok && !cl[i].v_set)) {
 				np[cl[i].si]++; if (cl[i].a_ok) na++;
 				/* a UDP client, or the WHEP gateway (loopback), cannot ask for a keyframe after a lost packet: smart mode keeps the base GOP */
@@ -4786,6 +4831,8 @@ int main(int argc, char **argv)
 #endif
 	}
 	if (sndr_on) { sndq_stop(&snd_q); pthread_join(snd_th, NULL); }
+	for (int k = 0; k < MAXCLI; k++)
+		if (cl[k].fd >= 0) cli_end(&cl[k], exit_code == 3 ? "stream stopped (encoder gave no pictures, server leaves with exit 3)" : "server shutdown (signal)");
 	rec_shutdown();
 	talk_shutdown();
 	lis_close_all();

@@ -53,6 +53,33 @@ HW-09 night part, the patch 0003 `finish_request_epx` fix (a-faire-implementeur.
 (just below, 2026-11-15), and the
 older `to test` entries below.
 
+### SUBSTREAM-LOOP Why an RTSP client leaves: one log line per close (`[sub-loop]`) — `to test`
+- **What:** `tc100_rtsp` logs ONE line each time it closes an RTSP client (logging only, nothing else changes):
+  `rtsp: client 2 (192.168.1.20 sub tcp) closed after 182 s, 5412 frames, 9120 KB: <reason>`. Reasons: `TEARDOWN received`;
+  `peer closed (recv 0, last request N s ago)`; `socket error on recv / send, errno=`; `send failed (queue limit if errno=0,
+  errno=N)` and `send stalled: N KB queued, no progress for N s (send-queue limit)`; `keepalive timeout (not playing: no RTSP
+  request for N s, limit 60 s, announced timeout=60)` and `keepalive timeout (UDP: no RTSP request for N s, limit 90 s ...;
+  RTCP is not counted)`; `auth timeout` (30 s without an authenticated request); `replaced by a new connection from the same
+  address (RTSP_PERIP=3, idle N s)` and `... table full`; `stream stopped (sub-stream off: ...)` / `(encoder gave no
+  pictures ... exit 3)`; `server shutdown (signal)`; `request larger than the buffer`, `malformed request`. At most 20
+  lines a minute, then `rtsp: N more client closes in the last minute not logged`. The start-up line states the
+  announced `Session: ...;timeout=60`, the keepalive rule and the limits. The old lines `rtsp: 3 connections from one
+  address, client N closed for a new one` and `client slot N expired ...` are replaced by the new ones.
+- **Rule the server applies (read before testing):** only an accepted RTSP request (any method, e.g. OPTIONS /
+  GET_PARAMETER) resets the idle clock; RTCP receiver reports do not. A playing TCP client is never timed out (a client
+  that stops sending keepalives stays as long as the socket lives); a playing UDP client is closed after 90 s without a
+  request; a client that does not play after 60 s. A 401 does not count.
+- **Switch:** none needed (a log line per close, no per-packet path).
+- **Test:** after a night, on each camera:
+  `grep 'rtsp: client .* closed' /tmp/logs/tc100_rtsp.log | sed 's/.*: //' | sed 's/[0-9]\+/N/g' | sort | uniq -c`
+  (or just `sort | uniq -c` on the lines) gives the dominant reason; compare the times with the
+  `free encoder: H.264 closed after ~1800 pictures` lines.
+- **Owner side:** the go2rtc / Frigate logs at the same times (their keepalive interval, "EOF", "timeout", ffmpeg
+  restarts of the detect stream); a `peer closed` with a short `last request` points at the client, a
+  `keepalive timeout` at a keepalive slower than 60 s, `replaced by` at the per-address limit.
+- **Pass:** every close of the night has a line with a reason; the cause of the ~3 min loop is named.
+- **Host tests:** `tests/test_tc100rtsp.py` class `CloseReasons`.
+
 ## Audit of 2026-11-16 (`[audit-1116]`): fixes waiting for the camera
 
 The findings and the reasons are in [audit-2026-11-16.md](audit-2026-11-16.md). Each fix was read by the reviewer agent

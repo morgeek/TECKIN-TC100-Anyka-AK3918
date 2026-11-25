@@ -98,7 +98,7 @@ class RtspInterleavedFrame(unittest.TestCase):
         body = src[src.index('static void cli_read(struct cli *c)'):src.index('/* ---- motion detection')]
         frame = body[body.index("== '$'"):body.index('continue;')]
         self.assertIn('c->buf[c->blen] = 0;', frame)
-        self.assertIn('if (used > c->blen) { cli_close(c); return; }', body)
+        self.assertIn('if (used > c->blen) { cli_end(c, "malformed request"); return; }', body)
 
 
 class SavesOneAtATime(unittest.TestCase):

@@ -198,8 +198,13 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
 - [ ] **SUBSTREAM-LOOP, le sous-flux H.264 est rouvert toutes les ~3 min toute la nuit sur les deux caméras**
   (`free encoder: H.264 closed after ~1800 pictures`, et sur la .24 `rtsp: 3 connections from one address, client 2
   closed for a new one`) : un client du sous-flux (Frigate / go2rtc ?) part et revient en boucle. Côté propriétaire :
-  ses journaux. Côté caméra : journaliser pourquoi le client part (fin RTCP, TEARDOWN, erreur d'envoi, délai) pour
-  savoir qui coupe.
+  ses journaux. Côté caméra : fait (`[sub-loop]`, entrée test-queue SUBSTREAM-LOOP, `to test`) : une ligne
+  `rtsp: client N (ip chemin transport) closed after S s, ...: <raison>` à chaque fermeture (TEARDOWN, pair fermé,
+  erreur socket, envoi, délai de keepalive, remplacé par la limite par adresse, arrêt du flux, arrêt du serveur) ;
+  à lire après une nuit : `grep 'rtsp: client .* closed' /tmp/logs/tc100_rtsp.log | sort | uniq -c`, à comparer
+  aux journaux go2rtc / Frigate. Règle du serveur à garder en tête : `Session: ...;timeout=60` annoncé, seule une
+  requête RTSP acceptée remet l'horloge à zéro (pas le RTCP) ; un client TCP en lecture n'expire jamais, un client
+  UDP en lecture expire à 90 s sans requête, un client qui ne lit pas à 60 s.
 - [ ] **Ancienne entrée NIGHT-CEIL (gardée pour l'historique) : débit de nuit au plafond sur la .24 malgré AWB-NIGHT.** *Testeur, 24/11 18:20 : le
   `nightmode.log` de la .24 montre nuit 08:08 → jour 08:11 (heure locale) : les 3 min au plafond étaient une
   courte nuit juste après le démarrage, à l'aube, pas une nuit établie. Priorité plus basse ; la nuit du 24-25/11

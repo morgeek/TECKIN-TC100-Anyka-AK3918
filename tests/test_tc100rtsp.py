@@ -1231,6 +1231,95 @@ class NoExempt(DigestAuth):
             o.close()
 
 
+class CloseReasons(DigestAuth):
+    """SUBSTREAM-LOOP: every close of a client logs ONE line with the slot, address, path, transport, time connected and the
+    reason ("rtsp: client N (ip path transport) closed after S s, F frames, K KB: reason"); no behaviour change"""
+    env = {'TC100_TEST_NO_EXEMPT': '1', 'RTSP_PERIP': '2', 'TC100_TEST_IDLE_S': '2'}
+
+    def test_loopback_is_never_locked(self):
+        pass
+
+    def all_closes(self):
+        return [ln for ln in Path(self.log.name).read_text().splitlines() if re.match(r'rtsp: client \d+ \(.*\) closed after ', ln)]
+
+    def setUp(self):
+        super().setUp()
+        time.sleep(0.4)
+        self.base = len(self.all_closes())                 # the start-up probe connection of Server.setUp is one close already
+
+    def closes(self, wait=0.5):
+        time.sleep(wait)
+        return self.all_closes()[self.base:]
+
+    def test_startup_line_states_the_announced_timeout_and_the_rule(self):
+        log = Path(self.log.name).read_text()
+        self.assertIn('rtsp: SETUP announces Session timeout=60 s;', log)
+        self.assertIn('RTCP does not', log)
+        self.assertIn('2 s not playing', log)                    # the host-test override of CLI_IDLE_S
+
+    def test_setup_reply_announces_the_timeout(self):
+        c = self.client()
+        self.describe(c)
+        _, hd, _ = c.request('SETUP', self.URL + '/track3', 'Transport: RTP/AVP/TCP;unicast;interleaved=4-5')
+        self.assertIn(';timeout=60', hd['session'])
+
+    def test_teardown(self):
+        s = conn_from(self.PORT)
+        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL, BASIC))[0], 200)
+        self.assertEqual(rtsp_raw(s, self.req('TEARDOWN', self.URL, BASIC, cseq=2))[0], 200)
+        lines = self.closes()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertRegex(lines[0], r'^rtsp: client 0 \(127\.0\.0\.1 main \S+\) closed after \d+ s, 0 frames, 0 KB: TEARDOWN received$')
+        s.close()
+
+    def test_peer_close(self):
+        s = conn_from(self.PORT)
+        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL, BASIC))[0], 200)
+        s.close()
+        lines = self.closes()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertIn(': peer closed (recv 0, last request', lines[0])
+
+    def test_keepalive_timeout_names_the_timer_and_the_silence(self):
+        s = conn_from(self.PORT)
+        self.assertEqual(rtsp_raw(s, self.req('DESCRIBE', self.URL, BASIC))[0], 200)
+        time.sleep(1.2)
+        self.assertEqual(rtsp_raw(s, self.req('GET_PARAMETER', self.URL, BASIC, cseq=2))[0], 200)     # a request resets the clock
+        self.assertEqual(self.closes(0.5), [])
+        lines = self.closes(3.5)
+        self.assertEqual(len(lines), 1, lines)
+        self.assertRegex(lines[0], r': keepalive timeout \(not playing: no RTSP request for 3 s, limit 2 s, announced timeout=60\)$')
+        s.close()
+
+    def test_replaced_by_a_new_connection_from_the_same_address(self):
+        a = conn_from(self.PORT)
+        self.assertEqual(rtsp_raw(a, self.req('DESCRIBE', self.URL, BASIC))[0], 200)
+        s1 = conn_from(self.PORT)                       # silent: not authenticated, goes first
+        c = conn_from(self.PORT)
+        self.assertEqual(rtsp_raw(c, self.req('DESCRIBE', self.URL, BASIC))[0], 200)
+        lines = self.closes()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertRegex(lines[0], r'^rtsp: client 1 \(127\.0\.0\.1 main \S+\) closed after \d+ s, .*: replaced by a new connection from the same address \(RTSP_PERIP=2, idle \d+ s\)$')
+        for x in (a, s1, c):
+            x.close()
+
+    def test_a_flood_of_closes_is_limited_and_summarised(self):
+        for _ in range(30):
+            s = conn_from(self.PORT)
+            rtsp_raw(s, self.req('DESCRIBE', self.URL, BASIC))
+            s.close()
+        lines = self.closes(1.0)
+        self.assertLessEqual(len(lines), 20)
+        self.assertGreaterEqual(len(lines), 15)
+
+    def test_every_close_goes_through_the_logging_helper(self):
+        src = (SRC / 'tc100_rtsp.c').read_text()
+        self.assertEqual(len(re.findall(r'cli_close\(', src)), 3, 'only its definition and the helper call it')
+        self.assertIn('cli_end(&cl[k], exit_code == 3', src)        # server shutdown and encoder failure
+        self.assertIn('keepalive timeout (UDP:', src)               # the UDP rule, not reachable without a video stream on the host
+        self.assertIn('"stream stopped (sub-stream off', src)
+
+
 class PerIpDefault(DigestAuth):
     """RTSP_PERIP defaults to 3 (MAXCLI - 1): a host may hold three authenticated connections (Frigate main + sub + a viewer)"""
     env = {'TC100_TEST_NO_EXEMPT': '1'}
