@@ -46,17 +46,25 @@ Rapport : [audit-2026-11-24-optim.md](audit-2026-11-24-optim.md) (lecture seule,
 L'audit complet est dans [audit-2026-11-16.md](audit-2026-11-16.md). Les corrections sont dans `main` et attendent
 les tests caméra `AUDIT-1116-*` de `test-queue.md`. Ce qui reste ouvert, par ordre de priorité :
 
-- [ ] **AUDIT-1116-FLASHBOOT** (propriétaire). Vérifier qu'une caméra installée par `stock-hook.sh` démarre bien la
+- [ ] **AUDIT-1116-FLASHBOOT** (propriétaire ; 25/11 : vérification en lecture seule sur les deux caméras). Vérifier qu'une caméra installée par `stock-hook.sh` démarre bien la
   3.0 depuis la flash : la ligne `flashboot` fait environ 270 caractères, au-delà de la limite de 256.
-- [ ] **AUDIT-1116-FTP** (propriétaire). Vérifier que `ftpd` refuse un mauvais mot de passe.
+  *Décision du propriétaire 25/11 :* lecture seule de l'environnement U-Boot sur les deux caméras (rien n'est écrit) :
+  `m=$(grep '"env"' /proc/mtd | cut -d: -f1); tr '\0' '\n' < /dev/${m}ro | grep -E '^(bootcmd|flashboot|flashargs)=' |
+  awk '{ print length($0) - index($0,"=") ": " $0 }'`. Toute correction de `stock-hook.sh` reste à son accord explicite.
+- [x] **AUDIT-1116-FTP** (propriétaire, décidé le 25/11 : FTP reste coupé par défaut, pas de test). Vérifier que `ftpd` refuse un mauvais mot de passe.
+  *Décision du propriétaire 25/11 :* le `ftpd` de BusyBox n'est pas vérifié côté mot de passe ; il reste désactivé par
+  défaut et c'est documenté ; l'activer est un choix de l'utilisateur sur un réseau de confiance.
 - [x] Récupération dans l'initramfs quand `stack` est abîmé (`[recovery]`, `v3/initrd-rescue`, interrupteur
   `INITRD_RESCUE=0`) : contrôle de la partition avant usage, puis user space de la carte SD si elle en porte une,
   sinon mode secours (Wi-Fi et mot de passe lus dans `cfga`/`cfgb`, telnet réservé aux réseaux privés, `flashw` à la
   main). Rien n'est écrit en flash par l'initramfs. **À tester sur caméra : `AUDIT-1116-RECOVERY`.** AGENTS.md est
   corrigé (il n'y a pas de retour à une user space précédente).
-- [ ] Suites possibles de la récupération (décisions du propriétaire) : point d'accès de secours dans l'initramfs
+- [x] Suites possibles de la récupération (décidé le 25/11 : telnet de secours tel quel, pas de point d'accès de secours, pas de loop) : point d'accès de secours dans l'initramfs
   (`hostapd` est dans `stack` ; mode AP de `wpa_supplicant` à mesurer contre les 2 Mio de l'initrd) ; périphérique
   loop dans le noyau pour démarrer une sauvegarde `tc100-3/backup/stack-*.bin` depuis la carte.
+  *Décision du propriétaire 25/11 :* le telnet en clair réservé au réseau local reste la porte du mode secours ; pas de
+  point d'accès de secours dans l'initramfs (un `wpa_supplicant.conf` sur la carte SD suffit) ; pas de périphérique
+  loop dans le noyau (réécriture de `stack` à la main avec `flashw`).
 - [ ] Patch 0003 (hôte USB) : un unlink d'URB actif attend une IRQ, `endpoint_disable` n'a pas de verrou, l'ep0 passe par
   l'index -1. **Corrigé par le patch 0024** (`[usb0003]`, interrupteur `otg_hs.unlink_wait_irq=1` pour revenir à
   l'ancien unlink), compilé mais jamais exécuté : reste le test caméra **AUDIT-1116-USB** de `test-queue.md` (le Wi-Fi
@@ -82,8 +90,10 @@ les tests caméra `AUDIT-1116-*` de `test-queue.md`. Ce qui reste ouvert, par or
   RELRO complet (`-z now` met la GOT en lecture seule) pour les programmes musl. Pas de `_FORTIFY_SOURCE` (sans effet
   avec musl, binaires identiques) ni de PIE (+8 Ko xz, code plus lent sur l'ARM926). Interrupteur de build `HARDEN=0`
   (make, local-ci, entrée CI `harden`). Reste le test caméra **HARDEN** de `test-queue.md` (24 h, CPU identique).
-- [ ] MQTT : les commandes `telnet`, `ftp` et `reboot` ne dépendent que de la confiance accordée au broker (TCP en
+- [ ] MQTT (décidé le 25/11 : interrupteur `MQTT_ADMIN_CMDS`, actif par défaut) : les commandes `telnet`, `ftp` et `reboot` ne dépendent que de la confiance accordée au broker (TCP en
   clair). Décision du propriétaire : ajouter un interrupteur, ou documenter les ACL du broker.
+  *Décision du propriétaire 25/11 :* un interrupteur dans `mqtt.conf`, actif par défaut (comportement actuel) ; 0 refuse
+  ces trois commandes par MQTT.
 - [x] CI : épingler les actions par SHA, vérifier les checksums de mbedtls et d'aiortc, rendre les builds reproductibles
   (`SOURCE_DATE_EPOCH`), et contrôler le budget `--vendor`. Fait (`[ci-pin]`) : actions épinglées par SHA (tag en
   commentaire) ; `.github/ci-pins.sh` = une seule place pour les commits (Linux v6.6, Buildroot 2024.02.9) et les

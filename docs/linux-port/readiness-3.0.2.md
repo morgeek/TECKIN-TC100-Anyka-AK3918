@@ -79,7 +79,19 @@ VENCIRQ / CLEANUP (STAT fields vs 3.0.1), DN-FLAP two more evenings, SMALL-A rea
 (mDNS TXT, ONVIF motion in HA), POLISH-01 1 and 3, AWB-05-SAVED (day restart, "from saved gains"), W3, IDLE-MIC
 `cpu-profile.sh`.
 
-## 3. Owner decisions still pending
+## 3. Owner decisions
+
+Taken on 2026-11-25:
+- **NIGHT-CEIL:** decide after the readings (`nightceil.csv`, check B); no night setting by default until then.
+- **SD card:** none in the cameras. The 3-day soak files (`memory*.csv`, `nightceil.csv`) stay in RAM: copy them off
+  every day, and any reboot restarts the soak.
+- **FTP:** stays off by default, documented; no test (AUDIT-1116-FTP closed by decision).
+- **Rescue mode:** cleartext telnet limited to the LAN stays the rescue door; no rescue access point in the
+  initramfs; no loop device in the kernel.
+- **MQTT admin commands:** a switch `MQTT_ADMIN_CMDS` in `mqtt.conf`, on by default (today's behaviour).
+- **AUDIT-1116-FLASHBOOT:** read-only check of the U-Boot environment on both cameras (command in `a-faire`).
+
+Still pending (from before):
 
 1. NIGHT-CEIL after checks A and B: keep the night ceiling (~1600 kbit/s), or make a night setting the default
    (softer night picture).
