@@ -12,7 +12,7 @@
  *   --run     encode on the hardware. tc100_rtsp must be stopped (it owns the encoder): ONLY on a test camera.
  *   -q QP     slice QP (default 30; the list's own otherwise)
  *   --params  the VPS/SPS/PPS NALs to put before the picture (the vendor's, captured as params.bin)
- *   --head    the start code, NAL header and slice header put before the core's slice data (capture.py: slicehead.bin;
+ *   --head    the start code, NAL header and slice header put before the core's slice data (once captured with the vendor encoder, tools removed 2026-11-25;
  *             IPCAM2 capture, 2026-11-07: the core writes only the slice data, from stream +0x820, and its length in
  *             list word 0x41; the header bytes depend on the QP: use the template's own QP with the vendor's head)
  *

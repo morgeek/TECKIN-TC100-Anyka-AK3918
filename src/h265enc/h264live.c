@@ -120,7 +120,7 @@ static double now_ms(void)
 	return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
 }
 
-/* one picture, the vendor's H.264 sequence (venctrace of 2026-11-07): interrupt mask bit 2 (bit 0 is H.265's), clock
+/* one picture, the vendor's H.264 sequence (traced on 2026-11-07, tools removed 2026-11-25): interrupt mask bit 2 (bit 0 is H.265's), clock
  * register bit 15 clear (H.265 sets it), the list address then 2 (the core loads the list), the address again then 8
  * (H.264 encodes it); after the interrupt the mask is cleared. 0 and the slice data length in *len, or -1 */
 static int encode(int fd, uint32_t list_paddr, const uint32_t *lr, uint32_t *len)

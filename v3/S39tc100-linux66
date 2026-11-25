@@ -168,7 +168,7 @@ else
 fi
 
 # 3a. Rescue mode (step 1a): the telnet for the private networks, and the Wi-Fi settings of the card when the saved
-#     ones give no link. No user space is started: steps 3b, 4 and 5 are skipped.
+#     ones give no link. No user space is started: steps 3b and 4 are skipped.
 if [ -n "$RESCUE" ]; then
   $RS start "$RESCUE"
   ( exec $RS wifi $CFGD/wpa_supplicant.conf /mnt/sd/wpa_supplicant.conf /mnt/sd/tc100test/wpa_supplicant.conf ) </dev/null >/dev/null 2>&1 &
