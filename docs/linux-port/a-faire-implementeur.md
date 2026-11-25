@@ -165,6 +165,26 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
   seulement si `SUnreclaim` monte (la baisse de ~0,4 Mo / jour n'est pas l'espace utilisateur).
 
 ### B3. Trouvé dans la première nuit en 3.0.2-rc2 (24/11) — en observation, pas encore de correctif
+- [ ] **NIGHT-CEIL, analyse du code du 25/11 (lecture seule) : pas de bug de bascule trouvé, ne rien corriger avant
+  les relevés A et B.** Un démarrage en nuit passe aussi par `style_switch(1)` (première image, `tc100_rtsp.c` ~:4610)
+  et `isp_bases_reset()` remet toutes les bases à zéro ; le pilote recharge les 24 modules du jeu de nuit dans les deux
+  cas ; côté encodeur une dette ne fait que baisser le débit et le VBR ne descend jamais sous le QP 33. Les deux nuits
+  sont confondues par la lumière : la période « normale » (18:22-20:12) était une pièce éclairée faiblement, le
+  plafond a commencé à 22:28 (lumières éteintes, gain plus fort), et le débit est redescendu à l'aube **sans
+  redémarrage**. Cause la plus probable (~65-70 %) : le bruit de nuit à fort gain (~26x) remplit le budget R1 de nuit.
+  - **Relevé A (sans caméra) :** dans le `daynight.log` sauvé de la nuit du 24-25/11 (`tc100-fix/night-2411/`), gain
+    total = (isp_d_gain x ((a_gain x d_gain) >> 8)) >> 16 et `lumi` aux trois périodes (18:22-20:12, 22:38-06:50,
+    aube). Gain nettement plus bas avant 20:12 et qui baisse avec le débit à l'aube = cause 1 confirmée.
+  - **Relevé B (prochaine nuit profonde, au plafond, même lumière) :** 3 fois `cat /tmp/cam_ae /tmp/cam_awb
+    /var/run/isp_tune.status /sys/module/ak39_vi/parameters/nr3d /sys/module/ak39_vi/parameters/nr3d_overflow`, 5 min
+    de `STAT ... bytes`, `grep -E "parameter set|noise reduction|sharpness|image tuning|3D-NR|AWB-05|exposure cap|anti-flicker|capture rate|free encoder: H.265" /tmp/logs/tc100_rtsp.log`,
+    puis `controlscripts/rtsp-h26x restart` et la même chose. Toujours ~1600 au même gain = cause 1 ; ~900 au même
+    gain = il existe un état de bascule (comparer les deux blocs, et seulement alors corriger).
+  - **Si la cause 1 est confirmée :** un seul changement de nuit avec interrupteur, par ex. un QP de qualité VBR de
+    nuit +2/+3 (`fe_set_vbr_qp` au passage noir et blanc, ~:4610, qui couvre démarrage et bascule) ou un plafond de
+    nuit ; il doit appeler `md_enc_restart()` (une marche de QP change les tailles d'images sans mouvement). Risque :
+    image de nuit un peu plus douce. Cause 2 (état de l'algorithme AWB du pilote gardé, ~15 %) : seulement si B le
+    montre, et c'est un changement noyau (noyau SD d'abord).
 - [ ] **NIGHT-CEIL, confirmé la nuit du 24-25/11, et ce n'est pas AWB-05 (priorité haute pour la 3.0.2).** La .24 est
   restée au plafond, 1600 kbit/s, de 22:38 à 06:50 avec AWB-05 en pause (gains neutres). Ce qui décide : **la façon
   d'entrer en nuit.** Nuit commencée au démarrage du serveur vidéo → 870-960 kbit/s (24/11 18:22-20:12) ou 650

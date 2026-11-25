@@ -1004,6 +1004,15 @@ per flash write.
     something set at a day -> night switch of a running `tc100_rtsp` differs from a start in night mode (night ISP set
     applied on the fly vs at start: NR / 3D-NR / sharpness levels, or an encoder state kept across the switch). The
     switch lines were lost to the 1 MB log rotation (8 h kept); next night: capture the non-STAT lines at the switch.
+
+  - **2026-11-25, read-only code analysis of NIGHT-CEIL (main session):** no switch-only state found. A start in night
+    also runs `style_switch(1)` on its first frame, `isp_bases_reset()` resets every base, the driver reloads all 24
+    modules of the night set in both cases, and the rate control cannot hold a ceiling from a kept state (a debt only
+    lowers the rate; VBR never codes under QP 33). The two periods compared had different light (dim evening room vs
+    lights off from 22:28), and the rate came down at dawn without a restart. Most likely: night noise at ~26x gain
+    fills the R1 night budget. Checks before any fix (a-faire NIGHT-CEIL): **A** total gain and `lumi` from the saved
+    `daynight.log` at the three periods; **B** at the next deep night at the ceiling, the ISP / AE / 3D-NR state and 5 min
+    of STAT before and after a video restart at the same light (same ~1600 = noise; ~900 = a switch state).
   - **New: the H.264 sub-stream encoder is reopened every ~3 min all night on both** (`free encoder: H.264 closed after
     ~1800 pictures`, i.e. a sub-stream client leaves and comes back every 3 min; on the .24 also
     `rtsp: 3 connections from one address, client 2 closed for a new one`). A client (Frigate / go2rtc detect stream?)
