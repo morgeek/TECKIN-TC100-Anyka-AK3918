@@ -1,4 +1,4 @@
-# Liste de l'implémenteur — état courant au 2026-11-15 (3.0.1)
+# Liste de l'implémenteur — état courant au 2026-11-26 (3.0.2-rc6)
 
 Les sections datées qui suivent sont des notes historiques des RC précédentes ; leurs cases non cochées ne forment pas
 à elles seules le backlog courant. L'état terrain ci-dessous et les entrées les plus récentes de `test-queue.md` font
@@ -40,8 +40,9 @@ Rapport : [audit-2026-11-24-optim.md](audit-2026-11-24-optim.md) (lecture seule,
   `RTSP_POOLPAD`, `RTSP_ZEROCOPY`, les chemins `RTSP_FRAMECOPY=0` / `RTSP_LIVE_DIRECT=0` ni la recherche `/dev/mem` de la
   capture directe (`AK39_VI_G_PHYS` est dans le patch 0006 depuis le 2026-10-22) ; jour / nuit : plus de luminance
   tirée des octets du JPEG (50 sans `/tmp/cam_luma`, C et shell). `health.cgi` natif gardé.
-- [ ] Le reste des sections 2 et 4 du rapport, et les mesures listées en section 5. Fait 2026-11-24 (`[small]`,
-  test-queue `SMALL-A-1124`) : R5, R6, R7, R8, W4, W8. Reste : R1, R2, R3 (R4 fait), W1-W3, W5-W7, W9 et les mesures.
+- [x] Le reste des sections 2 et 4 du rapport : tout est fait (R1-R8, W1-W9 ; `[small]` SMALL-A-1124 et SMALL-B-1124,
+  `[wifiq]` WIFIQ-FORKS, `[w5-audit]`). Les mesures de la section 5 sont celles des entrées `test-queue.md`, faites
+  pendant les sessions de [readiness-3.0.2.md](readiness-3.0.2.md) (banc `tests/camera/`, entrée RECETTE-BENCH).
 
 ## Audit du 2026-11-16 (`[audit-1116]`)
 
@@ -176,8 +177,13 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
   sur les deux caméras, lire avec le tableau de `internals.md` "Memory watch" ; noyau SD avec `CONFIG_SLUB_DEBUG`
   seulement si `SUnreclaim` monte (la baisse de ~0,4 Mo / jour n'est pas l'espace utilisateur).
 
-### B3. Trouvé dans la première nuit en 3.0.2-rc2 (24/11) — en observation, pas encore de correctif
-- [ ] **NIGHT-CEIL, analyse du code du 25/11 (lecture seule) : pas de bug de bascule trouvé, ne rien corriger avant
+### B3. Trouvé dans la première nuit en 3.0.2-rc2 (24/11)
+- [ ] **NIGHT-CEIL, tranché le 26/11 : bruit de nuit à fort gain (relevé B : même débit avant et après un
+  redémarrage vidéo au même gain ; nuit complète en rc6 : .24 à 1552 kbit/s de moyenne, .11 à 825).** Pas d'état de
+  bascule. Décision du propriétaire du 26/11 : essai `RTSP_NIGHT_KBPS=900` sur la .24 seule (la .11 sert de témoin),
+  protocole dans l'entrée NIGHT-CEIL-AUTO de `test-queue.md`. Reste : la lecture de cette nuit, puis la décision du
+  propriétaire (900 par défaut, ou réglage par caméra). Les points ci-dessous sont l'historique de l'enquête.
+- [x] **NIGHT-CEIL, analyse du code du 25/11 (lecture seule) : pas de bug de bascule trouvé, ne rien corriger avant
   les relevés A et B.** Un démarrage en nuit passe aussi par `style_switch(1)` (première image, `tc100_rtsp.c` ~:4610)
   et `isp_bases_reset()` remet toutes les bases à zéro ; le pilote recharge les 24 modules du jeu de nuit dans les deux
   cas ; côté encodeur une dette ne fait que baisser le débit et le VBR ne descend jamais sous le QP 33. Les deux nuits
@@ -208,7 +214,7 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
     nuit ; il doit appeler `md_enc_restart()` (une marche de QP change les tailles d'images sans mouvement). Risque :
     image de nuit un peu plus douce. Cause 2 (état de l'algorithme AWB du pilote gardé, ~15 %) : seulement si B le
     montre, et c'est un changement noyau (noyau SD d'abord).
-- [ ] **NIGHT-CEIL, confirmé la nuit du 24-25/11, et ce n'est pas AWB-05 (priorité haute pour la 3.0.2).** La .24 est
+- [x] **NIGHT-CEIL (hypothèse écartée le 26/11 par le relevé B : la façon d'entrer en nuit ne change pas le débit), confirmé la nuit du 24-25/11, et ce n'est pas AWB-05 (priorité haute pour la 3.0.2).** La .24 est
   restée au plafond, 1600 kbit/s, de 22:38 à 06:50 avec AWB-05 en pause (gains neutres). Ce qui décide : **la façon
   d'entrer en nuit.** Nuit commencée au démarrage du serveur vidéo → 870-960 kbit/s (24/11 18:22-20:12) ou 650
   kbit/s (17/11 02:10) ; nuit entrée par le passage du soir d'un serveur déjà lancé → plafond toute la nuit (17-18/11,
@@ -218,7 +224,8 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
   3D-NR, netteté) juste après le passage du soir puis après un redémarrage vidéo, au même endroit ; la correction est
   d'appliquer au passage exactement ce que fait le démarrage. Les lignes du passage de cette nuit sont perdues
   (rotation du journal de 1 Mo, 8 h gardées).
-- [ ] **SUBSTREAM-LOOP, le sous-flux H.264 est rouvert toutes les ~3 min toute la nuit sur les deux caméras**
+- [x] **SUBSTREAM-LOOP (clos côté caméra le 26/11 : les lignes de fermeture montrent un `TEARDOWN received` du
+  client ; reste à lire les journaux Frigate / go2rtc côté propriétaire), le sous-flux H.264 est rouvert toutes les ~3 min toute la nuit sur les deux caméras**
   (`free encoder: H.264 closed after ~1800 pictures`, et sur la .24 `rtsp: 3 connections from one address, client 2
   closed for a new one`) : un client du sous-flux (Frigate / go2rtc ?) part et revient en boucle. Côté propriétaire :
   ses journaux. Côté caméra : fait (`[sub-loop]`, entrée test-queue SUBSTREAM-LOOP, `to test`) : une ligne
@@ -228,7 +235,7 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
   aux journaux go2rtc / Frigate. Règle du serveur à garder en tête : `Session: ...;timeout=60` annoncé, seule une
   requête RTSP acceptée remet l'horloge à zéro (pas le RTCP) ; un client TCP en lecture n'expire jamais, un client
   UDP en lecture expire à 90 s sans requête, un client qui ne lit pas à 60 s.
-- [ ] **Ancienne entrée NIGHT-CEIL (gardée pour l'historique) : débit de nuit au plafond sur la .24 malgré AWB-NIGHT.** *Testeur, 24/11 18:20 : le
+- [x] **Ancienne entrée NIGHT-CEIL (gardée pour l'historique) : débit de nuit au plafond sur la .24 malgré AWB-NIGHT.** *Testeur, 24/11 18:20 : le
   `nightmode.log` de la .24 montre nuit 08:08 → jour 08:11 (heure locale) : les 3 min au plafond étaient une
   courte nuit juste après le démarrage, à l'aube, pas une nuit établie. Priorité plus basse ; la nuit du 24-25/11
   tranche (journal 1 Mo actif sur les deux caméras depuis 18:22, vidéo non redémarrée jusqu'au matin). Pour la
