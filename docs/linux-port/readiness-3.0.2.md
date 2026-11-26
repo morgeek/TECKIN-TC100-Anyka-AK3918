@@ -62,6 +62,13 @@ Install rc5 first: the 3-day soak restarts at every reboot while the cameras hav
 5. If A and B say noise: one night on the .24 with `RTSP_NIGHT_VBR_QP_ADD=3` (or `RTSP_NIGHT_KBPS=900`).
 
 **Session 2: hands-on, 1-2 h with the owner at the camera (ssh from the Mac, UART optional).**
+Run with the bench (`RECETTE-BENCH` in `test-queue.md`, `tests/camera/README.md`): `recette-host.sh --camera IP` for the
+safe and host checks, then `--disruptive --wifi` for the 50x kill loop (KERNEL 3, VENCIRQ 3/6, FAILCOUNT TERM), the stall
+exit, the 20 Wi-Fi cycles, the stream stop/start cycles, the day/night hue and the privacy timing; the owner types the
+password and the Wi-Fi/OSD values in the web UI. What stays manual (SKIP lines of the bench): R2-BUTTON (button and
+lens), AUDIT-1116-WIFI (wrong password, refused quote, rescue AP cap, button), AUDIT-1116-USB unbind/bind (UART), B1 and
+B2/B3 settings steps, R1-MDENC (walk-ins), SMALL-B (ONVIF motion in HA, W2 colours), the 200 audio cycles, the
+induced encoder timeout, the 3 h / 12 h / 24 h soaks and MEMWATCH's 3 days (session 3).
 - R2-BUTTON (slow `nightmode.sh`, 5 s hold = rescue AP, 8-10 s = reboot); AUDIT-1116-WIFI (wrong password, refused
   quote, rescue AP cap, button 3-7 s).
 - 50x `kill -TERM` of `tc100_rtsp` restarted with the autorun arguments (closes KERNEL 3, VENCIRQ 3/6, RTSP, the

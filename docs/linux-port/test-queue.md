@@ -190,6 +190,36 @@ older `to test` entries below.
 - **Pass:** as above; no reboot with `0`. Host tests: `tests/test_mqttd.py` (`test_admin_cmds_off_*`, parity case
   `admin commands off`).
 
+## Acceptance of the 3.0.2 final (`[recette]`)
+
+### RECETTE-BENCH Acceptance bench: the scriptable checks of the readiness, one command per camera (`[recette]`) — `to test` (tester, session 2, then each camera)
+- **What:** `tests/camera/` is a test tool, never in a build (no squashfs, SD package, update tar or test pack takes it;
+  `tests/test_recette.py` checks that). `recette.sh` runs on the camera (BusyBox ash, as root, detached, results in
+  `/tmp/recette-<date>/`): one `RESULT <ID> <check> PASS|FAIL|SKIP <evidence>` line per check, for the scriptable steps
+  of the entries above (KERNEL, VENCIRQ, USB, RTSP, NET, CLEANUP-1124, SMALL-B-1124, SMALL-A-1124, WIFIQ-FORKS, HARDEN,
+  W1, W3, B1, B4, T1B5, W5, FAILCOUNT, MEMWATCH). `recette-host.sh` runs from the tester's machine the checks that must
+  come from another address (HTTP 431, the 10-wrong-logins lockout of this machine, SETUP track2/track3 404, a client
+  that stops reading, ONVIF without a token, ffprobe of both streams, mDNS TXT, the retained MQTT command, two MQTT
+  events at once), then starts the camera part and fetches its results. Every step that needs the owner's eye, a
+  power action, the UART, a card, a flash write or a long soak is a SKIP line with its reason (`tests/camera/README.md`).
+- **How to run (one camera, `IP` = its LAN address; the password typed by the owner in the shell, never in a file):**
+  ```sh
+  sh tests/camera/recette-host.sh --list
+  sh tests/camera/recette-host.sh --dry-run --camera IP
+  RECETTE_PASS='...' sh tests/camera/recette-host.sh --camera IP                       # safe checks, host checks
+  RECETTE_PASS='...' sh tests/camera/recette-host.sh --camera IP --disruptive --wifi    # kill loop, Wi-Fi loop, day/night, privacy
+  ```
+  Session 2 (owner at the camera): `--disruptive --wifi` on the .24 first, then on the .11. Shorter: `RECETTE_KILLS=10
+  RECETTE_WIFI_CYCLES=3` (`RECETTE_CAMERA_ARGS`). Optional for the MQTT checks: `RECETTE_MQTT_HOST`, `RECETTE_MQTT_ROOT`
+  (and `RECETTE_MQTT_USER` / `RECETTE_MQTT_PASS`) in the environment of the shell, never in the repository.
+- **Switch:** none (a test tool; the camera's settings are not changed).
+- **Pass:** the bench runs to the end on one camera (the summary is printed, the `done` file exists, no `RESULT ... FAIL`
+  left unexplained), and the state is restored: `/tmp/tc100_privacy` absent, `irq_unlazy` at its value before the run,
+  `wlan0` associated, `tc100_rtsp` running, night mode as before. Paste the summary and the `RESULT` lines under the
+  entries they belong to (KERNEL, VENCIRQ, USB, RTSP, NET, CLEANUP-1124, SMALL-A/B-1124, WIFIQ-FORKS, HARDEN, B1, B4, T1B5,
+  W5, FAILCOUNT, MEMWATCH); a FAIL is written as it is, with the `recette.log` lines around it.
+- **Results:** (testers write here)
+
 ## Audit of 2026-11-16 (`[audit-1116]`): fixes waiting for the camera
 
 The findings and the reasons are in [audit-2026-11-16.md](audit-2026-11-16.md). Each fix was read by the reviewer agent
