@@ -242,10 +242,10 @@ class SafetyGuards(unittest.TestCase):
         self.assertNotIn('auto-night-detection restart', self.bench())
         self.assertNotIn('auto-night-detection stop', self.bench())
 
-    def test_cleanup_continues_a_stopped_server(self):
-        body = self.bench().split('cleanup() {', 1)[1].split('\n}\n', 1)[0]
-        self.assertIn('kill -CONT', body)
-        self.assertLess(body.index('kill -CONT'), body.index('wlan_restore'))
+    def test_no_sigstop_in_the_bench(self):
+        # SIGSTOP does not simulate a capture stall (tc100_rtsp.c discounts a stopped process): the check is manual
+        self.assertNotIn('kill -STOP', self.bench())
+        self.assertIn('AUDIT-1116-RTSP|stall-exit|manual|skip_manual|SIGSTOP', self.bench())
 
     def test_stopped_server_is_not_running(self):
         self.assertIn('[ "$_st" = T ]', self.bench())
@@ -314,6 +314,165 @@ class SafetyGuards(unittest.TestCase):
     def test_hold_restart_is_manual(self):
         self.assertIn('SMALL-A-1124|hold-restart|manual|', self.bench())
         self.assertNotIn('c_hold_restart', self.bench())
+
+
+def function_text(src, name):
+    """The text of one shell function of a script (its one-line form, or from its header to the closing brace)."""
+    lines = src.splitlines()
+    for i, line in enumerate(lines):
+        if line.startswith(name + '() {'):
+            if line.rstrip().endswith('}'):
+                return line
+            body = [line]
+            for later in lines[i + 1:]:
+                body.append(later)
+                if later == '}':
+                    return '\n'.join(body)
+    raise AssertionError(f'no function {name} in the bench')
+
+
+class BenchLoops(unittest.TestCase):
+    """The loops of the bench run for real under stubs (sleep, kill, pidof, ssh-less sh, venc_irq): busybox ash when it is
+    installed, else sh. kill_cycles must run exactly N cycles, also when a helper it calls clobbers a counter."""
+
+    STUBS = r'''
+sleep() { :; }
+pidof() { cat "$PIDF"; }
+ctr() { echo 7; }
+sh() { echo "sh $*" >> "$SHLOG"; case "$*" in *start*) _pp=$(cat "$PIDF"); echo $((_pp + 1)) > "$PIDF" ;; esac; return 0; }
+kill() { case "$1" in -0) return 1 ;; *) echo "$*" >> "$KLOG"; return 0 ;; esac; }
+venc_irq() { _vn=$(cat "$VF"); echo $((_vn + 10)) > "$VF"; echo $((_vn + 10)); }
+'''
+
+    def harness(self, names, body, stat_line=True, extra_env=None, tmp=None):
+        tmp = tmp or tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        paths = {k: os.path.join(tmp, v) for k, v in {
+            'LOG': 'tc100_rtsp.log', 'RESFILE': 'results.txt', 'LOGF': 'recette.log', 'SHLOG': 'sh.log',
+            'KLOG': 'kill.log', 'VF': 'vf', 'PIDF': 'pid'}.items()}
+        env = dict(paths, T=tmp)
+        with open(paths['VF'], 'w', encoding='utf-8', newline='\n') as f:
+            f.write('100\n')
+        with open(paths['PIDF'], 'w', encoding='utf-8', newline='\n') as f:
+            f.write('4242\n')   # each start of the fake server gives it a new pid (the stub sh)
+        for k in ('RESFILE', 'LOGF', 'SHLOG', 'KLOG'):
+            open(paths[k], 'w', encoding='utf-8').close()
+        with open(paths['LOG'], 'w', encoding='utf-8', newline='\n') as f:
+            f.write('STAT cap 1 enc 1 pp_ms 1\n' if stat_line else '')
+        src = text(BENCH)
+        bounds = 'MAX_LOOP=1000\nMAX_WAIT_S=3600\n'   # the bench's own constants (recette.sh, top)
+        script = '#!/bin/sh\n' + bounds + '\n'.join(function_text(src, n) for n in names) + '\n' + self.STUBS + body + '\n'
+        path = os.path.join(tmp, 'harness.sh')
+        with open(path, 'w', encoding='utf-8', newline='\n') as f:
+            f.write(script)
+        env.update(extra_env or {})
+        return run(SHELL + [path], env=env), env
+
+    def lines(self, path):
+        return [l for l in Path(path).read_text(encoding='utf-8').splitlines() if l]
+
+    KILL_NAMES = ['ev', 'res', 'rtsp_pid', 'log_count', 'ensure_rtsp', 'wait_stat', 'wait_gone', 'kill_cycles']
+    KILL_BODY = 'CUR_ID=AUDIT-1116-KERNEL; CUR_CHECK=kill-loop; CUR=x; RESN=0\n' \
+                'kill_cycles 3 "$T/kill.stats"\necho "K_OK=$K_OK K_BAD=$K_BAD"\n'
+
+    def test_kill_cycles_runs_exactly_n(self):
+        r, env = self.harness(self.KILL_NAMES, self.KILL_BODY)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('K_OK=3 K_BAD=0', r.stdout)
+        self.assertEqual(sum(1 for l in self.lines(env['KLOG']) if l.startswith('-TERM')), 3)
+        self.assertEqual(len(self.lines(os.path.join(env['T'], 'kill.stats'))), 3)
+
+    def test_kill_cycles_counts_a_missing_stat_as_bad_and_stops(self):
+        r, env = self.harness(self.KILL_NAMES, self.KILL_BODY, stat_line=False)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('K_OK=0 K_BAD=3', r.stdout)
+        self.assertEqual(sum(1 for l in self.lines(env['KLOG']) if l.startswith('-TERM')), 3)
+
+    def test_kill_cycles_still_exact_when_a_helper_clobbers_the_counters(self):
+        # ensure_rtsp runs inside the loop: it resets every counter a helper could own, the loop counter included
+        clobber = 'ensure_rtsp() { _i=0; _kc_n=0; _ws_n=0; _wg_n=0; _wa_n=0; _nb_n=0; }\n'
+        r, env = self.harness(self.KILL_NAMES, clobber + self.KILL_BODY)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('K_OK=3 K_BAD=0', r.stdout)
+        self.assertEqual(sum(1 for l in self.lines(env['KLOG']) if l.startswith('-TERM')), 3)
+
+    def test_stream_cycles_run_their_count(self):
+        body = 'CUR_ID=CLEANUP-1124; CUR_CHECK=stream-cycles; CUR=x; RESN=0\nc_stream_cycles\n'
+        r, env = self.harness(['ev', 'res', 'rtsp_pid', 'wait_stat', 'c_stream_cycles'], body,
+                              extra_env={'RECETTE_STREAM_CYCLES': '4'})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(sum(1 for l in self.lines(env['SHLOG']) if 'stop' in l), 4)
+        self.assertEqual(sum(1 for l in self.lines(env['SHLOG']) if 'start' in l), 4)
+        self.assertIn('4/4 stop + start cycles', Path(env['RESFILE']).read_text(encoding='utf-8'))
+
+    def test_reassociate_runs_five_and_passes_without_a_drop(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        bindir = os.path.join(tmp, 'bin')
+        os.mkdir(bindir)
+        for name, body in (('wpa_cli', 'echo "$*" >> "$WPALOG"\nexit 0\n'), ('iw', 'exit 0\n')):
+            with open(os.path.join(bindir, name), 'w', encoding='utf-8', newline='\n') as f:
+                f.write('#!/bin/sh\n' + body)
+            os.chmod(os.path.join(bindir, name), 0o755)
+        body = ('wlan_assoc() { return 0; }\nwlan_addr_now() { echo 10.0.0.2; }\ngateway() { echo 10.0.0.1; }\n'
+                'net_save() { :; }\nwlan_restore() { :; }\n'
+                'CUR_ID=AUDIT-1116-USB; CUR_CHECK=wpa-reassociate; CUR=x; RESN=0\nc_reassoc\n')
+        r, env = self.harness(['ev', 'res', 'c_reassoc', 'wait_assoc', 'net_back'], body, tmp=tmp,
+                              extra_env={'WPALOG': os.path.join(tmp, 'wpa.log'),
+                                         'PATH': bindir + os.pathsep + os.environ.get('PATH', '')})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(self.lines(env['WPALOG'])), 5)
+        self.assertIn('5/5 reassociate commands ok, 5/5 back with address and route',
+                      Path(env['RESFILE']).read_text(encoding='utf-8'))
+
+
+class BenchStaticLoops(unittest.TestCase):
+    def test_every_while_counter_belongs_to_one_function(self):
+        src = text(BENCH)
+        owner = {}
+        cur = None
+        for line in src.splitlines():
+            m = re.match(r'^(\w+)\(\) \{', line)
+            if m:
+                cur = m.group(1)
+            for name in re.findall(r'\b(_\w+)=', line):
+                owner.setdefault(name, set()).add(cur)
+            if line == '}' or (m and line.rstrip().endswith('}')):
+                cur = None
+        counters = set(re.findall(r'while \[ "?\$(\w+)"? -(?:lt|le) ', src))
+        counters |= set(re.findall(r'while \[ "?\$(_\w+)"? -(?:lt|le) ', src))
+        self.assertTrue(counters)
+        for name in counters:
+            self.assertIsInstance(owner.get(name), set, name)
+            self.assertEqual(len(owner[name]), 1, f'loop counter {name} is set in {owner[name]}')
+
+    def test_every_counted_loop_has_an_upper_bound(self):
+        for p in SCRIPTS:
+            for line in code_lines(p):
+                if re.match(r'\s*while \[', line) and '$#' not in line:
+                    self.assertTrue(re.search(r' -(lt|le) ', line), f'{p.name}: loop without a bound: {line}')
+
+
+class BenchTransport(unittest.TestCase):
+    def test_no_scp_anywhere(self):
+        for p in SCRIPTS:
+            for line in code_lines(p):
+                self.assertIsNone(re.search(r'\bscp\b', line), f'{p.name}: {line}')
+
+    def test_every_ssh_command_takes_the_options(self):
+        for line in code_lines(HOST):
+            if re.search(r'(^|[;&|({])\s*ssh\s', line):
+                self.assertIn('SSHO', line, f'ssh without the options: {line}')
+
+    def test_ssh_options_variable_documented(self):
+        self.assertIn('RECETTE_SSH_OPTS', text(HOST))
+        self.assertIn('RECETTE_SSH_OPTS', (CAM / 'README.md').read_text(encoding='utf-8'))
+
+    def test_summary_counts_are_result_lines_by_status(self):
+        for p in SCRIPTS:
+            self.assertIsNone(re.search(r"grep -c ' (PASS|FAIL|SKIP) ", text(p)), p.name)
+        self.assertIn('$1 == "RESULT"', text(BENCH))
+        self.assertIn('$1 == "RESULT"', text(HOST))
 
 
 if __name__ == '__main__':

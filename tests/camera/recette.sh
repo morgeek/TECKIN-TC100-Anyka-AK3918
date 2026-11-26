@@ -32,6 +32,11 @@ UNLAZY=/sys/module/ak39_venc/parameters/irq_unlazy
 CFG=/tmp/recette-cfg
 PASSF=/tmp/recette.pass
 BAD_RE="Oops|BUG:|Unable to handle|WARNING:|soft lockup|hung_task|blocked for more than|nobody cared|Unbalanced enable|otg-hs: ep|Kernel panic|illegal instruction|stack smashing"
+# Hard upper bounds of every loop (defence in depth: a counter that a called function clobbers cannot run past them).
+# Counts are capped at MAX_LOOP, waits in seconds at MAX_WAIT_S. Each helper and check names its own counters (the
+# prefix of the helper: _ws_ for wait_stat, _kc_ for kill_cycles, ...), so no called function resets a caller's counter.
+MAX_LOOP=1000
+MAX_WAIT_S=3600
 
 # ---------------------------------------------------------------------------------------------------------------
 # The check table: ID|check|mode|function|argument.  mode: safe, dist (needs --disruptive), wifi (needs --wifi),
@@ -54,7 +59,7 @@ AUDIT-1116-USB|urb-counters|safe|c_urb|
 AUDIT-1116-USB|wpa-reassociate|wifi|c_reassoc|
 AUDIT-1116-USB|unbind-bind|manual|skip_manual|unbind of the Wi-Fi driver: a failed bind needs the UART (session 2, Mac)
 AUDIT-1116-USB|soak-12h|manual|skip_manual|12 h soak: session 3 (urb-counters and wifi-stall-watch give the readings)
-AUDIT-1116-RTSP|stall-exit|dist|c_stall_exit|
+AUDIT-1116-RTSP|stall-exit|manual|skip_manual|SIGSTOP does not simulate a capture stall (tc100_rtsp.c:4606 discounts a stopped process); a real stall needs the driver to stop delivering frames, and no switch exists for that
 AUDIT-1116-RTSP|no-spurious-exit|safe|c_no_spurious|
 AUDIT-1116-RTSP|arecord-kill|dist|c_arecord|
 AUDIT-1116-RTSP|boot-client-timing|manual|skip_manual|clients within 30 s of a boot: needs a boot (not done by the bench)
@@ -144,7 +149,7 @@ LOGF=$OUT/recette.log
 RESN=0; CUR_ID=; CUR_CHECK=; CUR=
 RUN_T0=$(cut -d' ' -f1 /proc/uptime 2>/dev/null)
 RECETTE_PASS=
-STOPPED_PID=; ORIG_UNLAZY=; PRIV_SET=0; DN_TOUCHED=0; DN_ORIG=0; DN_REAPPLIED=0; WIFI_TOUCHED=0
+ORIG_UNLAZY=; PRIV_SET=0; DN_TOUCHED=0; DN_ORIG=0; DN_REAPPLIED=0; WIFI_TOUCHED=0
 WLAN_ADDR=; WLAN_GW=; STALL_RUNS=0; CONFIG_CHECKED=0
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -183,10 +188,10 @@ last_stat() { grep '^STAT ' "$LOG" 2>/dev/null | tail -n 1; }
 
 # stat_val NAME: the value after NAME in the last STAT line (empty when absent)
 stat_val() {
-  _k=$1
+  _sv_k=$1
   set -- $(last_stat)
   while [ $# -ge 2 ]; do
-    if [ "$1" = "$_k" ]; then echo "$2"; return 0; fi
+    if [ "$1" = "$_sv_k" ]; then echo "$2"; return 0; fi
     shift
   done
   return 0
@@ -194,8 +199,45 @@ stat_val() {
 
 # count of lines matching a pattern in the current video log (the log is emptied at each start)
 log_count() {
-  _n=$(grep -c "$1" "$LOG" 2>/dev/null)
-  echo "${_n:-0}"
+  _lc_n=$(grep -c "$1" "$LOG" 2>/dev/null)
+  echo "${_lc_n:-0}"
+}
+
+# the STAT lines of the current log (the count only grows until the log is rotated: see log_bytes)
+stat_count() {
+  _stc_n=$(grep -c '^STAT ' "$LOG" 2>/dev/null)
+  echo "${_stc_n:-0}"
+}
+
+log_bytes() { wc -c < "$LOG" 2>/dev/null || echo 0; }
+
+# the start lines are read from the current log and from its rotated copy (tc100_rtsp renames the log to LOG.1 when it
+# grows, and the next rotation replaces LOG.1): every file LOG.<n> that exists
+log_all() { cat "$LOG" "$LOG".[0-9]* 2>/dev/null; }
+
+# stat_sum KEY FROM TO: the sum of KEY over the STAT lines FROM+1 .. TO of the current log. Each STAT line holds the count
+# of its own 5 s tick (enc, sub_enc, pp_ms ...), so a window is the sum of its lines.
+stat_sum() {
+  grep '^STAT ' "$LOG" 2>/dev/null | awk -v k="$1" -v a="$2" -v b="$3" 'NR > a && NR <= b {
+    for (i = 1; i < NF; i++) if ($i == k) { s += $(i + 1); break } } END { printf "%d", s + 0 }'
+}
+
+# stat_window_vals KEY FROM TO: one value of KEY per STAT line FROM+1 .. TO (lines without KEY give nothing)
+stat_window_vals() {
+  grep '^STAT ' "$LOG" 2>/dev/null | awk -v k="$1" -v a="$2" -v b="$3" 'NR > a && NR <= b {
+    for (i = 1; i < NF; i++) if ($i == k) { print $(i + 1); break } }'
+}
+
+# stat_mean KEY FROM TO: the integer mean of KEY over those windows (empty when there is none)
+stat_mean() {
+  stat_window_vals "$1" "$2" "$3" | awk '{ s += $1; n++ } END { if (n) printf "%d", s / n }'
+}
+
+# wait_stat_count N: until the current log has at least N STAT lines (MAX_WAIT_S seconds at most)
+wait_stat_count() {
+  _swc_t=0
+  while [ "$(stat_count)" -lt "$1" ] && [ "$_swc_t" -lt 60 ]; do sleep 1; _swc_t=$((_swc_t + 1)); done
+  [ "$(stat_count)" -ge "$1" ]
 }
 
 venc_irq() { set -- $(grep venc /proc/interrupts 2>/dev/null | head -n 1); echo "$2"; }
@@ -206,19 +248,19 @@ ensure_rtsp() {
 
 # wait_stat SECS: a STAT line in the log (the log is emptied at each start, so any STAT line is from this process)
 wait_stat() {
-  _i=0
-  while [ $_i -lt "$1" ]; do
+  _ws_n=0
+  while [ "$_ws_n" -lt "$1" ] && [ "$_ws_n" -lt "$MAX_WAIT_S" ]; do
     grep -q '^STAT ' "$LOG" 2>/dev/null && return 0
-    sleep 1; _i=$((_i + 1))
+    sleep 1; _ws_n=$((_ws_n + 1))
   done
   return 1
 }
 
 wait_gone() {
-  _i=0
-  while [ $_i -lt "$2" ]; do
+  _wg_n=0
+  while [ "$_wg_n" -lt "$2" ] && [ "$_wg_n" -lt "$MAX_WAIT_S" ]; do
     kill -0 "$1" 2>/dev/null || return 0
-    sleep 1; _i=$((_i + 1))
+    sleep 1; _wg_n=$((_wg_n + 1))
   done
   return 1
 }
@@ -230,10 +272,10 @@ wlan_addr_now() { ip -4 addr show dev wlan0 2>/dev/null | sed -n 's/.*inet \([0-
 wlan_assoc() { iw dev wlan0 link 2>/dev/null | grep -q Connected; }
 
 wait_assoc() {
-  _i=0
-  while [ $_i -lt "$1" ]; do
+  _wa_n=0
+  while [ "$_wa_n" -lt "$1" ] && [ "$_wa_n" -lt "$MAX_WAIT_S" ]; do
     wlan_assoc && return 0
-    sleep 1; _i=$((_i + 1))
+    sleep 1; _wa_n=$((_wa_n + 1))
   done
   return 1
 }
@@ -257,11 +299,11 @@ net_static_fill() {
 # net_back SECS: wait for the address and the default route; after 5 s ask udhcpc to renew (SIGUSR1), then put the
 # saved values back. True only when both are there.
 net_back() {
-  _i=0
-  while [ $_i -lt "$1" ]; do
+  _nb_n=0
+  while [ "$_nb_n" -lt "$1" ] && [ "$_nb_n" -lt "$MAX_WAIT_S" ]; do
     [ -n "$(wlan_addr_now)" ] && [ -n "$(gateway)" ] && return 0
-    if [ $_i -eq 5 ]; then _up=$(pidof udhcpc 2>/dev/null); [ -n "$_up" ] && kill -USR1 $_up 2>/dev/null; fi
-    sleep 1; _i=$((_i + 1))
+    if [ "$_nb_n" -eq 5 ]; then _nb_up=$(pidof udhcpc 2>/dev/null); [ -n "$_nb_up" ] && kill -USR1 $_nb_up 2>/dev/null; fi
+    sleep 1; _nb_n=$((_nb_n + 1))
   done
   net_static_fill
   [ -n "$(wlan_addr_now)" ] && [ -n "$(gateway)" ]
@@ -274,11 +316,11 @@ wlan_recover() { wlan_up; wpa_cli -i wlan0 reassociate >/dev/null 2>&1; }
 # wlan_restore: up, association, address and route; three tries of 60 s + 30 s, then it reports the state
 wlan_restore() {
   wlan_up
-  _r=0
-  while [ $_r -lt 3 ]; do
+  _wr_n=0
+  while [ "$_wr_n" -lt 3 ]; do
     if wait_assoc 60 && net_back 30; then return 0; fi
     wlan_recover
-    _r=$((_r + 1))
+    _wr_n=$((_wr_n + 1))
   done
   wlan_assoc && [ -n "$(wlan_addr_now)" ] && [ -n "$(gateway)" ]
 }
@@ -360,31 +402,34 @@ dn_settle() {
 # rtsp-launch.sh, the script the boot calls). One line per cycle in FILE: "<n> ok ..." or "<n> BAD|no-process|stuck ...".
 # Sets K_OK and K_BAD.
 kill_cycles() {
-  K_OK=0; K_BAD=0; : > "$2"
-  _i=0
-  while [ $_i -lt "$1" ]; do
-    _i=$((_i + 1))
+  _kc_want=$1; _kc_file=$2; _kc_n=0
+  case "$_kc_want" in ''|*[!0-9]*) _kc_want=0 ;; esac
+  K_OK=0; K_BAD=0; : > "$_kc_file"
+  # the loop ends at the requested count, and also when the outcomes so far (each cycle adds exactly one to K_OK or
+  # K_BAD) reach it: a counter that a called function clobbers cannot make it run longer
+  while [ "$_kc_n" -lt "$_kc_want" ] && [ "$_kc_n" -lt "$MAX_LOOP" ] && [ $((K_OK + K_BAD)) -lt "$_kc_want" ]; do
+    _kc_n=$((_kc_n + 1))
     ensure_rtsp
-    _p0=$(rtsp_pid); _v0=$(venc_irq); _s0=$(ctr starts); _x0=$(ctr exit3)
-    if [ -z "$_p0" ]; then K_BAD=$((K_BAD + 1)); echo "$_i no-process" >> "$2"; continue; fi
-    kill -TERM "$_p0" 2>/dev/null
-    if ! wait_gone "$_p0" 15; then
-      K_BAD=$((K_BAD + 1)); echo "$_i stuck-after-TERM pid=$_p0" >> "$2"; kill -9 "$_p0" 2>/dev/null; continue
+    _kc_p0=$(rtsp_pid); _kc_v0=$(venc_irq); _kc_s0=$(ctr starts); _kc_x0=$(ctr exit3)
+    if [ -z "$_kc_p0" ]; then K_BAD=$((K_BAD + 1)); echo "$_kc_n no-process" >> "$_kc_file"; continue; fi
+    kill -TERM "$_kc_p0" 2>/dev/null
+    if ! wait_gone "$_kc_p0" 15; then
+      K_BAD=$((K_BAD + 1)); echo "$_kc_n stuck-after-TERM pid=$_kc_p0" >> "$_kc_file"; kill -9 "$_kc_p0" 2>/dev/null; continue
     fi
     sh /mnt/controlscripts/rtsp-h26x start >/dev/null 2>&1
-    _ok=1
-    wait_stat 45 || _ok=0
-    _p1=$(rtsp_pid); _v1=$(venc_irq); _pf=$(log_count 'picture failed'); _s1=$(ctr starts); _x1=$(ctr exit3)
-    [ -n "$_p1" ] && [ "$_p1" != "$_p0" ] || _ok=0
-    [ -n "$_v0" ] && [ -n "$_v1" ] && [ "$_v1" -gt "$_v0" ] 2>/dev/null || _ok=0
-    [ "$_pf" = 0 ] || _ok=0
-    [ -n "$_x0" ] && [ "$_x1" = "$_x0" ] || _ok=0
-    if [ $_ok = 1 ]; then
+    _kc_ok=1
+    wait_stat 45 || _kc_ok=0
+    _kc_p1=$(rtsp_pid); _kc_v1=$(venc_irq); _kc_pf=$(log_count 'picture failed'); _kc_s1=$(ctr starts); _kc_x1=$(ctr exit3)
+    [ -n "$_kc_p1" ] && [ "$_kc_p1" != "$_kc_p0" ] || _kc_ok=0
+    [ -n "$_kc_v0" ] && [ -n "$_kc_v1" ] && [ "$_kc_v1" -gt "$_kc_v0" ] 2>/dev/null || _kc_ok=0
+    [ "$_kc_pf" = 0 ] || _kc_ok=0
+    [ -n "$_kc_x0" ] && [ "$_kc_x1" = "$_kc_x0" ] || _kc_ok=0
+    if [ "$_kc_ok" = 1 ]; then
       K_OK=$((K_OK + 1))
-      echo "$_i ok irq+$((_v1 - _v0)) starts+$(( ${_s1:-0} - ${_s0:-0} )) picture_failed=$_pf" >> "$2"
+      echo "$_kc_n ok irq+$((_kc_v1 - _kc_v0)) starts+$(( ${_kc_s1:-0} - ${_kc_s0:-0} )) picture_failed=$_kc_pf" >> "$_kc_file"
     else
       K_BAD=$((K_BAD + 1))
-      echo "$_i BAD pid=$_p1 irq_before=$_v0 irq_after=$_v1 picture_failed=$_pf exit3_before=$_x0 exit3_after=$_x1" >> "$2"
+      echo "$_kc_n BAD pid=$_kc_p1 irq_before=$_kc_v0 irq_after=$_kc_v1 picture_failed=$_kc_pf exit3_before=$_kc_x0 exit3_after=$_kc_x1" >> "$_kc_file"
     fi
   done
 }
@@ -436,14 +481,14 @@ c_kill_loop() {
 }
 
 c_stream_cycles() {
-  _n=${RECETTE_STREAM_CYCLES:-20}; _ok=0; _i=0
-  while [ $_i -lt "$_n" ]; do
-    _i=$((_i + 1))
+  _sc_want=${RECETTE_STREAM_CYCLES:-20}; _sc_ok=0; _sc_n=0
+  while [ "$_sc_n" -lt "$_sc_want" ] && [ "$_sc_n" -lt "$MAX_LOOP" ]; do
+    _sc_n=$((_sc_n + 1))
     sh /mnt/controlscripts/rtsp-h26x stop >/dev/null 2>&1; sleep 2
     sh /mnt/controlscripts/rtsp-h26x start >/dev/null 2>&1
-    wait_stat 45 && [ -n "$(rtsp_pid)" ] && _ok=$((_ok + 1))
+    wait_stat 45 && [ -n "$(rtsp_pid)" ] && _sc_ok=$((_sc_ok + 1))
   done
-  res $([ "$_ok" = "$_n" ] && echo PASS || echo FAIL) "$_ok/$_n stop + start cycles with a STAT line after each start"
+  res $([ "$_sc_ok" = "$_sc_want" ] && echo PASS || echo FAIL) "$_sc_ok/$_sc_want stop + start cycles with a STAT line after each start"
 }
 
 c_irq_switch() {
@@ -480,50 +525,56 @@ c_irq_control() {
 
 c_irq_sample() {
   if [ -z "$(rtsp_pid)" ] || [ -z "$(stat_val enc)" ]; then res SKIP "tc100_rtsp not streaming: no STAT line"; return; fi
-  _v0=$(venc_irq); _e0=$(stat_val enc); _s0=$(stat_val sub_enc); _pf0=$(log_count 'picture failed')
+  _is_v0=$(venc_irq); _is_n0=$(stat_count); _is_b0=$(log_bytes); _is_pf0=$(log_count 'picture failed')
   sleep 60
-  _v1=$(venc_irq); _e1=$(stat_val enc); _s1=$(stat_val sub_enc); _pf1=$(log_count 'picture failed')
-  if [ -z "$_v0" ] || [ -z "$_v1" ] || [ -z "$_e0" ] || [ -z "$_e1" ]; then res FAIL "interrupt or enc counter missing"; return; fi
-  _dv=$((_v1 - _v0)); _de=$(( (_e1 - _e0) + (${_s1:-0} - ${_s0:-0}) ))
-  ev "60 s: irq +$_dv, enc+sub_enc +$_de, picture failed +$((_pf1 - _pf0))"
-  if [ "$_pf1" != "$_pf0" ]; then res FAIL "picture failed lines in 60 s"
-  elif [ "$_de" -gt 0 ] && [ "$_dv" -gt 0 ] && [ "$_dv" -le $((_de * 12 / 10 + 10)) ]; then res PASS "irq +$_dv for $_de encoded pictures in 60 s, no failed picture"
+  _is_v1=$(venc_irq); _is_n1=$(stat_count); _is_b1=$(log_bytes); _is_pf1=$(log_count 'picture failed')
+  if [ -z "$_is_v0" ] || [ -z "$_is_v1" ]; then res FAIL "interrupt counter missing (no venc line in /proc/interrupts)"; return; fi
+  if [ "$_is_n1" -lt "$_is_n0" ] || [ "$_is_b1" -lt "$_is_b0" ]; then res SKIP "video log rotated during the 60 s: not counted"; return; fi
+  # the window is every STAT line that came in the 60 s (one line per 5 s tick, each with the pictures of its tick), not
+  # two single lines: enc (main) and sub_enc (sub stream, same encoder interrupt) are summed over the window
+  _is_w=$((_is_n1 - _is_n0))
+  _is_e=$(stat_sum enc "$_is_n0" "$_is_n1"); _is_s=$(stat_sum sub_enc "$_is_n0" "$_is_n1")
+  _dv=$((_is_v1 - _is_v0)); _de=$((_is_e + _is_s))
+  ev "60 s: irq +$_dv; $_is_w STAT windows: enc +$_is_e, sub_enc +$_is_s, pictures +$_de; picture failed +$((_is_pf1 - _is_pf0)). JPEG snapshots are not in STAT and not counted"
+  if [ "$_is_pf1" != "$_is_pf0" ]; then res FAIL "picture failed lines in 60 s"
+  elif [ "$_is_w" -lt 1 ]; then res SKIP "no STAT line in 60 s"
+  elif [ "$_de" -gt 0 ] && [ "$_dv" -gt 0 ] && [ "$_dv" -le $((_de * 12 / 10 + 10)) ]; then res PASS "irq +$_dv for $_de encoded pictures (enc + sub_enc of $_is_w STAT windows) in 60 s, no failed picture"
   elif [ "$_de" -eq 0 ]; then res SKIP "no picture encoded in 60 s (no viewer?)"
-  else res FAIL "irq +$_dv for $_de pictures: a replay or a lost interrupt"
+  else res FAIL "irq +$_dv for $_de pictures (enc + sub_enc of $_is_w STAT windows): a replay or a lost interrupt"
   fi
 }
 
 c_wlan_cycles() {
   command -v iw >/dev/null 2>&1 || { res SKIP "no iw on the PATH (/mnt/ext/bin)"; return; }
-  _n=${RECETTE_WIFI_CYCLES:-20}; WIFI_TOUCHED=1
+  _wc_want=${RECETTE_WIFI_CYCLES:-20}; WIFI_TOUCHED=1
   net_save
   if [ -z "$WLAN_GW" ] || [ -z "$WLAN_ADDR" ]; then res FAIL "no address or default route before the test (address '$WLAN_ADDR', gateway '$WLAN_GW')"; return; fi
-  _slow=0; _lost=0; _bad=0; _i=0
+  _wc_slow=0; _wc_lost=0; _wc_bad=0; _wc_n=0
   ev "clients $(stat_val clients) at start"
-  while [ $_i -lt "$_n" ]; do
-    _i=$((_i + 1))
-    _t0=$(upt); wlan_down; _t1=$(upt)
-    _d=$(awk "BEGIN{print $_t1-$_t0}")
-    awk "BEGIN{exit !($_d > 1.0)}" && _slow=$((_slow + 1))
+  while [ "$_wc_n" -lt "$_wc_want" ] && [ "$_wc_n" -lt "$MAX_LOOP" ]; do
+    _wc_n=$((_wc_n + 1))
+    _wc_t0=$(upt); wlan_down; _wc_t1=$(upt)
+    _wc_d=$(awk "BEGIN{print $_wc_t1-$_wc_t0}")
+    awk "BEGIN{exit !($_wc_d > 1.0)}" && _wc_slow=$((_wc_slow + 1))
     sleep 2
     wlan_up
     if ! wait_assoc 60 || ! net_back 30; then
-      _bad=$((_bad + 1)); ev "cycle $_i: association, address or default route not back"
+      _wc_bad=$((_wc_bad + 1)); ev "cycle $_wc_n: association, address or default route not back"
       wlan_restore >/dev/null || break
       continue
     fi
-    _r=$(ping -c 30 -W 1 "$WLAN_GW" 2>/dev/null | grep 'packets transmitted')
-    if [ -z "$_r" ]; then _lost=$((_lost + 1)); ev "cycle $_i: no ping summary"; continue; fi
-    set -- $_r
-    _lo=$(( ${1:-0} - ${4:-0} ))
-    [ "$_lo" -gt 1 ] && _lost=$((_lost + 1))
-    ev "cycle $_i: down ${_d}s, ping lost $_lo of ${1:-0}, clients $(stat_val clients)"
+    _wc_r=$(ping -c 30 -W 1 "$WLAN_GW" 2>/dev/null | grep 'packets transmitted')
+    if [ -z "$_wc_r" ]; then _wc_lost=$((_wc_lost + 1)); ev "cycle $_wc_n: no ping summary"; continue; fi
+    set -- $_wc_r
+    _wc_lo=$(( ${1:-0} - ${4:-0} ))
+    [ "$_wc_lo" -gt 1 ] && _wc_lost=$((_wc_lost + 1))
+    ev "cycle $_wc_n: down ${_wc_d}s, ping lost $_wc_lo of ${1:-0}, clients $(stat_val clients)"
   done
-  wlan_restore || _bad=$((_bad + 1))
-  if [ "$_bad" = 0 ] && [ "$_slow" = 0 ] && [ "$_lost" = 0 ] && [ "$_i" -ge 1 ]; then
-    res PASS "$_i down/up cycles: each down under 1 s, association, address and default route back, no ping loss after the first second"
+  wlan_restore || _wc_bad=$((_wc_bad + 1))
+  if [ "$_wc_bad" = 0 ] && [ "$_wc_slow" = 0 ] && [ "$_wc_lost" = 0 ] && [ "$_wc_n" -ge 1 ]; then
+    res PASS "$_wc_n down/up cycles: each down under 1 s, association, address and default route back, no ping loss after the first second"
   else
-    res FAIL "$_i cycles: $_slow slow down(s), $_lost with ping loss, $_bad without association/address/route (restored by retries: $(wlan_assoc && echo associated || echo NOT associated))"
+    res FAIL "$_wc_n cycles: $_wc_slow slow down(s), $_wc_lost with ping loss, $_wc_bad without association/address/route (restored by retries: $(wlan_assoc && echo associated || echo NOT associated))"
   fi
 }
 
@@ -542,55 +593,24 @@ c_reassoc() {
   command -v wpa_cli >/dev/null 2>&1 || { res SKIP "no wpa_cli on the PATH (/mnt/ext/bin)"; return; }
   command -v iw >/dev/null 2>&1 || { res SKIP "no iw on the PATH (/mnt/ext/bin)"; return; }
   WIFI_TOUCHED=1; net_save
-  _cmd=0; _drop=0; _ok=0; _i=0
-  while [ $_i -lt 5 ]; do
-    _i=$((_i + 1))
-    _o=$(wpa_cli -i wlan0 reassociate 2>&1); _rc=$?
-    if [ "$_rc" = 0 ] && ! echo "$_o" | grep -q FAIL; then _cmd=$((_cmd + 1)); else ev "cycle $_i: reassociate failed: $_o"; fi
-    _j=0; _dropped=0
-    while [ $_j -lt 15 ]; do
-      wlan_assoc || { _dropped=1; break; }
-      sleep 0.2; _j=$((_j + 1))
+  _ra_cmd=0; _ra_drop=0; _ra_ok=0; _ra_n=0
+  while [ "$_ra_n" -lt 5 ]; do
+    _ra_n=$((_ra_n + 1))
+    _ra_o=$(wpa_cli -i wlan0 reassociate 2>&1); _ra_rc=$?
+    if [ "$_ra_rc" = 0 ] && ! echo "$_ra_o" | grep -q FAIL; then _ra_cmd=$((_ra_cmd + 1)); else ev "cycle $_ra_n: reassociate failed: $_ra_o"; fi
+    # a drop is looked for for 3 s: evidence only. A reassociate may be too quick to see, and the USB entry asks for the
+    # commands, not for a drop; the criterion is the link back with its address and route (wait_assoc, net_back)
+    _ra_j=0; _ra_dropped=0
+    while [ "$_ra_j" -lt 15 ]; do
+      wlan_assoc || { _ra_dropped=1; break; }
+      sleep 0.2; _ra_j=$((_ra_j + 1))
     done
-    [ "$_dropped" = 1 ] && _drop=$((_drop + 1))
-    wait_assoc 60 && net_back 30 && _ok=$((_ok + 1))
+    [ "$_ra_dropped" = 1 ] && _ra_drop=$((_ra_drop + 1))
+    ev "cycle $_ra_n: drop seen in 3 s: $_ra_dropped"
+    wait_assoc 60 && net_back 30 && _ra_ok=$((_ra_ok + 1))
   done
   wlan_restore >/dev/null
-  res $([ "$_cmd" = 5 ] && [ "$_drop" = 5 ] && [ "$_ok" = 5 ] && echo PASS || echo FAIL) "$_cmd/5 reassociate commands ok, $_drop/5 link drops seen, $_ok/5 back with address and route"
-}
-
-c_stall_exit() {
-  if grep -qs 'RTSP_CAPTURE_STALL_S' /mnt/config/rtsp.env; then
-    res SKIP "rtsp.env sets RTSP_CAPTURE_STALL_S: remove it for the test (the bench does not change /mnt/config)"; return
-  fi
-  _x0=$(ctr exit3)
-  if [ -z "$_x0" ]; then res FAIL "no counters file: exit3 unknown before the test"; return; fi
-  _p=$(rtsp_pid)
-  if [ -n "$_p" ]; then kill -TERM "$_p" 2>/dev/null; wait_gone "$_p" 15; fi
-  RTSP_CAPTURE_STALL_S=5 sh /mnt/tc100test/rtsp-launch.sh >/dev/null 2>&1
-  if ! wait_stat 45 || [ -z "$(rtsp_pid)" ]; then
-    ensure_rtsp; res FAIL "no STAT line with RTSP_CAPTURE_STALL_S=5"; return
-  fi
-  _p=$(rtsp_pid); STOPPED_PID=$_p
-  kill -STOP "$_p" 2>/dev/null; sleep 12; kill -CONT "$_p" 2>/dev/null; STOPPED_PID=
-  _i=0; _gone=0
-  while [ $_i -lt 40 ]; do
-    if ! kill -0 "$_p" 2>/dev/null; then _gone=1; break; fi
-    sleep 1; _i=$((_i + 1))
-  done
-  _msg=$(log_count 'no frame for')
-  ev "stopped 12 s; exit seen: $_gone; 'no frame for' lines: $_msg"
-  # an instance that did not exit keeps the 5 s limit: stop it, then the normal arguments below
-  if [ "$_gone" = 0 ]; then kill -TERM "$_p" 2>/dev/null; wait_gone "$_p" 15 || kill -9 "$_p" 2>/dev/null; fi
-  [ "$_gone" = 1 ] && STALL_RUNS=$((STALL_RUNS + 1))
-  sleep 2; sh /mnt/controlscripts/rtsp-h26x start >/dev/null 2>&1; wait_stat 45
-  _x1=$(ctr exit3)
-  if grep -qs 'RTSP_CAPTURE_STALL_S' /mnt/config/rtsp.env; then ev "RTSP_CAPTURE_STALL_S found in rtsp.env after the test"; fi
-  if [ "$_gone" = 1 ] && [ "$_msg" -ge 1 ] && [ -n "$_x1" ] && [ "$((_x1 - _x0))" = 1 ] && [ -n "$(rtsp_pid)" ]; then
-    res PASS "no frame for 5 s logged, exit 3, exit3 +1, stream back with the normal arguments"
-  else
-    res FAIL "exit seen=$_gone, no-frame lines=$_msg, exit3 +$(( ${_x1:-0} - _x0 )), pid '$(rtsp_pid)'"
-  fi
+  res $([ "$_ra_cmd" = 5 ] && [ "$_ra_ok" = 5 ] && echo PASS || echo FAIL) "$_ra_cmd/5 reassociate commands ok, $_ra_ok/5 back with address and route (drops seen $_ra_drop/5: evidence, not a criterion)"
 }
 
 c_no_spurious() {
@@ -658,38 +678,70 @@ c_dn_cycles() {
   if [ ! -f /var/run/isp_tune.status ]; then res SKIP "no isp_tune status: hue not in the ISP"; return; fi
   _h0=$(sed -n 's/^HUE=//p' /var/run/isp_tune.status | head -n 1)
   if [ -z "$_h0" ]; then res FAIL "no HUE= line in the status file"; return; fi
-  _n=${RECETTE_DN_CYCLES:-2}
+  _dn_want=${RECETTE_DN_CYCLES:-2}
   night_now && DN_ORIG=1 || DN_ORIG=0
   DN_TOUCHED=1
-  _c0=$(cat "$LOG" "$LOG.1" 2>/dev/null | grep -c 'in the ISP')
-  _k=0; _i=0; _bad=0
-  while [ $_i -lt "$_n" ]; do
-    _i=$((_i + 1))
+  _c0=$(log_all | grep -c 'in the ISP')
+  _dn_k=0; _dn_n=0; _dn_bad=0
+  while [ "$_dn_n" -lt "$_dn_want" ] && [ "$_dn_n" -lt "$MAX_LOOP" ]; do
+    _dn_n=$((_dn_n + 1))
     dn_set on; sleep 5
     dn_set off; sleep 5
     _h=$(sed -n 's/^HUE=//p' /var/run/isp_tune.status | head -n 1)
-    [ "$_h" = "$_h0" ] || _bad=$((_bad + 1))
-    _k=$((_k + 1))
+    [ "$_h" = "$_h0" ] || _dn_bad=$((_dn_bad + 1))
+    _dn_k=$((_dn_k + 1))
   done
   dn_settle
-  _hl=$(cat "$LOG" "$LOG.1" 2>/dev/null | grep -c 'in the ISP')
+  _hl=$(log_all | grep -c 'in the ISP')
   ev "hue before $_h0, after the cycles $_h, ISP lines $_c0 -> $_hl, started at night: $DN_ORIG"
-  res $([ "$_bad" = 0 ] && [ "$_hl" -gt "$_c0" ] && echo PASS || echo FAIL) "$_k day/night cycles: HUE stays $_h0 after each return, ISP lines $_c0 -> $_hl"
+  res $([ "$_dn_bad" = 0 ] && [ "$_hl" -gt "$_c0" ] && echo PASS || echo FAIL) "$_dn_k day/night cycles: HUE stays $_h0 after each return, ISP lines $_c0 -> $_hl"
 }
 
 c_privacy() {
   if [ -e /tmp/tc100_privacy ]; then res SKIP "privacy already on at the start: not measured"; return; fi
-  _miss=0; _p0=0; _p1=0
-  for _i in 1 2 3; do _v=$(stat_val pp_ms); [ -n "$_v" ] || _miss=1; _p0=$((_p0 + ${_v:-0})); sleep 6; done
+  # The windows are the STAT lines (one per 5 s tick). Without privacy: the windows of the 30 s before the switch. With
+  # privacy: the windows after the first one that came after the file appeared (that window holds the switch itself).
+  # After removal: the first window after the removal is skipped and the next two are recorded, as evidence only.
+  _pv_a0=$(stat_count)
+  wait_stat_count $((_pv_a0 + 6)) || true
+  _pv_a1=$(stat_count)
   touch /tmp/tc100_privacy; PRIV_SET=1
-  sleep 16
-  for _i in 1 2 3; do _v=$(stat_val pp_ms); [ -n "$_v" ] || _miss=1; _p1=$((_p1 + ${_v:-0})); sleep 6; done
+  _pv_b0=$(stat_count)
+  wait_stat_count $((_pv_b0 + 7)) || true
+  _pv_b1=$(stat_count)
   rm -f /tmp/tc100_privacy; PRIV_SET=0
-  if [ "$_miss" = 1 ]; then res FAIL "no pp_ms in the STAT lines (privacy file removed)"; return; fi
-  _a=$((_p0 / 3)); _b=$((_p1 / 3))
-  ev "pp_ms without privacy $_a, with /tmp/tc100_privacy $_b (3 STAT lines each)"
+  _pv_c0=$(stat_count)
+  wait_stat_count $((_pv_c0 + 3)) || true
+  _pv_c1=$(stat_count)
+  if [ "$_pv_a1" -lt "$_pv_a0" ] || [ "$_pv_b1" -lt "$_pv_b0" ] || [ "$_pv_c1" -lt "$_pv_c0" ]; then
+    res SKIP "video log rotated during the test: not measured"; return
+  fi
+  # the evidence: every window, per key, in the three phases
+  for _pv_k in pp_ms sub_ms cap enc; do
+    ev "$_pv_k without privacy (all windows): $(stat_window_vals $_pv_k "$_pv_a0" "$_pv_a1" | tr '\n' ' ')"
+    ev "$_pv_k with privacy (first window after the file appeared skipped): $(stat_window_vals $_pv_k $((_pv_b0 + 1)) "$_pv_b1" | tr '\n' ' ')"
+    ev "$_pv_k after removal (first window skipped, evidence only): $(stat_window_vals $_pv_k $((_pv_c0 + 1)) "$_pv_c1" | tr '\n' ' ')"
+  done
+  _pv_pa=$(stat_mean pp_ms "$_pv_a0" "$_pv_a1");           _pv_pb=$(stat_mean pp_ms $((_pv_b0 + 1)) "$_pv_b1")
+  _pv_ca=$(stat_mean cap "$_pv_a0" "$_pv_a1");             _pv_cb=$(stat_mean cap $((_pv_b0 + 1)) "$_pv_b1")
+  _pv_ea=$(stat_mean enc "$_pv_a0" "$_pv_a1");             _pv_eb=$(stat_mean enc $((_pv_b0 + 1)) "$_pv_b1")
+  _pv_sa=$(stat_mean sub_ms "$_pv_a0" "$_pv_a1");          _pv_sb=$(stat_mean sub_ms $((_pv_b0 + 1)) "$_pv_b1")
   [ -n "$(rtsp_pid)" ] || ensure_rtsp
-  res $([ "$_b" -le "$_a" ] && echo PASS || echo FAIL) "pp_ms mean without privacy $_a, with privacy $_b (privacy file removed)"
+  if [ -z "$_pv_pa" ] || [ -z "$_pv_pb" ]; then res FAIL "no pp_ms in the STAT lines (privacy file removed)"; return; fi
+  if [ -z "$_pv_ca" ] || [ -z "$_pv_cb" ] || [ -z "$_pv_ea" ] || [ -z "$_pv_eb" ]; then res FAIL "no cap or enc in the STAT lines"; return; fi
+  if [ "$_pv_ca" -le 0 ] || [ "$_pv_ea" -le 0 ]; then res SKIP "no frame captured or encoded in the windows without privacy: not judged (no viewer?)"; return; fi
+  # the criterion: privacy must not lose frames. A window of 5 s with privacy that has less than 90% of the captured or
+  # encoded pictures of a window without privacy fails. pp_ms itself is the cost of the mask and is not judged here (the
+  # bench cannot tell W1's gain without an old-build run: see test-queue W1-PRIVFILL).
+  _pv_lost=
+  [ $((_pv_cb * 10)) -lt $((_pv_ca * 9)) ] && _pv_lost="cap $_pv_ca -> $_pv_cb"
+  [ $((_pv_eb * 10)) -lt $((_pv_ea * 9)) ] && _pv_lost="$_pv_lost enc $_pv_ea -> $_pv_eb"
+  ev "mean per window: pp_ms $_pv_pa -> $_pv_pb, sub_ms $_pv_sa -> $_pv_sb, cap $_pv_ca -> $_pv_cb, enc $_pv_ea -> $_pv_eb (without -> with privacy)"
+  if [ -n "$_pv_lost" ]; then
+    res FAIL "frames lost under privacy (more than 10% per window): $_pv_lost; pp_ms $_pv_pa -> $_pv_pb"
+  else
+    res PASS "no frame lost under privacy: cap $_pv_ca -> $_pv_cb, enc $_pv_ea -> $_pv_eb per window; pp_ms $_pv_pa -> $_pv_pb (the cost of the mask, evidence)"
+  fi
 }
 
 c_w3_log() {
@@ -724,9 +776,9 @@ c_hw_state() {
   mk_cfg || { res SKIP "no password"; return; }
   if [ ! -f /tmp/log/audit.log ]; then res SKIP "no /tmp/log/audit.log: nothing to count"; return; fi
   _n0=$(grep -c 'cmd=hw_state' /tmp/log/audit.log 2>/dev/null); _n0=${_n0:-0}
-  _i=0; _codes=
-  while [ $_i -lt 5 ]; do
-    _i=$((_i + 1))
+  _hw_n=0; _codes=
+  while [ "$_hw_n" -lt 5 ]; do
+    _hw_n=$((_hw_n + 1))
     _c=$(curl -s -K "$CFG" -o /dev/null -w '%{http_code}' "http://127.0.0.1/cgi-bin/action.cgi?cmd=hw_state&format=json")
     _codes="$_codes $_c"
   done
@@ -751,12 +803,15 @@ c_stat_fields() {
 }
 
 c_start_lines() {
-  _d=$(log_count 'direct capture: buffer')
-  _g=$(log_count 'no guard at its start')
-  _c=$(log_count 'encoder pool: no picture copy')
-  ev "direct capture lines $_d, no-picture-copy lines $_c, old guard lines $_g"
-  if [ "${_d:-0}" -ge 1 ] && [ "${_g:-0}" = 0 ]; then res PASS "direct capture buffers logged, no old pool-guard line"
-  else res FAIL "direct capture lines ${_d:-0}, old pool-guard lines ${_g:-0}"; fi
+  # the start lines leave the current log by rotation (LOG.1 after the first trim): both are read, and the rotated copy
+  # of any older rotation that exists
+  _d=$(log_all | grep -c 'direct capture: buffer')
+  _g=$(log_all | grep -c 'no guard at its start')
+  _c=$(log_all | grep -c 'encoder pool: no picture copy')
+  ev "direct capture lines $_d, no-picture-copy lines $_c, old guard lines $_g (current log and rotated copies)"
+  if [ "${_g:-0}" -ge 1 ]; then res FAIL "old pool-guard lines ${_g} in the logs (the guard was removed on 2026-10-29)"; return; fi
+  if [ "${_d:-0}" -ge 1 ]; then res PASS "direct capture buffers logged, no old pool-guard line"; return; fi
+  res SKIP "start lines rotated out: no direct capture line in the current log or its rotated copies (read it right after a start)"
 }
 
 c_daynight_lines() {
@@ -805,9 +860,9 @@ c_fork_rate() {
 c_counters_stat() {
   if [ ! -f /tmp/tc100_rtsp.counters ]; then res FAIL "no /tmp/tc100_rtsp.counters"; return; fi
   _ok=1; _shown=
-  for _k in starts pic_fail enc_reopen cap_stall dq_err sub_off exit3; do
-    _s=$(stat_val $_k); _c=$(ctr $_k)
-    if [ -z "$_s" ] || [ -z "$_c" ] || [ "$_s" != "$_c" ]; then _ok=0; fi
+  for _cs_k in starts pic_fail enc_reopen cap_stall dq_err sub_off exit3; do
+    _cs_s=$(stat_val "$_cs_k"); _cs_c=$(ctr "$_cs_k")
+    if [ -z "$_cs_s" ] || [ -z "$_cs_c" ] || [ "$_cs_s" != "$_cs_c" ]; then _ok=0; fi
   done
   res $([ $_ok = 1 ] && echo PASS || echo FAIL) "STAT tail and counters file agree: starts $(ctr starts), pic_fail $(ctr pic_fail), exit3 $(ctr exit3)"
 }
@@ -844,12 +899,11 @@ c_top() {
 }
 
 # ---------------------------------------------------------------------------------------------------------------
-# cleanup: runs at the end and on EXIT, INT, TERM. Stops a SIGSTOPped check first, restores what a check changed,
+# cleanup: runs at the end and on EXIT, INT, TERM. Restores what a check changed,
 # compares /mnt/config, leaves the video running.
 # ---------------------------------------------------------------------------------------------------------------
 cleanup() {
   trap '' EXIT INT TERM
-  [ -n "$STOPPED_PID" ] && kill -CONT "$STOPPED_PID" 2>/dev/null
   [ -n "$ORIG_UNLAZY" ] && echo "$ORIG_UNLAZY" > "$UNLAZY" 2>/dev/null
   [ "$PRIV_SET" = 1 ] && rm -f /tmp/tc100_privacy
   if [ "$DN_TOUCHED" = 1 ]; then dn_settle; fi
@@ -887,8 +941,9 @@ echo "start $(date) out $OUT" >> "$LOGF"
 printf '%s\n' "$CHECKS" > "$OUT/checks.txt"
 config_snapshot
 
-# the loop reads a file, not a pipe: the variables the checks set (restore state) stay in this shell for the trap
-while IFS='|' read -r id name mode fn arg; do
+# the loop reads the list on fd 3, and each check runs with stdin on /dev/null: a command that reads its stdin cannot eat
+# the rest of the list. The variables the checks set (restore state) stay in this shell for the trap.
+while IFS='|' read -r id name mode fn arg <&3; do
   selected "$id" || continue
   CUR_ID=$id; CUR_CHECK=$name; CUR="$id/$name"
   case "$mode" in
@@ -897,15 +952,17 @@ while IFS='|' read -r id name mode fn arg; do
     manual) skip_manual "$arg"; continue ;;
   esac
   _before=$RESN
-  "$fn"
+  "$fn" </dev/null
   [ "$RESN" = "$_before" ] && res FAIL "the check printed no result"
-done < "$OUT/checks.txt"
+done 3< "$OUT/checks.txt"
 
 config_check
 
 RUN_T1=$(upt)
 TOTAL=$(awk "BEGIN{printf \"%d\", $RUN_T1 - ${RUN_T0:-$RUN_T1}}")
-P=$(grep -c ' PASS' "$RESFILE"); F=$(grep -c ' FAIL' "$RESFILE"); S=$(grep -c ' SKIP' "$RESFILE")
+# the counts are the RESULT lines by their status field (field 4), not a grep of the text: evidence can hold the word
+set -- $(awk '$1 == "RESULT" { c[$4]++ } END { printf "%d %d %d", c["PASS"] + 0, c["FAIL"] + 0, c["SKIP"] + 0 }' "$RESFILE")
+P=$1; F=$2; S=$3
 {
   echo "== recette summary ($OUT)"
   awk '{ ev=""; for (i = 5; i <= NF; i++) ev = ev $i " "; printf "%-5s %-46s %.90s\n", $4, $2 " " $3, ev }' "$RESFILE"

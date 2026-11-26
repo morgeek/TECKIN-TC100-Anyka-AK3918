@@ -5,9 +5,9 @@
 # TEST TOOL, kept in tests/camera/, never part of a build. It does three things:
 #   1. the checks that must come from another LAN address (HTTP 431, wrong-login lockout, RTSP SETUP 404, a client that
 #      stops reading, ONVIF without auth, ffprobe of the two streams, mDNS, the retained MQTT command, two MQTT events);
-#   2. copies recette.sh to the camera and starts it DETACHED (results in a folder on the camera), so the checks that
-#      cut the Wi-Fi do not stop it; it polls until the bench writes its done file;
-#   3. fetches the results of both parts and prints one summary.
+#   2. copies recette.sh to the camera (ssh and cat: the cameras have no scp) and starts it DETACHED (results in a folder
+#      on the camera), so the checks that cut the Wi-Fi do not stop it; it polls until the bench writes its done file;
+#   3. fetches the results of both parts (ssh and cat) and prints one summary.
 #
 #   sh recette-host.sh --list                                   the host checks (ID check host)
 #   sh recette-host.sh --dry-run --camera IP [--only IDS]        what would run, no connection at all
@@ -16,6 +16,8 @@
 # Environment (never written to the repository, never printed):
 #   RECETTE_PASS          the camera's web / RTSP password (root). Without it the password checks are SKIPped.
 #   RECETTE_CAMERA_USER   ssh user, default root (ssh key or agent: no password is asked here)
+#   RECETTE_SSH_OPTS      extra ssh options for every ssh call of this script, split on spaces (no spaces inside a
+#                         value), for example "-i /home/me/.ssh/cam_key -o IdentitiesOnly=yes -o UserKnownHostsFile=/home/me/.ssh/cam_hosts"
 #   RECETTE_ONVIF_PORT    default 8081 (onvif.conf ONVIF_PORT)
 #   RECETTE_MQTT_HOST, RECETTE_MQTT_PORT (1883), RECETTE_MQTT_USER, RECETTE_MQTT_PASS, RECETTE_MQTT_ROOT
 #                         the broker and the topic root of the camera (its MQTT_ROOT). Without host and root: SKIP.
@@ -91,7 +93,7 @@ TMPD=$(mktemp -d 2>/dev/null || mktemp -d -t recette)
 chmod 700 "$TMPD"
 CFG=$TMPD/curl.cfg
 RUN=/tmp/recette-$RUNSTAMP
-SSHO="-o BatchMode=yes -o ConnectTimeout=10"
+SSHO="-o BatchMode=yes -o ConnectTimeout=10 ${RECETTE_SSH_OPTS:-}"
 MYIP=
 PASS_OK=0; [ -n "${RECETTE_PASS:-}" ] && PASS_OK=1
 
@@ -235,9 +237,9 @@ h_mdns() {
 h_open_time() {
   command -v ffprobe >/dev/null 2>&1 || { hres W3-ZERO open-time SKIP "no ffprobe on this machine"; return; }
   [ "$PASS_OK" = 1 ] || { hres W3-ZERO open-time SKIP "RECETTE_PASS not set"; return; }
-  _idle=${RECETTE_IDLE_S:-60}; times=; bad=0; i=0
-  while [ $i -lt 5 ]; do
-    i=$((i + 1)); sleep "$_idle"
+  _idle=${RECETTE_IDLE_S:-60}; times=; bad=0; _ot_n=0
+  while [ "$_ot_n" -lt 5 ]; do
+    _ot_n=$((_ot_n + 1)); sleep "$_idle"
     t0=$(date +%s)
     ffprobe -nostdin -v error -rtsp_transport tcp -select_streams v:0 -read_intervals '%+#1' -show_entries frame=pict_type -of csv=p=0 "rtsp://root:$RECETTE_PASS@$CAM:554/video0" >/dev/null 2>&1 || bad=$((bad + 1))
     t1=$(date +%s)
@@ -329,10 +331,10 @@ h_lockout() {
   mk_cfg
   url="http://$CAM/cgi-bin/state.cgi?cmd=daynight"
   base=$(curl -s -K "$CFG" -o /dev/null -w '%{http_code}' "$url")
-  i=0; wrong=
-  while [ $i -lt 10 ]; do
-    i=$((i + 1))
-    c=$(curl -s -o /dev/null -w '%{http_code}' -u "root:recette-wrong-$i" "$url"); wrong="$wrong $c"
+  _lk_n=0; wrong=
+  while [ "$_lk_n" -lt 10 ]; do
+    _lk_n=$((_lk_n + 1))
+    c=$(curl -s -o /dev/null -w '%{http_code}' -u "root:recette-wrong-$_lk_n" "$url"); wrong="$wrong $c"
   done
   locked=$(curl -s -K "$CFG" -o /dev/null -w '%{http_code}' "$url")
   # the camera's own call (127.0.0.1) is never locked: the right login from inside the camera, during the lock
@@ -368,7 +370,8 @@ done 3< "$TMPD/host.txt"
 
 # the bench on the camera, detached
 if ssh_cam 'true'; then
-  scp -q $SSHO "$HERE/recette.sh" "$CUSER@$CAM:/tmp/recette.sh" || { hres RECETTE-BENCH copy FAIL "scp of recette.sh failed"; }
+  # the camera has no scp (Dropbear): the file goes over ssh, read from stdin by cat
+  ssh_cam_in 'umask 022; cat > /tmp/recette.sh' < "$HERE/recette.sh" || { hres RECETTE-BENCH copy FAIL "copy of recette.sh over ssh failed"; }
   if [ "$PASS_OK" = 1 ]; then
     printf '%s\n' "$RECETTE_PASS" | ssh_cam_in 'umask 077; cat > /tmp/recette.pass'
   fi
@@ -380,14 +383,17 @@ if ssh_cam 'true'; then
     || hres RECETTE-BENCH start FAIL "could not start the bench"
   echo "== bench started on the camera: $RUN (detached; polling every 60 s)"
   waited=0; limit=${RECETTE_TIMEOUT_S:-14400}
-  while [ $waited -lt "$limit" ]; do
+  while [ "$waited" -lt "$limit" ] && [ "$waited" -lt 86400 ]; do
     sleep 60; waited=$((waited + 60))
     if ssh_cam "test -f $RUN/done" 2>/dev/null; then break; fi
     n=$(ssh_cam "grep -c RESULT $RUN/results.txt 2>/dev/null" 2>/dev/null)
     echo "   ... $waited s, camera results so far: ${n:-?}"
   done
   if ssh_cam "test -f $RUN/done" 2>/dev/null; then
-    scp -q $SSHO "$CUSER@$CAM:$RUN/results.txt" "$CUSER@$CAM:$RUN/recette.log" "$CUSER@$CAM:$RUN/summary.txt" "$OUTD/" 2>/dev/null
+    # fetched with cat over ssh (no scp on the camera); a file that is missing is reported, not a fatal error
+    for f in results.txt recette.log summary.txt; do
+      ssh_cam "cat $RUN/$f" > "$OUTD/$f" 2>/dev/null || { rm -f "$OUTD/$f"; echo "could not fetch $RUN/$f" >&2; }
+    done
     echo "== camera bench finished; files in $OUTD"
   else
     hres RECETTE-BENCH finished FAIL "no done file after $limit s; results so far are on the camera in $RUN"
@@ -400,8 +406,8 @@ echo
 echo "== recette summary: host checks (this machine) and camera checks"
 cat "$HOSTRES"
 [ -f "$OUTD/results.txt" ] && grep '^RESULT ' "$OUTD/results.txt"
-P=$(cat "$HOSTRES" "$OUTD/results.txt" 2>/dev/null | grep -c ' PASS ')
-F=$(cat "$HOSTRES" "$OUTD/results.txt" 2>/dev/null | grep -c ' FAIL ')
-S=$(cat "$HOSTRES" "$OUTD/results.txt" 2>/dev/null | grep -c ' SKIP ')
+# the counts are the RESULT lines by their status field (field 4), the same rule as the bench's own summary
+set -- $(cat "$HOSTRES" "$OUTD/results.txt" 2>/dev/null | awk '$1 == "RESULT" { c[$4]++ } END { printf "%d %d %d", c["PASS"] + 0, c["FAIL"] + 0, c["SKIP"] + 0 }')
+P=$1; F=$2; S=$3
 echo "PASS $P  FAIL $F  SKIP $S   (results: $OUTD)"
 [ "$F" = 0 ] && exit 0 || exit 1

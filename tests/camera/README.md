@@ -9,7 +9,7 @@ no squashfs, SD package, update tar or test pack takes this folder (`tests/test_
 - `recette.sh`: runs ON the camera (BusyBox ash, as root). One function per check; prints one line per check,
   `RESULT <ENTRY-ID> <check> PASS|FAIL|SKIP <evidence>`, and writes `results.txt`, `recette.log`, `summary.txt` and
   `done` in a run folder on the camera (`/tmp/recette-<date>/`, RAM).
-- `recette-host.sh`: runs on the tester's machine (Linux or macOS: sh, ssh, scp, curl, nc; optional ffprobe,
+- `recette-host.sh`: runs on the tester's machine (Linux or macOS: sh, ssh, curl, nc; optional ffprobe,
   avahi-browse, mosquitto_pub / mosquitto_sub). It runs the checks that must come from another LAN address, copies
   `recette.sh` to the camera, starts it detached (`nohup`, so a check that cuts the Wi-Fi does not stop it), waits
   for its `done` file, fetches the results and prints one summary.
@@ -42,6 +42,7 @@ MQTT and open-time checks wait a minute each). Shorter runs: `RECETTE_KILLS=10 R
 |---|---|---|
 | `RECETTE_PASS` | host, camera | the camera's web / RTSP password (root). Sent to the camera on stdin into `/tmp/recette.pass` (umask 077), read and deleted at once. Without it the password checks are SKIPped. |
 | `RECETTE_CAMERA` / `--camera` | host | IP or name of the camera. ssh as `RECETTE_CAMERA_USER` (default root), with a key or agent. |
+| `RECETTE_SSH_OPTS` | host | extra options for every ssh call of the host script, split on spaces (no space inside a value). For example `-i /home/me/.ssh/cam_key -o IdentitiesOnly=yes -o UserKnownHostsFile=/home/me/.ssh/cam_hosts`. The cameras have no `scp`: the copy and the fetch go over ssh (`cat`). |
 | `RECETTE_ONVIF_PORT` | host | default 8081 (`onvif.conf` ONVIF_PORT) |
 | `RECETTE_MQTT_HOST`, `RECETTE_MQTT_PORT`, `RECETTE_MQTT_USER`, `RECETTE_MQTT_PASS`, `RECETTE_MQTT_ROOT` | host | broker and the camera's topic root. Without host and root, R3-MQTT and SMALL-A R5 are SKIPped. |
 | `RECETTE_KILLS` | camera | kill -TERM cycles, default 50 |
@@ -67,12 +68,14 @@ Each check prints one result. Evidence is in `recette.log` of the run folder.
 
 - **Kernel and video server (AUDIT-1116-KERNEL, VENCIRQ):** dmesg scan for oops, warnings, lockups, unbalanced
   IRQs; kill -TERM loop with a clean first picture and a counting encoder interrupt; stop/start cycles; the
-  `irq_unlazy` switch and the control run; a 60 s interrupt sample against the encoded pictures.
+  `irq_unlazy` switch and the control run; a 60 s interrupt sample: the interrupts of 60 s against the enc + sub_enc of
+  every STAT window of those 60 s (the STAT counts are per 5 s tick, so the window is their sum).
 - **Wi-Fi (AUDIT-1116-USB):** down/up loop with timing and ping loss on the gateway; `wpa_cli reassociate` x5; the
   URB counters of `wifi-stall-watch.sh`.
-- **Capture stall (AUDIT-1116-RTSP):** `RTSP_CAPTURE_STALL_S=5` with SIGSTOP (exit 3, restart); no spurious
-  exit 3 afterwards; `arecord` kill if one runs; SETUP of track2 and track3 gives 404 (host, audio off); a TCP client
-  that stops reading is closed (host).
+- **Capture stall (AUDIT-1116-RTSP):** the stall exit itself is a manual SKIP: a SIGSTOP does not simulate a capture
+  stall (`tc100_rtsp.c` discounts a stopped process), and no switch makes the driver stop delivering frames. The
+  bench keeps the no-spurious-exit count (`exit3` unchanged); `arecord` kill if one runs; SETUP of track2 and track3
+  gives 404 (host, audio off); a TCP client that stops reading is closed (host).
 - **Network (AUDIT-1116-NET):** HTTP 431 for an oversized header; normal requests with a large cookie are not 431;
   10 wrong logins lock the host's address for 5 min, the camera's own calls are not locked and the right login
   works after the wait; ONVIF without a token gives NotAuthorized; ssh maps `libnetacl-musl.so`; no "WITHOUT the LAN
@@ -81,8 +84,10 @@ Each check prints one result. Evidence is in `recette.log` of the run folder.
   line; hue in the ISP status against the log, and HUE unchanged over day/night cycles; the native `isp_tune` JSON
   equals the CGI; `fullconfig` answers `text/plain`; `hw_state` calls add no audit line.
 - **Video (CLEANUP-1124, SMALL-B, W1, W3):** STAT fields in order with pic_fail and cap_stall 0; direct capture
-  start lines; ffprobe of the main (`/video0`) and sub (`/video1`) streams; privacy `pp_ms` not higher with the
-  privacy file; encoder opens without failed pictures; open time after an idle minute (host, ffprobe).
+  start lines (read from the current log and its rotated copy `LOG.1`; SKIP "start lines rotated out" when neither
+  has them); ffprobe of the main (`/video0`) and sub (`/video1`) streams; privacy: no frame lost under the privacy
+  file (per-window cap and enc within 10%, pp_ms recorded as evidence); encoder opens without failed pictures; open
+  time after an idle minute (host, ffprobe).
 - **Small fixes (SMALL-A, WIFIQ-FORKS):** daynight.log length, no leftover `*.tmp` in /mnt/config, dropbear pid
   file, memory-hourly freshness; a hold restart when a hold is in the log; wifi-quality file keys and fork rate; the
   mDNS TXT record (host, avahi-browse); two MQTT events at once (host).
@@ -100,7 +105,7 @@ telnet, power pulls and early-crash safe mode, the Wi-Fi driver unbind/bind (a f
 web update cases, the flash-boot hook check, FTP, the stackbad rescue test, the 3-hour, 12-hour, 24-hour and
 3-day soaks, the day/night hour, the ONVIF reconnect after an unplug, a non-private address, MQTT motion and ONVIF
 events in Home Assistant, and the walk-in motion checks. The DN-FLAP hold restart (`auto-night-detection restart`, which rewrites the
-day/night setting) is manual too. The bench never restarts the camera; the owner does that.
+day/night setting) is manual too, and so is the capture-stall exit (`RTSP_CAPTURE_STALL_S`: a SIGSTOP is not a stall). The bench never restarts the camera; the owner does that.
 
 ## Safety
 
@@ -118,10 +123,13 @@ day/night setting) is manual too. The bench never restarts the camera; the owner
   job): the daemon re-decides from the current picture on its next look, with no config write. The tester watches the
   next switch (an `INFO` line says so). Without automatic mode the starting state is restored with the forced switch.
   The hold-restart check (`auto-night-detection restart` rewrites `daynight=3`) is manual.
-- The privacy file, the irq switch, the Wi-Fi link with its address and default route, the video server and a
-  SIGSTOPped server are restored by the trap at exit, also on interrupt.
+- The privacy file, the irq switch, the Wi-Fi link with its address and default route and the video server are
+  restored by the trap at exit, also on interrupt.
 - Lockout: only from the host, only against this machine's address; the camera's own calls stay possible.
-- Every loop is bounded by a count and a timeout.
+- Every loop is bounded: counts by the requested count and `MAX_LOOP` (1000), waits in seconds by `MAX_WAIT_S`
+  (3600). Each helper and check uses its own counter names (`_kc_n` in kill_cycles, `_ws_n` in wait_stat, ...); a test
+  (`tests/test_recette.py`) checks that each loop counter is set in one function only, and runs kill_cycles, the stream
+  and reassociate loops under stubs, asserting the exact count, also when a helper clobbers the loop counter.
 
 ## Limits
 
@@ -134,6 +142,8 @@ day/night setting) is manual too. The bench never restarts the camera; the owner
   cycle passes only with association, address, default route and a gateway that answers. No GPIO, no restart.
   `wpa_cli` and `iw` are looked for in `/mnt/ext/bin` (PATH); without them the Wi-Fi checks are SKIPped.
 - The night-mode state is read with `controlscripts/night-mode status` ("PID: OK" means night).
-- The stall-exit check starts the server with `RTSP_CAPTURE_STALL_S=5` in the environment only; `rtsp.env` is not
-  written. A server that does not exit is stopped and the server restarted the normal way.
+- The stall-exit check (`RTSP_CAPTURE_STALL_S`) is manual: a SIGSTOP is not a capture stall. The bench does not start
+  a server with that variable any more.
+- The reassociate check passes when the link is back with its address and route each time; a drop seen within 3 s
+  is evidence only (the USB entry asks for the commands).
 - The host's TCP stall check reads `netstat` on the camera and uses the SSH client address as this host's address.

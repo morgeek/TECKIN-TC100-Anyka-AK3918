@@ -499,8 +499,11 @@ per flash write.
   1. Connect UDP and TCP clients within 30 s of boot. They must survive the NTP step.
   2. Stall a TCP client: it must be closed after 20 s.
   3. Run 1 h or more across a day/night switch, the eco frame rate and the low-light rate: no spurious stall exit.
-  4. Force a stall with `RTSP_CAPTURE_STALL_S=5` and SIGSTOP. The log must say "no frame for", exit 3 must follow, and
-     the stream must come back.
+  4. Force a stall with `RTSP_CAPTURE_STALL_S=5`. The log must say "no frame for", exit 3 must follow, and the stream
+     must come back. **Not a SIGSTOP:** tc100_rtsp.c (the capture loop, `t_cap` correction, around line 4606) discounts
+     a stopped process, so SIGSTOP never reaches the stall limit, and the driver queues frames during the stop, so the
+     first DQBUF after SIGCONT resets the timer too. A real stall needs the driver to stop delivering frames, and no
+     switch exists for that: this step stays a manual SKIP (bench `stall-exit`, 2026-11-26).
   5. Kill `arecord` while audio plays: no growing A/V offset, no zombie.
   6. With audio and talk off, SETUP track2 and track3 must get 404 and the video must keep playing.
 - **Pass:** all of the above.
@@ -664,6 +667,12 @@ per flash write.
      with privacy off.
 - **Pass:** `pp_ms` with `/tmp/tc100_privacy` present is clearly lower than on the old build (estimate 10-40 ms per
   frame saved), the same without privacy, and 2 unchanged.
+- **Bench note (2026-11-26, `tests/camera/recette.sh` W1-PRIVFILL pp-privacy):** the bench does not judge the gain.
+  `pp_ms` is about 2150 ms per 5 s STAT window with privacy on (the whole-frame memset and cache clean cost about what
+  the old copy cost: the copy era read about 2150 too), so the bench records `pp_ms`, `sub_ms`, `cap` and `enc` per
+  window, with and without privacy, and fails only when frames are lost under privacy (`cap` or `enc` per window more
+  than 10% below the no-privacy windows). The first window after the file appears and after its removal is skipped.
+  The gain of this change (step 1 above) needs an old-build run with `v3/dev/try-rtsp.sh`, not the bench.
 
 ### W3-ZERO One zeroing of the encoder's pool block per open (`[video-fix]`, audit 2026-11-24 W3) — `to test`
 - **What:** each free encoder open zeroed its pool block twice: `akuio_alloc_pmem` (unless `AKUIO_NOZERO`) and

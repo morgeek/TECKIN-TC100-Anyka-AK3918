@@ -72,7 +72,8 @@ induced encoder timeout, the 3 h / 12 h / 24 h soaks and MEMWATCH's 3 days (sess
 - R2-BUTTON (slow `nightmode.sh`, 5 s hold = rescue AP, 8-10 s = reboot); AUDIT-1116-WIFI (wrong password, refused
   quote, rescue AP cap, button 3-7 s).
 - 50x `kill -TERM` of `tc100_rtsp` restarted with the autorun arguments (closes KERNEL 3, VENCIRQ 3/6, RTSP, the
-  FAILCOUNT kill); SIGSTOP with `RTSP_CAPTURE_STALL_S=5`; 200 audio connect cycles; 20 stream start/stop.
+  FAILCOUNT kill); a real capture stall with `RTSP_CAPTURE_STALL_S=5` (not SIGSTOP: a stopped process is not a stall,
+  see test-queue AUDIT-1116-RTSP step 4); 200 audio connect cycles; 20 stream start/stop.
 - One owner-typed password change: B1-ONVIF, WEB-01(a), AUDIT-1116-NET step 5; ONVIF reconnect after an unplug.
 - R3-MQTT (retained command, owner's broker credentials); SMALL-A R5 (two events at once); B2B3-CONF
   (`RTSP_LITE_TALK` toggle); B4-HUE; W1 (`pp_ms` with `/tmp/tc100_privacy`); R1-MDENC; W5-AUDIT (`hw_state` x5, no
