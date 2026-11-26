@@ -77,7 +77,9 @@ if [ "$MODE" = dry ]; then
     selected "$id" || continue
     echo "DRY $id $name host"
   done
-  "$HERE/recette.sh" --dry-run ${ONLY:+--only "$ONLY"} | sed 's/^DRY /DRY camera /'
+  # through sh, not by its exec bit (a checkout may not keep it); a failure of the camera part is not hidden by the pipe
+  _dry=$(sh "$HERE/recette.sh" --dry-run ${ONLY:+--only "$ONLY"}) || { echo "recette.sh --dry-run failed" >&2; exit 1; }
+  printf '%s\n' "$_dry" | sed 's/^DRY /DRY camera /'
   exit 0
 fi
 

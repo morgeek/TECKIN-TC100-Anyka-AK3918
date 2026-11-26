@@ -862,13 +862,13 @@ class Daemon(unittest.TestCase):
         time.sleep(2.2)
         self.assertFalse(started())                                                          # empty flag: stable
         (self.d / 'night.flag').write_text('100 5.00\n')                                     # first nonce: the job restarts
-        self.assertTrue(self.wait_for(started, 5))
+        self.assertTrue(self.wait_for(started))                                              # 30 s: a loaded CI runner
         (self.d / 'console').unlink()
         time.sleep(2.2)
         self.assertFalse(started())                                                          # same nonce: nothing
         (self.d / 'night.flag').unlink()
         (self.d / 'night.flag').write_text('101 9.00\n')                                     # stop + start inside one tick
-        self.assertTrue(self.wait_for(started, 5))
+        self.assertTrue(self.wait_for(started))
         self.assertIsNone(self.proc.poll())
         self.proc.terminate()
         self.proc.wait(timeout=5)
