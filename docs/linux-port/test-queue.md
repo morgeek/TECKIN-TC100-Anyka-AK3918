@@ -1888,6 +1888,18 @@ These are the current owner-confirmed work items. The detailed switch-by-switch 
     also the configured main-stream rate (`kbps_set`), so a ceiling here means the rate control is at its target.
   - **Next, for the implementer:** the rc6 night settings (`RTSP_NIGHT_VBR_QP_ADD`, `RTSP_NIGHT_KBPS`, both off by
     default) are the candidate: the tester runs them on IPCAM1 only on the owner's word.
+- **2026-11-26 07:30, morning report, first full dark night (IPCAM1 on rc6, IPCAM2 on rc4), tester:** both cameras
+  entered night at 23:17 UTC and stayed there until about 06:05-07:00 UTC, no flap. Counters 0 on both
+  (`starts=2` on IPCAM1 only because of the tester's video restart of 00:15); IPCAM2 up 22 h 50 min on rc4. Memory
+  flat (17.0-17.4 MB) on both overnight.
+  - **IPCAM1 (rc6): ceiling the whole night.** 85 STAT readings between 23:20 and 06:30 UTC: mean 1552 kbit/s,
+    max 1878, and the 10-minute `nightceil.csv` samples sit flat at 1574-1609 kbit/s for hours at gain 14 (the
+    configured 1600): the rate control is saturated at its target all night, not drifting. At dawn the rate fell to
+    about 770-1250 kbit/s as gain dropped (11-13), with no restart.
+  - **IPCAM2 (rc4), same night:** mean 825 kbit/s, max 1276, never at 1600.
+  - So the night ceiling is a property of IPCAM1's scene and gain (noise filling the budget), present with and without
+    the evening switch of a running server (see the 00:20 read B), and it follows the light at dawn. The rc5/rc6 night
+    setting (`RTSP_NIGHT_VBR_QP_ADD`, `RTSP_NIGHT_KBPS`) is the candidate to try, on IPCAM1 only, on the owner's word.
 
 ---
 Historical dated reports (2026-10-30 onward) were archived to [test-queue-archive.md](test-queue-archive.md).
