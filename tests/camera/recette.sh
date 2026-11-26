@@ -16,9 +16,9 @@
 # Output: one line per check "RESULT <ID> <check> PASS|FAIL|SKIP <evidence>" on stdout and in DIR/results.txt;
 # evidence lines in DIR/recette.log; a summary in DIR/summary.txt; DIR/done when the run has ended.
 #
-# Never written: the flash, the MTD partitions, the U-Boot environment, the settings slots, the SD card. /mnt/config is
-# snapshotted at the start and compared at the end (GLOBAL config-unchanged): a file that changed is restored from the
-# snapshot, a new file is removed, and the run says so. The RAM state a check changes (privacy file, irq switch, night
+# Never written: the flash, the MTD partitions, the U-Boot environment, the settings slots, the SD card, and nothing under
+# /mnt/config. /mnt/config is only listed (md5) at the start and compared at the end (GLOBAL config-unchanged): settings
+# files that changed are a FAIL, the camera's own daemon files an INFO line. Nothing is restored (detect-only). The RAM state a check changes (privacy file, irq switch, night
 # mode, the Wi-Fi link and its address and route, the video server) is restored by the trap, also on interrupt.
 # The camera password comes from /tmp/recette.pass (written by recette-host.sh from RECETTE_PASS, deleted here at once)
 # and is never printed or logged.
@@ -144,7 +144,7 @@ LOGF=$OUT/recette.log
 RESN=0; CUR_ID=; CUR_CHECK=; CUR=
 RUN_T0=$(cut -d' ' -f1 /proc/uptime 2>/dev/null)
 RECETTE_PASS=
-STOPPED_PID=; ORIG_UNLAZY=; PRIV_SET=0; DN_TOUCHED=0; DN_ORIG=0; WIFI_TOUCHED=0
+STOPPED_PID=; ORIG_UNLAZY=; PRIV_SET=0; DN_TOUCHED=0; DN_ORIG=0; DN_REAPPLIED=0; WIFI_TOUCHED=0
 WLAN_ADDR=; WLAN_GW=; STALL_RUNS=0; CONFIG_CHECKED=0
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -247,6 +247,9 @@ net_save() {
 
 # net_static_fill: the saved address and default route, when they are not there
 net_static_fill() {
+  # a udhcpc running for wlan0 owns the address and the route: renew it (SIGUSR1), never add a static one next to it
+  _dh=$(pidof udhcpc 2>/dev/null)
+  if [ -n "$_dh" ]; then kill -USR1 $_dh 2>/dev/null; return 0; fi
   [ -n "$(wlan_addr_now)" ] || { [ -n "$WLAN_ADDR" ] && ip addr add "$WLAN_ADDR" dev wlan0 2>/dev/null; }
   [ -n "$(gateway)" ] || { [ -n "$WLAN_GW" ] && ip route add default via "$WLAN_GW" dev wlan0 2>/dev/null; }
 }
@@ -280,40 +283,48 @@ wlan_restore() {
   wlan_assoc && [ -n "$(wlan_addr_now)" ] && [ -n "$(gateway)" ]
 }
 
-# /mnt/config snapshot: the copy and the md5 list at the start; config_check compares and restores at the end
+# /mnt/config is only READ by the bench (detect-only): the md5 list of the start, compared at the end. Nothing is copied
+# (no secrets left in /tmp) and nothing is restored or removed in /mnt/config.
 config_snapshot() {
-  rm -rf "$OUT/config-before"; mkdir -p "$OUT/config-before"
   if [ ! -d /mnt/config ]; then : > "$OUT/config-absent"; return; fi
-  cp -R /mnt/config/. "$OUT/config-before/" 2>/dev/null
   ( cd /mnt/config 2>/dev/null && find . -type f | sort | while read -r f; do md5sum "$f"; done ) > "$OUT/config-before.md5" 2>/dev/null
+}
+
+# cc_note KIND FILE: a settings file (the checks read them, a web save or a writer of the camera would change them) is a
+# FAIL; any other file is INFO: the daemons write their own state there (awb.state, .net-guard counter, ...)
+cc_note() {
+  case "$2" in
+    rtspserver.conf|rtsp.env|daynight.conf|boot.conf|isp_tune.conf|mqtt.conf|sound_detection.conf|onvif.conf|timezone.conf|user.pwd|wpa_supplicant.conf)
+      _fail="$_fail $1:$2" ;;
+    *) _info="$_info $1:$2" ;;
+  esac
 }
 
 config_check() {
   CONFIG_CHECKED=1
   CUR_ID=GLOBAL; CUR_CHECK=config-unchanged; CUR="GLOBAL/config-unchanged"
   if [ -f "$OUT/config-absent" ] || [ ! -f "$OUT/config-before.md5" ]; then
-    res FAIL "no /mnt/config snapshot (directory missing at the start or the snapshot was not taken): not checked"; return
+    res FAIL "no /mnt/config snapshot (directory missing at the start or not taken): not checked"; return
   fi
   ( cd /mnt/config 2>/dev/null && find . -type f | sort | while read -r f; do md5sum "$f"; done ) > "$OUT/config-now.md5" 2>/dev/null
-  _bad=; _n=0
-  # changed or new files: restored from the snapshot, a new one removed
+  _fail=; _info=
   while read -r h p; do
-    p=${p#./}
-    grep -qxF "$h  ./$p" "$OUT/config-before.md5" && continue
-    _n=$((_n + 1)); _bad="$_bad $p"
-    if [ -f "$OUT/config-before/$p" ]; then cp -f "$OUT/config-before/$p" "/mnt/config/$p" 2>/dev/null
-    else rm -f "/mnt/config/$p" 2>/dev/null; fi
+    q=${p#./}
+    awk -v p="$p" -v h="$h" '$2 == p && $1 == h { f = 1 } END { exit !f }' "$OUT/config-before.md5" && continue
+    if awk -v p="$p" '$2 == p { f = 1 } END { exit !f }' "$OUT/config-before.md5"; then cc_note changed "$q"; else cc_note new "$q"; fi
   done < "$OUT/config-now.md5"
-  # removed files: copied back
   while read -r h p; do
-    p=${p#./}
-    [ -f "/mnt/config/$p" ] && continue
-    _n=$((_n + 1)); _bad="$_bad $p"
-    cp -f "$OUT/config-before/$p" "/mnt/config/$p" 2>/dev/null
+    q=${p#./}
+    awk -v p="$p" '$2 == p { f = 1 } END { exit !f }' "$OUT/config-now.md5" || cc_note removed "$q"
   done < "$OUT/config-before.md5"
-  CUR_ID=GLOBAL; CUR_CHECK=config-unchanged; CUR="GLOBAL/config-unchanged"
-  if [ "$_n" = 0 ]; then res PASS "no file of /mnt/config changed during the run"
-  else res FAIL "$_n file(s) of /mnt/config changed or missing, restored from the snapshot:$_bad"; fi
+  if [ -n "$_info" ]; then
+    echo "INFO GLOBAL files written by the camera's own daemons during the run (not a FAIL):$_info" | tee -a "$LOGF"
+  fi
+  if [ -z "$_fail" ]; then
+    res PASS "no settings file changed (rtspserver.conf, rtsp.env, daynight.conf, boot.conf, isp_tune.conf, mqtt.conf, sound_detection.conf, onvif.conf, timezone.conf, user.pwd, wpa_supplicant.conf)"
+  else
+    res FAIL "settings file(s) changed during the run, nothing restored (detect-only; find the writer): $_fail"
+  fi
 }
 
 # password for the curl calls on the camera: a config file (umask 077), so no argument list shows it
@@ -327,6 +338,23 @@ mk_cfg() {
 # keeps its daynight value). The only place the bench switches the night mode.
 dn_set() { NIGHT_KEEP_AUTO=1 sh /mnt/scripts/nightmode.sh "$1" >/dev/null 2>&1; }
 night_now() { sh /mnt/controlscripts/night-mode status 2>/dev/null | grep -q 'PID: OK'; }
+# automatic day/night on: rtspserver.conf daynight=2 (read only)
+auto_on() { sed -n 's/^daynight=//p' /mnt/config/rtspserver.conf 2>/dev/null | tail -n 1 | grep -qx 2; }
+# dn_settle: the end of the day/night cycles. Automatic mode on with the night job running: a new nonce in its RAM flag
+# (the same way supervisor.sh starts the job) makes the daemon re-decide from the current picture (night_reset); the
+# daemon's own switches use NIGHT_KEEP_AUTO=1, so nothing is written to /mnt/config. Otherwise the starting state is
+# put back with the forced switch.
+dn_settle() {
+  DN_TOUCHED=0
+  if auto_on && [ -e /var/run/tc100-sv.night ]; then
+    echo "recette $$ $(upt)" > /var/run/tc100-sv.night.recette && mv -f /var/run/tc100-sv.night.recette /var/run/tc100-sv.night
+    ev "automatic day/night on: the night job flag got a new nonce; the daemon re-decides on its next look"
+    echo "INFO GLOBAL day/night: automatic mode on, the daemon re-decides on its own. Tester: watch the next switch (ISP hue line, night state)." | tee -a "$LOGF"
+    DN_REAPPLIED=1
+  else
+    if [ "$DN_ORIG" = 1 ]; then dn_set on; else dn_set off; fi
+  fi
+}
 
 # kill_cycles N FILE: N times kill -TERM of tc100_rtsp and a start with the autorun arguments (rtsp-h26x start runs
 # rtsp-launch.sh, the script the boot calls). One line per cycle in FILE: "<n> ok ..." or "<n> BAD|no-process|stuck ...".
@@ -643,9 +671,7 @@ c_dn_cycles() {
     [ "$_h" = "$_h0" ] || _bad=$((_bad + 1))
     _k=$((_k + 1))
   done
-  # back to the state the run started in, nothing else
-  if [ "$DN_ORIG" = 1 ]; then dn_set on; else dn_set off; fi
-  DN_TOUCHED=0
+  dn_settle
   _hl=$(cat "$LOG" "$LOG.1" 2>/dev/null | grep -c 'in the ISP')
   ev "hue before $_h0, after the cycles $_h, ISP lines $_c0 -> $_hl, started at night: $DN_ORIG"
   res $([ "$_bad" = 0 ] && [ "$_hl" -gt "$_c0" ] && echo PASS || echo FAIL) "$_k day/night cycles: HUE stays $_h0 after each return, ISP lines $_c0 -> $_hl"
@@ -826,12 +852,12 @@ cleanup() {
   [ -n "$STOPPED_PID" ] && kill -CONT "$STOPPED_PID" 2>/dev/null
   [ -n "$ORIG_UNLAZY" ] && echo "$ORIG_UNLAZY" > "$UNLAZY" 2>/dev/null
   [ "$PRIV_SET" = 1 ] && rm -f /tmp/tc100_privacy
-  if [ "$DN_TOUCHED" = 1 ]; then if [ "$DN_ORIG" = 1 ]; then dn_set on; else dn_set off; fi; fi
+  if [ "$DN_TOUCHED" = 1 ]; then dn_settle; fi
   [ "$WIFI_TOUCHED" = 1 ] && wlan_restore >/dev/null 2>&1
   [ "$DRY" = 1 ] || ensure_rtsp
   if [ "$CONFIG_CHECKED" = 0 ] && [ -f "$OUT/config-before.md5" ]; then config_check; fi
   rm -f "$CFG" "$PASSF"
-  [ "$DRY" = 1 ] || echo "$(date) ended; restored: privacy, irq switch, night mode, wlan0 address and route, video server, /mnt/config" >> "$LOGF" 2>/dev/null
+  [ "$DRY" = 1 ] || echo "$(date) ended; restored: privacy, irq switch, night mode, wlan0 address and route, video server; /mnt/config checked, not written" >> "$LOGF" 2>/dev/null
   exit "${EXIT_CODE:-0}"
 }
 trap cleanup EXIT INT TERM

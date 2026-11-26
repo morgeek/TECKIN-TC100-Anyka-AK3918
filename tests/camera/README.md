@@ -55,7 +55,8 @@ MQTT and open-time checks wait a minute each). Shorter runs: `RECETTE_KILLS=10 R
 Nothing is ever printed or logged with a password. The camera's password reaches the bench through a file
 (`/tmp/recette.pass`, mode 0600 under umask 077, deleted at once) and the curl calls through a config file; the
 MQTT broker settings go to a mosquitto options file in a mode-700 folder (`XDG_CONFIG_HOME`, removed at exit; the
-option names `host`, `port`, `username`, `pw` follow the long options of mosquitto 2.x: check them once). Known
+one option per line with its dash, `-h`, `-p`, `-u`, `-P`, as mosquitto 2.x reads them from the file; a password with
+spaces does not fit this format). Known
 exception, on the tester's own machine only: `ffprobe` takes the stream URL, password included, on its command line,
 so it is visible in the process list while it runs. Output that could show the password is masked by a fixed-string
 replacement.
@@ -105,13 +106,18 @@ day/night setting) is manual too. The bench never restarts the camera; the owner
 
 - No flash, MTD, U-Boot environment, settings-slot or SD card write; `tests/test_recette.py` checks the scripts for
   the words of those operations.
-- `/mnt/config` is snapshotted (copy and md5) at the start and compared at the end (`GLOBAL config-unchanged`). A
-  changed file is restored from the snapshot, a new file is removed, and the run reports FAIL with the file names.
-  A legitimate write by the camera during the run (for example the automatic day/night daemon switching at dusk)
-  shows up here too: read the line before deciding.
+- `/mnt/config` is detect-only. The bench reads it (an md5 list at the start, no copy, so no secret is left in /tmp),
+  compares it at the end and never writes, restores or removes anything in it (a test guards this). Result
+  `GLOBAL config-unchanged`: FAIL when a settings file changed or appeared or went (rtspserver.conf, rtsp.env,
+  daynight.conf, boot.conf, isp_tune.conf, mqtt.conf, sound_detection.conf, onvif.conf, timezone.conf, user.pwd,
+  wpa_supplicant.conf); the files the camera's own daemons write (for example `awb.state` written by tc100_rtsp, the
+  net-guard counter) are an `INFO` line, not a FAIL. A web save by the owner during the run is a FAIL too: read it.
 - Night cycles run `nightmode.sh` with `NIGHT_KEEP_AUTO=1`, which keeps the automatic mode: nothing is written to
-  `rtspserver.conf` (`auto-night-detection` is not stopped). The starting state is recorded and restored. The
-  hold-restart check (`auto-night-detection restart` rewrites `daynight=3`) is manual.
+  `rtspserver.conf` (`auto-night-detection` is not stopped). At the end, with automatic mode on (`daynight=2`) and the
+  night job running, a new nonce goes into its RAM flag `/var/run/tc100-sv.night` (the way supervisor.sh starts the
+  job): the daemon re-decides from the current picture on its next look, with no config write. The tester watches the
+  next switch (an `INFO` line says so). Without automatic mode the starting state is restored with the forced switch.
+  The hold-restart check (`auto-night-detection restart` rewrites `daynight=3`) is manual.
 - The privacy file, the irq switch, the Wi-Fi link with its address and default route, the video server and a
   SIGSTOPped server are restored by the trap at exit, also on interrupt.
 - Lockout: only from the host, only against this machine's address; the camera's own calls stay possible.
@@ -123,7 +129,8 @@ day/night setting) is manual too. The bench never restarts the camera; the owner
   A first run may show a wrong path or a wrong log text: read `recette.log` before trusting a PASS.
 - The Wi-Fi cycles use `ifconfig` / `ip link` and `wpa_cli reassociate` (no Wi-Fi restart script exists in 3.0 under
   `controlscripts/`). Each cycle saves wlan0's address and default gateway first; after the association the DHCP client
-  is asked to renew (SIGUSR1 to udhcpc, 5 s), then the saved address and default route are put back with `ip`. A
+  is asked to renew (SIGUSR1 to udhcpc, 5 s); the saved address and route are put back with `ip` only when no udhcpc
+  runs for wlan0 (otherwise it is renewed again). A
   cycle passes only with association, address, default route and a gateway that answers. No GPIO, no restart.
   `wpa_cli` and `iw` are looked for in `/mnt/ext/bin` (PATH); without them the Wi-Fi checks are SKIPped.
 - The night-mode state is read with `controlscripts/night-mode status` ("PID: OK" means night).

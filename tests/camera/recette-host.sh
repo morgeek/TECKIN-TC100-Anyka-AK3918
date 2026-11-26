@@ -248,15 +248,17 @@ h_open_time() {
 }
 
 # mq_setup: the broker settings go to a mosquitto options file in a mode-700 folder (XDG_CONFIG_HOME), not to argv.
-# The file names are the long options of mosquitto_pub / mosquitto_sub (host, port, username, pw): check them against
-# the installed client once (mosquitto_pub --help); the folder is removed at exit.
+# The file holds one command-line option per line, with its dash (-h, -p, -u, -P), as mosquitto 2.x reads them from
+# $XDG_CONFIG_HOME/mosquitto_pub and mosquitto_sub. A password with spaces does not fit this format: use a plain one.
+# The folder is removed at exit.
 mq_setup() {
   MQX=$TMPD/xdg; mkdir -p "$MQX/"; chmod 700 "$MQX"
+  umask 077
   {
-    echo "host $RECETTE_MQTT_HOST"
-    echo "port ${RECETTE_MQTT_PORT:-1883}"
-    [ -n "${RECETTE_MQTT_USER:-}" ] && echo "username $RECETTE_MQTT_USER"
-    [ -n "${RECETTE_MQTT_PASS:-}" ] && printf 'pw %s\n' "$RECETTE_MQTT_PASS"
+    printf '%s\n' "-h $RECETTE_MQTT_HOST"
+    printf '%s\n' "-p ${RECETTE_MQTT_PORT:-1883}"
+    [ -n "${RECETTE_MQTT_USER:-}" ] && printf '%s\n' "-u $RECETTE_MQTT_USER"
+    [ -n "${RECETTE_MQTT_PASS:-}" ] && printf '%s\n' "-P $RECETTE_MQTT_PASS"
   } > "$MQX/mosquitto_pub"
   cp "$MQX/mosquitto_pub" "$MQX/mosquitto_sub"
   chmod 600 "$MQX/mosquitto_pub" "$MQX/mosquitto_sub"

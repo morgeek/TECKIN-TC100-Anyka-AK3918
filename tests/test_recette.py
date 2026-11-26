@@ -250,18 +250,34 @@ class SafetyGuards(unittest.TestCase):
     def test_stopped_server_is_not_running(self):
         self.assertIn('[ "$_st" = T ]', self.bench())
 
-    def test_config_snapshot_and_restore_exist(self):
+    def test_config_check_is_detect_only(self):
         b = self.bench()
-        self.assertIn('cp -R /mnt/config/.', b)
         self.assertIn('config-before.md5', b)
         self.assertIn('config-unchanged', b)
-        self.assertIn('rm -f "/mnt/config/$p"', b)
+        self.assertIn('INFO GLOBAL', b)
+        self.assertNotIn('config-before/', b)
+        self.assertNotIn('cp -R', b)
+        self.assertNotIn('cp -f', b)
+
+    def test_no_write_to_mnt_config(self):
+        # the bench never creates, copies, moves, removes or redirects into /mnt/config (the camera's own daemons write
+        # there; the bench only reads it, see tests/camera/README.md)
+        write = re.compile(r'\b(cp|mv|rm|tee|touch|chmod|chown|install)\b|sed -i|>>?\s*"?\S*/mnt/config')
+        for line in code_lines(BENCH):
+            if '/mnt/config' in line:
+                self.assertIsNone(write.search(line), f'write near /mnt/config: {line.strip()}')
 
     def test_path_has_ext_bin(self):
         self.assertTrue(any(line.startswith('PATH=/mnt/ext/bin:') for line in self.bench().splitlines()))
 
+    def test_daemon_night_flag_nonce(self):
+        b = self.bench()
+        self.assertIn('/var/run/tc100-sv.night', b)
+        self.assertIn('auto_on', b)
+
     def test_wifi_keeps_address_and_route(self):
         b = self.bench()
+        self.assertIn('pidof udhcpc', b)
         self.assertIn('ip route add default via', b)
         self.assertIn('ip addr add', b)
         self.assertIn('kill -USR1', b)
@@ -271,9 +287,17 @@ class SafetyGuards(unittest.TestCase):
         for p in SCRIPTS + [Path(__file__)]:
             self.assertNotIn(bytes([0]), p.read_bytes(), p.name)
 
+    def test_mosquitto_options_file_format(self):
+        h = self.host()
+        self.assertIn('"-h $RECETTE_MQTT_HOST"', h)
+        self.assertIn('"-P $RECETTE_MQTT_PASS"', h)
+        self.assertNotIn('echo "host ', h)
+
     def test_host_credentials_stay_out_of_argv(self):
         h = self.host()
-        self.assertNotIn('-P $', h)
+        for line in h.splitlines():
+            if line.lstrip().startswith('mosquitto_'):
+                self.assertNotIn(' -P ', line, line)
         self.assertIn('XDG_CONFIG_HOME', h)
         self.assertIn('chmod 700', h)
         self.assertNotIn('sed "s|$RECETTE_PASS', h)
