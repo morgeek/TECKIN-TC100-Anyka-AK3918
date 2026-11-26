@@ -2002,8 +2002,8 @@ These are the current owner-confirmed work items. The detailed switch-by-switch 
   25.6 s, `web_ready` 27.5 s, `boot_complete` 68.4 s (longer than the 50-54 s of the last boots, one reading);
   counters 0; settings kept (`rtsp.env` md5 unchanged). **SECRET-MODES, first reading:** `user.pwd`,
   `rtspserver.conf`, `mqtt.conf`, `wpa_supplicant.conf`, `telegram.conf`, `notify.conf` are `-rw-------`; the `.dist`
-  and `.bak-*` copies stay 644 (they hold no secret). Web login, ONVIF, RTSP and MQTT after the update are not read
-  yet. IPCAM1 (.24) stays on rc6 until its NIGHT-CEIL night is read.
+  and `.bak-*` copies stay 644 (they hold no secret). **Owner, 18:29:** web login OK, MQTT OK, Frigate (RTSP) OK after the update
+  with the files at 600; ONVIF not read yet. IPCAM1 (.24) stays on rc6 until its NIGHT-CEIL night is read.
 
 ---
 Historical dated reports (2026-10-30 onward) were archived to [test-queue-archive.md](test-queue-archive.md).
