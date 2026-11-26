@@ -2,6 +2,15 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
+## What is new in 3.0.2-rc7 (test build, branch main)
+Everything of 3.0.2-rc6, plus:
+- **Password and key files protected:** the files of the settings folder that hold a password, a token or the Wi-Fi
+  key (`user.pwd`, `rtspserver.conf`, `mqtt.conf`, `wpa_supplicant.conf`, `telegram.conf`, `notify.conf`) are set to
+  mode 600 at every boot, after a settings restore and after a settings import. Nothing else changes.
+- **To test:** `SECRET-MODES` (after the update and a reboot: `ls -l` of those files shows `-rw-------`; web login,
+  ONVIF, RTSP and MQTT work as before), then the acceptance bench (`RECETTE-BENCH`) and the readiness plan
+  (`docs/linux-port/readiness-3.0.2.md`).
+
 ## What is new in 3.0.2-rc6 (test build, branch main)
 Everything of 3.0.2-rc5, plus:
 - **`MQTT_ADMIN_CMDS`** in `mqtt.conf` (1 by default, nothing changes): 0 refuses telnet, ftp and reboot sent over MQTT.
