@@ -1997,6 +1997,13 @@ These are the current owner-confirmed work items. The detailed switch-by-switch 
   server restarted by day (`starts=3`, other counters 0). The running process holds `RTSP_NIGHT_KBPS=900`; no
   `night setting` line by day, first switch row of `nightceil.csv` shows `kbps_set` 1600 and `night_kbps` 0 by day as
   the protocol expects. IPCAM2 (rc6, unchanged) is the control. Steps 2 and 3 (evening switch, morning, snapshot) follow.
+- **2026-11-26 18:30, IPCAM2 (.11) on 3.0.2-rc7 (the owner installed it; the tester checked it, package md5
+  `4fe01132ee2234b8fd97aec3d1c7df06`):** clean boot, no `Failed power on`, `autorun_start` 12.3 s, `rtsp_launched`
+  25.6 s, `web_ready` 27.5 s, `boot_complete` 68.4 s (longer than the 50-54 s of the last boots, one reading);
+  counters 0; settings kept (`rtsp.env` md5 unchanged). **SECRET-MODES, first reading:** `user.pwd`,
+  `rtspserver.conf`, `mqtt.conf`, `wpa_supplicant.conf`, `telegram.conf`, `notify.conf` are `-rw-------`; the `.dist`
+  and `.bak-*` copies stay 644 (they hold no secret). Web login, ONVIF, RTSP and MQTT after the update are not read
+  yet. IPCAM1 (.24) stays on rc6 until its NIGHT-CEIL night is read.
 
 ---
 Historical dated reports (2026-10-30 onward) were archived to [test-queue-archive.md](test-queue-archive.md).
