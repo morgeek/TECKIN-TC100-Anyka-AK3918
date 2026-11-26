@@ -705,6 +705,8 @@ _ce_restore() {
   sh /mnt/scripts/presence-mode.sh current >/dev/null 2>&1 || true
   _rs_changed="${TC_COMMIT_COUNT:-0}"
   for _rs_f in $_rs_marks; do mkdir -p "$CONFIG_ROOT/$(dirname "$_rs_f")" && : > "$CONFIG_ROOT/$_rs_f"; done
+  # the secret files keep mode 600 whatever modes the archive carries [secmode]
+  [ -r /mnt/scripts/secret-modes.sh ] && . /mnt/scripts/secret-modes.sh && secret_modes_fix "$CONFIG_ROOT"
   rm -rf "$_rs"
   # what can be applied without a restart: the services, the Wi-Fi, the password, the Wi-Fi country
   (

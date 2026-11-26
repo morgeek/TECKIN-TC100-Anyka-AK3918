@@ -228,6 +228,30 @@ older `to test` entries below.
     helpers reuse its `_i` counter; fix `_i` to `_wi` in `recette.sh` lines 208-264); the tester stopped it after 62 clean
     kill + start cycles. The cameras have no `scp`; the copy step needs `ssh cat`. IPCAM1 `--disruptive --wifi` waits
     for tonight's night reading.
+  - **Bench FAIL 1 (user.pwd 644 / 755): fix in the SECRET-MODES entry below** (`[secmode]`, `to test`).
+
+### SECRET-MODES The secret files of the settings folder are mode 600 (`[secmode]`, bench FAIL 1) — `to test`
+- **What:** `user.pwd`, `rtspserver.conf` (USERPASSWORD), `mqtt.conf` (MQTT_PASSWORD), `wpa_supplicant.conf` (Wi-Fi key),
+  `telegram.conf` (bot token) and `notify.conf` (upload user:password) are written back by a restore or an old in-place
+  write with the mode they had there (644, or 755 under umask 022). New writes were already 600 (`all_password`). Now one
+  list and one function, `scripts/secret-modes.sh` (`secret_modes_fix DIR`), run at three places: autorun at every boot
+  (`/mnt/config` and `/mnt/sd/config`, after the `user.pwd.dist` copy, which now runs under `umask 077`), cfg-persist
+  after a settings restore (after `restore_ssh`), and the settings import of the web page (after the commit). Only a
+  `chmod 600`, with `2>/dev/null`: a missing file is skipped, a file already at 600 is not touched at all, a FAT card
+  (no modes) is ignored. No slot write: cfg-persist compares the content of the files (md5) and the mtimes, never the
+  modes, and a chmod changes neither, so the settings are not saved again because of this change. Readers all run as
+  root: defence in depth, not a live hole. No change of save, signature or archive contents.
+- **Revert:** none needed (a chmod back to 644 is the same as before); the previous build if something breaks.
+- **Switch:** none (it is a chmod, not a behaviour: the files are read the same way).
+- **Test:** after an update and a reboot (the owner's word, one camera first, then the other):
+  1. `ls -l /mnt/config/user.pwd /mnt/config/rtspserver.conf /mnt/config/mqtt.conf /mnt/config/wpa_supplicant.conf`:
+     all `-rw-------` (a file that does not exist on the camera is not listed: an absent `mqtt.conf` is fine).
+  2. Web login with the password still works; ONVIF (`GetProfiles` with WS-Security) and RTSP with the user and the
+     password still authenticate; MQTT still connects if it is enabled (`mqtt-bridge` log).
+  3. Settings import from a backup (the Backup page), then `ls -l` again: still 600.
+  4. `cfg-persist` does not save at every boot: `cat /tmp/cfg-persist.status` and `/tmp/cfg-persist.sig` times, or the
+     `[cfg-persist]` lines of the boot log, show no save after the reboot when nothing was changed.
+- **Pass:** 1 to 3 as described; 4 shows no new save; no service lost its credentials. Results go under this entry.
 
 ## Audit of 2026-11-16 (`[audit-1116]`): fixes waiting for the camera
 

@@ -14,6 +14,9 @@ CFG=${CFG:-/mnt/sd/config}
 DEFAULTS=${DEFAULTS:-/rom/config}      # the shipped config/ (read-only squashfs) that flashmode-prep.sh copies at boot
 STATUS=${CFG_STATUS:-/tmp/cfg-persist.status}
 SLOT_MAX=36000
+# secret files of the settings folder at mode 600 after a restore [secmode]; without the library nothing is changed
+_secret_lib="$(dirname "$0")/../../scripts/secret-modes.sh"
+if [ -r "$_secret_lib" ]; then . "$_secret_lib"; else secret_modes_fix() { return 0; }; fi
 find_mtd() { for d in /sys/class/mtd/mtd[0-9]*; do case $d in *ro) continue;; esac; [ "$(cat $d/name)" = "$1" ] && { echo "${d##*/}"; return 0; }; done; return 1; }
 log() { echo "[cfg-persist] $*" > /dev/console 2>/dev/null; }
 set_status() { printf 'state=%s\nmsg=%s\nts=%s\n' "$1" "$2" "$(date +%s)" > "$STATUS.tmp" 2>/dev/null && mv -f "$STATUS.tmp" "$STATUS"; }
@@ -142,7 +145,7 @@ archive)
   tar cf $T.tar -T $T.list && gzip -9 -c $T.tar; rc=$?; rm -f $T.list $T.tar; exit $rc ;;
 restore)
   set -- $(best); [ -n "$1" ] || { log "no saved settings (defaults used)"; exit 1; }
-  mkdir -p "$CFG"; cd "$(dirname $CFG)" && slot_data $1 | gunzip | tar xf - && apply_deleted && restore_ssh && log "settings restored from slot $1 (seq $2)" ;;
+  mkdir -p "$CFG"; cd "$(dirname $CFG)" && slot_data $1 | gunzip | tar xf - && apply_deleted && restore_ssh && { secret_modes_fix "$CFG"; log "settings restored from slot $1 (seq $2)"; } ;;
 save)
   # one save at a time (audit 2026-11-04 B5: the daemon, flush and boot-guard could write the same slot together, the
   # newest settings and the boot counter were lost); a lock left by a dead save is taken over; update66.sh keeps it

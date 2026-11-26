@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **Secret files at mode 600** (`[secmode]`, bench FAIL 1 of 2026-11-26): `user.pwd`, `rtspserver.conf`, `mqtt.conf`,
+  `wpa_supplicant.conf`, `telegram.conf` and `notify.conf` were 644 or 755 on the cameras (a restore or an old write kept
+  the mode). `scripts/secret-modes.sh` sets 600 at every boot, after a settings restore and after a settings import; no
+  settings slot is written for it. Test-queue SECRET-MODES.
+
 ## [3.0.2-rc6] - 2026-11-25
 
 ### Added

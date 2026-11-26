@@ -341,7 +341,9 @@ bt step_6
 killall httpd httpfront 2>/dev/null
 # the shipped password when none is set yet, also when step 4a did not run (safe mode, no video): web-auth leaves the
 # web interface open without one
-[ -s /mnt/config/user.pwd ] || { [ -s /mnt/config/user.pwd.dist ] && cp /mnt/config/user.pwd.dist /mnt/config/user.pwd; }
+[ -s /mnt/config/user.pwd ] || { [ -s /mnt/config/user.pwd.dist ] && ( umask 077; cp /mnt/config/user.pwd.dist /mnt/config/user.pwd ); }
+# the secret files of the settings folder at mode 600 at every boot (a restore or an old write kept 644 or 755) [secmode]
+[ -r /mnt/scripts/secret-modes.sh ] && . /mnt/scripts/secret-modes.sh && secret_modes_fix /mnt/config && secret_modes_fix /mnt/sd/config
 sh /mnt/v3/linux66-sd/web-auth
 # the busybox httpd of the base image answers 404 for "/" (no directory index): httpfront redirects it to /index.html
 # boot.conf NET_LAN_ONLY: httpfront closes connections from outside the allowed networks itself (no packet filter)
