@@ -2007,3 +2007,10 @@ These are the current owner-confirmed work items. The detailed switch-by-switch 
 
 ---
 Historical dated reports (2026-10-30 onward) were archived to [test-queue-archive.md](test-queue-archive.md).
+
+### 2026-11-26 23:45 NIGHT-CEIL-AUTO step 2 (IPCAM1 on rc6 with `RTSP_NIGHT_KBPS=900`, IPCAM2 on rc7 as control)
+- IPCAM1 switched to night at 21:29 (daynight.log `mode=night`), gain 14. `nightceil.csv`: switch row `kbps_set` 900, then 6 sample rows (10 min apart) with `main_kbps` 908-910 (mean 909.5), against 1552-1600 on previous nights at the same gain. STAT at 22:45: ~900 kbit/s (561045 bytes per 5 s window). So the 900 kbit/s ceiling is held.
+- No `md_enc` / motion line since the switch. Counters 0 (starts=3, unchanged by the night switch). `rtsp.env` unchanged (md5 prefix 181748783257).
+- The log line `night setting (night) ... 1600 -> 900` was not found in the files read (messages, daynight.log, tc100_rtsp.log): to look for in the morning in the log the other agent names; the CSV rows carry the proof.
+- IPCAM2 (control) stayed in day mode (room lit): 630-990 kbit/s, counters 0.
+- Step 3 (morning): back to 1600 by day, night snapshot for the owner to judge the picture.
