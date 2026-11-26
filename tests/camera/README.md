@@ -52,8 +52,13 @@ MQTT and open-time checks wait a minute each). Shorter runs: `RECETTE_KILLS=10 R
 | `RECETTE_FORK_WINDOW`, `RECETTE_FORK_MAX` | camera | WIFIQ-FORKS window (600 s) and the limit in forks per minute (no limit: SKIP with the rate) |
 | `RECETTE_IDLE_S`, `RECETTE_LOCK_WAIT_S`, `RECETTE_TIMEOUT_S` | host | W3 idle time (60), lockout wait (310), wait for the camera (4 h) |
 
-Nothing is ever printed or logged with a password. The MQTT password is passed to `mosquitto_*` with `-P`, so it is
-visible in the process list of the tester's machine for the length of the call.
+Nothing is ever printed or logged with a password. The camera's password reaches the bench through a file
+(`/tmp/recette.pass`, mode 0600 under umask 077, deleted at once) and the curl calls through a config file; the
+MQTT broker settings go to a mosquitto options file in a mode-700 folder (`XDG_CONFIG_HOME`, removed at exit; the
+option names `host`, `port`, `username`, `pw` follow the long options of mosquitto 2.x: check them once). Known
+exception, on the tester's own machine only: `ffprobe` takes the stream URL, password included, on its command line,
+so it is visible in the process list while it runs. Output that could show the password is masked by a fixed-string
+replacement.
 
 ## What it covers
 
@@ -93,14 +98,22 @@ web-UI typing (password, Wi-Fi, OSD, slider and hue changes, Settings tabs), the
 telnet, power pulls and early-crash safe mode, the Wi-Fi driver unbind/bind (a failed bind needs the UART), the
 web update cases, the flash-boot hook check, FTP, the stackbad rescue test, the 3-hour, 12-hour, 24-hour and
 3-day soaks, the day/night hour, the ONVIF reconnect after an unplug, a non-private address, MQTT motion and ONVIF
-events in Home Assistant, and the walk-in motion checks. The bench never restarts the camera; the owner does that.
+events in Home Assistant, and the walk-in motion checks. The DN-FLAP hold restart (`auto-night-detection restart`, which rewrites the
+day/night setting) is manual too. The bench never restarts the camera; the owner does that.
 
 ## Safety
 
 - No flash, MTD, U-Boot environment, settings-slot or SD card write; `tests/test_recette.py` checks the scripts for
   the words of those operations.
-- Files under `/mnt/config` are not changed. The run changes RAM state only (the privacy file, the irq switch, the
-  night mode, the Wi-Fi link, the video server), and the trap at exit restores it.
+- `/mnt/config` is snapshotted (copy and md5) at the start and compared at the end (`GLOBAL config-unchanged`). A
+  changed file is restored from the snapshot, a new file is removed, and the run reports FAIL with the file names.
+  A legitimate write by the camera during the run (for example the automatic day/night daemon switching at dusk)
+  shows up here too: read the line before deciding.
+- Night cycles run `nightmode.sh` with `NIGHT_KEEP_AUTO=1`, which keeps the automatic mode: nothing is written to
+  `rtspserver.conf` (`auto-night-detection` is not stopped). The starting state is recorded and restored. The
+  hold-restart check (`auto-night-detection restart` rewrites `daynight=3`) is manual.
+- The privacy file, the irq switch, the Wi-Fi link with its address and default route, the video server and a
+  SIGSTOPped server are restored by the trap at exit, also on interrupt.
 - Lockout: only from the host, only against this machine's address; the camera's own calls stay possible.
 - Every loop is bounded by a count and a timeout.
 
@@ -108,7 +121,12 @@ events in Home Assistant, and the walk-in motion checks. The bench never restart
 
 - The camera-side checks were written against the source and the entries; they have not yet run on a camera.
   A first run may show a wrong path or a wrong log text: read `recette.log` before trusting a PASS.
-- The Wi-Fi recovery uses `ifconfig` / `ip link` and `wpa_cli reassociate`, not a Wi-Fi restart script (none exists in
-  3.0 under `controlscripts/`); a Wi-Fi that does not come back is reported, and the bench does not touch GPIO.
+- The Wi-Fi cycles use `ifconfig` / `ip link` and `wpa_cli reassociate` (no Wi-Fi restart script exists in 3.0 under
+  `controlscripts/`). Each cycle saves wlan0's address and default gateway first; after the association the DHCP client
+  is asked to renew (SIGUSR1 to udhcpc, 5 s), then the saved address and default route are put back with `ip`. A
+  cycle passes only with association, address, default route and a gateway that answers. No GPIO, no restart.
+  `wpa_cli` and `iw` are looked for in `/mnt/ext/bin` (PATH); without them the Wi-Fi checks are SKIPped.
 - The night-mode state is read with `controlscripts/night-mode status` ("PID: OK" means night).
+- The stall-exit check starts the server with `RTSP_CAPTURE_STALL_S=5` in the environment only; `rtsp.env` is not
+  written. A server that does not exit is stopped and the server restarted the normal way.
 - The host's TCP stall check reads `netstat` on the camera and uses the SSH client address as this host's address.

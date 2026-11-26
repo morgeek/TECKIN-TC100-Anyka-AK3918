@@ -96,6 +96,7 @@ MYIP=
 PASS_OK=0; [ -n "${RECETTE_PASS:-}" ] && PASS_OK=1
 
 cleanup() {
+  if [ "${RETAINED_SET:-0}" = 1 ]; then mosquitto_pub -t "${CMD_TOPIC:-}" -r -n >/dev/null 2>&1; fi
   rm -rf "$TMPD"
   [ -n "${NCPID:-}" ] && kill -CONT "$NCPID" 2>/dev/null && kill "$NCPID" 2>/dev/null
   true
@@ -118,6 +119,13 @@ hres() {
 mk_cfg() {
   _pw=$(printf '%s' "${RECETTE_PASS:-}" | sed 's/\\/\\\\/g; s/"/\\"/g')
   ( umask 077; printf 'user = "root:%s"\nsilent\n' "$_pw" > "$CFG" )
+}
+
+# mask: the password replaced by *** in a text, as a fixed string (no regex: the password may hold any character)
+mask() {
+  awk -v p="${RECETTE_PASS:-}" '{ if (p == "") { print; next } out = ""; s = $0
+    while ((i = index(s, p)) > 0) { out = out substr(s, 1, i - 1) "***"; s = substr(s, i + length(p)) }
+    print out s }'
 }
 
 basic_auth() { printf 'root:%s' "${RECETTE_PASS:-}" | base64 | tr -d '\n'; }
@@ -208,8 +216,8 @@ h_tcp_stall() {
 h_video() {
   command -v ffprobe >/dev/null 2>&1 || { hres CLEANUP-1124 video-main-sub SKIP "no ffprobe on this machine"; return; }
   [ "$PASS_OK" = 1 ] || { hres CLEANUP-1124 video-main-sub SKIP "RECETTE_PASS not set"; return; }
-  main=$(ffprobe -nostdin -v error -rtsp_transport tcp -select_streams v:0 -show_entries stream=codec_name,width,height -of csv=p=0 "rtsp://root:$RECETTE_PASS@$CAM:554/video0" 2>&1 | sed "s|$RECETTE_PASS|***|g" | head -n 1)
-  sub=$(ffprobe -nostdin -v error -rtsp_transport tcp -select_streams v:0 -show_entries stream=codec_name,width,height -of csv=p=0 "rtsp://root:$RECETTE_PASS@$CAM:554/video1" 2>&1 | sed "s|$RECETTE_PASS|***|g" | head -n 1)
+  main=$(ffprobe -nostdin -v error -rtsp_transport tcp -select_streams v:0 -show_entries stream=codec_name,width,height -of csv=p=0 "rtsp://root:$RECETTE_PASS@$CAM:554/video0" 2>&1 | mask | head -n 1)
+  sub=$(ffprobe -nostdin -v error -rtsp_transport tcp -select_streams v:0 -show_entries stream=codec_name,width,height -of csv=p=0 "rtsp://root:$RECETTE_PASS@$CAM:554/video1" 2>&1 | mask | head -n 1)
   case "$main" in *,*,*) ;; *) hres CLEANUP-1124 video-main-sub FAIL "main stream: $main"; return ;; esac
   case "$sub" in *,*,*) hres CLEANUP-1124 video-main-sub PASS "main $main; sub $sub (640x360 when RTSP_SUBSTREAM is on)" ;;
     *) hres CLEANUP-1124 video-main-sub SKIP "main $main; sub stream not answering: $sub" ;; esac
@@ -239,35 +247,55 @@ h_open_time() {
   else hres W3-ZERO open-time FAIL "$bad of 5 opens gave no frame; times:$times"; fi
 }
 
-mq_args() {
-  MQ="-h $RECETTE_MQTT_HOST -p ${RECETTE_MQTT_PORT:-1883}"
-  [ -n "${RECETTE_MQTT_USER:-}" ] && MQ="$MQ -u $RECETTE_MQTT_USER"
-  [ -n "${RECETTE_MQTT_PASS:-}" ] && MQ="$MQ -P $RECETTE_MQTT_PASS"
+# mq_setup: the broker settings go to a mosquitto options file in a mode-700 folder (XDG_CONFIG_HOME), not to argv.
+# The file names are the long options of mosquitto_pub / mosquitto_sub (host, port, username, pw): check them against
+# the installed client once (mosquitto_pub --help); the folder is removed at exit.
+mq_setup() {
+  MQX=$TMPD/xdg; mkdir -p "$MQX/"; chmod 700 "$MQX"
+  {
+    echo "host $RECETTE_MQTT_HOST"
+    echo "port ${RECETTE_MQTT_PORT:-1883}"
+    [ -n "${RECETTE_MQTT_USER:-}" ] && echo "username $RECETTE_MQTT_USER"
+    [ -n "${RECETTE_MQTT_PASS:-}" ] && printf 'pw %s\n' "$RECETTE_MQTT_PASS"
+  } > "$MQX/mosquitto_pub"
+  cp "$MQX/mosquitto_pub" "$MQX/mosquitto_sub"
+  chmod 600 "$MQX/mosquitto_pub" "$MQX/mosquitto_sub"
+  XDG_CONFIG_HOME=$MQX; export XDG_CONFIG_HOME
 }
 
 h_mqtt_retained() {
   if [ -z "${RECETTE_MQTT_HOST:-}" ] || [ -z "${RECETTE_MQTT_ROOT:-}" ] || ! command -v mosquitto_pub >/dev/null 2>&1; then
     hres R3-MQTT retained-command SKIP "needs RECETTE_MQTT_HOST, RECETTE_MQTT_ROOT and mosquitto_pub"; return
   fi
-  mq_args
-  # 1. a retained harmless command (snapshot), 2. the bridge restarted, 3. no result must come, 4. the log says ignored
-  mosquitto_pub $MQ -t "$RECETTE_MQTT_ROOT/command" -r -m '{"cmd":"snapshot"}'
+  mq_setup
+  CMD_TOPIC=$RECETTE_MQTT_ROOT/command; RES_TOPIC=$RECETTE_MQTT_ROOT/command/result
+  # 1. a retained harmless command. From here the retained message is cleared on any exit (cleanup).
+  RETAINED_SET=1
+  mosquitto_pub -t "$CMD_TOPIC" -r -m '{"cmd":"snapshot"}'
+  # 2. the result subscription starts BEFORE the bridge restart: a result for the retained command must be caught
+  mosquitto_sub -t "$RES_TOPIC" -v -W 40 > "$TMPD/res1.out" 2>/dev/null &
+  SUB1=$!
+  sleep 2
+  before=$(ssh_cam "grep -c 'retained command ignored' /tmp/log/mqtt-bridge.log 2>/dev/null")
   ssh_cam '/mnt/controlscripts/mqtt-bridge restart' >/dev/null 2>&1
-  sleep 20
-  got=$(mosquitto_sub $MQ -t "$RECETTE_MQTT_ROOT/command/result" -C 1 -W 8 2>/dev/null)
-  ign=$(ssh_cam "grep -c 'retained command ignored' /tmp/log/mqtt-bridge.log" 2>/dev/null)
-  # 5. a live (not retained) command runs at once
-  ( mosquitto_sub $MQ -t "$RECETTE_MQTT_ROOT/command/result" -C 1 -W 15 > "$TMPD/live.out" 2>/dev/null ) &
+  wait "$SUB1" 2>/dev/null
+  got=$(cat "$TMPD/res1.out" 2>/dev/null)
+  after=$(ssh_cam "grep -c 'retained command ignored' /tmp/log/mqtt-bridge.log 2>/dev/null")
+  delta=$(( ${after:-0} - ${before:-0} ))
+  # 3. a live (not retained) command runs at once
+  mosquitto_sub -t "$RES_TOPIC" -C 1 -W 15 > "$TMPD/live.out" 2>/dev/null &
+  SUB2=$!
   sleep 1
-  mosquitto_pub $MQ -t "$RECETTE_MQTT_ROOT/command" -m '{"cmd":"snapshot"}'
-  sleep 16
+  mosquitto_pub -t "$CMD_TOPIC" -m '{"cmd":"snapshot"}'
+  wait "$SUB2" 2>/dev/null
   live=$(cat "$TMPD/live.out" 2>/dev/null)
-  # 6. clear the retained message
-  mosquitto_pub $MQ -t "$RECETTE_MQTT_ROOT/command" -r -n
-  if [ -z "$got" ] && [ "${ign:-0}" -ge 1 ] && [ -n "$live" ]; then
-    hres R3-MQTT retained-command PASS "retained snapshot not run (ignored lines ${ign}), live snapshot answered, retained message cleared"
+  # 4. clear the retained message
+  mosquitto_pub -t "$CMD_TOPIC" -r -n
+  RETAINED_SET=0
+  if [ -z "$got" ] && [ "$delta" -ge 1 ] && [ -n "$live" ]; then
+    hres R3-MQTT retained-command PASS "retained snapshot not run (ignored lines +$delta), no result for it, live snapshot answered, retained message cleared"
   else
-    hres R3-MQTT retained-command FAIL "result after retained: '${got:-none}', ignored lines ${ign:-0}, live answer: '${live:-none}'"
+    hres R3-MQTT retained-command FAIL "result after the retained command: '${got:-none}'; ignored lines +${delta}; live answer: '${live:-none}'"
   fi
 }
 
@@ -275,8 +303,8 @@ h_mqtt_two() {
   if [ -z "${RECETTE_MQTT_HOST:-}" ] || [ -z "${RECETTE_MQTT_ROOT:-}" ] || ! command -v mosquitto_sub >/dev/null 2>&1; then
     hres SMALL-A-1124 mqtt-two-events SKIP "needs RECETTE_MQTT_HOST, RECETTE_MQTT_ROOT and mosquitto_sub"; return
   fi
-  mq_args
-  mosquitto_sub $MQ -t "$RECETTE_MQTT_ROOT/recette/r5/#" -v -W 30 > "$TMPD/r5.out" 2>/dev/null &
+  mq_setup
+  mosquitto_sub -t "$RECETTE_MQTT_ROOT/recette/r5/#" -v -W 30 > "$TMPD/r5.out" 2>/dev/null &
   SUBPID=$!
   sleep 2
   ssh_cam_in 'sh -s' <<'REMOTE' >"$TMPD/r5.remote" 2>&1

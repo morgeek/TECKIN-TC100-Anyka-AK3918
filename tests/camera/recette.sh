@@ -15,13 +15,17 @@
 #
 # Output: one line per check "RESULT <ID> <check> PASS|FAIL|SKIP <evidence>" on stdout and in DIR/results.txt;
 # evidence lines in DIR/recette.log; a summary in DIR/summary.txt; DIR/done when the run has ended.
-# Never written: the flash, the MTD partitions, the U-Boot environment, the settings slots, the SD card. Files under /mnt/config
-# are not changed. The RAM state the checks change (privacy file, Wi-Fi, night mode, irq switch) is restored by the
-# trap at the end, also on interrupt. The camera password comes from /tmp/recette.pass (written by recette-host.sh
-# from RECETTE_PASS, deleted here at once) and is never printed or logged.
+#
+# Never written: the flash, the MTD partitions, the U-Boot environment, the settings slots, the SD card. /mnt/config is
+# snapshotted at the start and compared at the end (GLOBAL config-unchanged): a file that changed is restored from the
+# snapshot, a new file is removed, and the run says so. The RAM state a check changes (privacy file, irq switch, night
+# mode, the Wi-Fi link and its address and route, the video server) is restored by the trap, also on interrupt.
+# The camera password comes from /tmp/recette.pass (written by recette-host.sh from RECETTE_PASS, deleted here at once)
+# and is never printed or logged.
 
 trap '' HUP
-export PATH=/mnt/bin:/mnt/scripts:/mnt/controlscripts:/usr/sbin:/usr/bin:/sbin:/bin:$PATH
+PATH=/mnt/ext/bin:/mnt/bin:/mnt/scripts:/mnt/controlscripts:/usr/sbin:/usr/bin:/sbin:/bin:$PATH
+export PATH
 
 LOG=/tmp/logs/tc100_rtsp.log
 UNLAZY=/sys/module/ak39_venc/parameters/irq_unlazy
@@ -82,7 +86,7 @@ W1-PRIVFILL|pp-privacy|dist|c_privacy|
 W3-ZERO|open-log|safe|c_w3_log|
 W3-ZERO|one-hour-viewer|manual|skip_manual|one hour with a viewer that connects every minute: host tools, session 3
 R2-BUTTON|hold-rescue-slow|manual|skip_manual|slow nightmode.sh and a 5 s hold during the switch: owner (button, lens)
-R2-BUTTON|hold-restart-timing|manual|skip_manual|8-10 s hold during the switch gives a restart: owner (button); never automated
+R2-BUTTON|hold-restart-timing|manual|skip_manual|8-10 s hold during the switch restarts the camera: owner (button); never automated
 T1B5-PARITY|isp-tune-diff|safe|c_isp_diff|
 T1B5-PARITY|fullconfig-text|safe|c_fullconfig|
 T1B5-PARITY|settings-sliders|manual|skip_manual|Settings -> Image sliders and "Applied on the camera": owner (web UI)
@@ -93,7 +97,7 @@ CLEANUP-1124|start-lines|safe|c_start_lines|
 CLEANUP-1124|day-night-24h|manual|skip_manual|24 h of viewers and the day/night switches of an evening and a morning: session 3
 SMALL-B-1124|onvif-motion|manual|skip_manual|ONVIF motion events in Home Assistant: owner (walk in front of the lens)
 SMALL-B-1124|awb-colours|manual|skip_manual|W2 colours and white balance by day and evening: owner (the picture)
-SMALL-A-1124|hold-restart|dist|c_hold_restart|
+SMALL-A-1124|hold-restart|manual|skip_manual|DN-FLAP hold restart: owner at dusk or dawn; the restart rewrites rtspserver.conf (daynight=3), not run by the bench
 SMALL-A-1124|daynight-lines|safe|c_daynight_lines|
 SMALL-A-1124|config-tmp|safe|c_config_tmp|
 SMALL-A-1124|ssh-pidfile|safe|c_ssh_pidfile|
@@ -140,6 +144,8 @@ LOGF=$OUT/recette.log
 RESN=0; CUR_ID=; CUR_CHECK=; CUR=
 RUN_T0=$(cut -d' ' -f1 /proc/uptime 2>/dev/null)
 RECETTE_PASS=
+STOPPED_PID=; ORIG_UNLAZY=; PRIV_SET=0; DN_TOUCHED=0; DN_ORIG=0; WIFI_TOUCHED=0
+WLAN_ADDR=; WLAN_GW=; STALL_RUNS=0; CONFIG_CHECKED=0
 
 # ---------------------------------------------------------------------------------------------------------------
 # helpers
@@ -158,16 +164,24 @@ res() {
 
 upt() { read -r _u _ < /proc/uptime 2>/dev/null; echo "${_u:-0}"; }
 
-rtsp_pid() { set -- $(pidof tc100_rtsp 2>/dev/null); echo "$1"; }
+# the first tc100_rtsp that is not stopped (state T): a stopped instance is not a running server
+rtsp_pid() {
+  for _p in $(pidof tc100_rtsp 2>/dev/null); do
+    _st=$(sed 's/^.*) //' "/proc/$_p/stat" 2>/dev/null | cut -c1)
+    [ "$_st" = T ] && continue
+    echo "$_p"; return 0
+  done
+}
 
+# counter from /tmp/tc100_rtsp.counters: empty when the file or the key is missing (never a made-up 0)
 ctr() {
-  [ -f /tmp/tc100_rtsp.counters ] || { echo 0; return; }
+  [ -f /tmp/tc100_rtsp.counters ] || return 0
   tr ' ' '\n' < /tmp/tc100_rtsp.counters | sed -n "s/^$1=//p" | head -n 1 | tr -dc '0-9'
 }
 
 last_stat() { grep '^STAT ' "$LOG" 2>/dev/null | tail -n 1; }
 
-# stat_val NAME: the value after NAME in the last STAT line
+# stat_val NAME: the value after NAME in the last STAT line (empty when absent)
 stat_val() {
   _k=$1
   set -- $(last_stat)
@@ -175,19 +189,19 @@ stat_val() {
     if [ "$1" = "$_k" ]; then echo "$2"; return 0; fi
     shift
   done
-  return 1
+  return 0
 }
 
-# count of lines matching a pattern in the current video log (and its rotated copy)
+# count of lines matching a pattern in the current video log (the log is emptied at each start)
 log_count() {
   _n=$(grep -c "$1" "$LOG" 2>/dev/null)
   echo "${_n:-0}"
 }
 
-venc_irq() { set -- $(grep venc /proc/interrupts 2>/dev/null | head -n 1); echo "${2:-0}"; }
+venc_irq() { set -- $(grep venc /proc/interrupts 2>/dev/null | head -n 1); echo "$2"; }
 
 ensure_rtsp() {
-  pidof tc100_rtsp >/dev/null 2>&1 || sh /mnt/controlscripts/rtsp-h26x start >/dev/null 2>&1
+  [ -n "$(rtsp_pid)" ] || sh /mnt/controlscripts/rtsp-h26x start >/dev/null 2>&1
 }
 
 # wait_stat SECS: a STAT line in the log (the log is emptied at each start, so any STAT line is from this process)
@@ -211,6 +225,8 @@ wait_gone() {
 
 gateway() { route -n 2>/dev/null | sed -n 's/^0\.0\.0\.0 *\([0-9.]*\).*/\1/p' | head -n 1; }
 
+wlan_addr_now() { ip -4 addr show dev wlan0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\)\/.*/\1/p' | head -n 1; }
+
 wlan_assoc() { iw dev wlan0 link 2>/dev/null | grep -q Connected; }
 
 wait_assoc() {
@@ -222,20 +238,82 @@ wait_assoc() {
   return 1
 }
 
+# net_save: the address and the default gateway of wlan0 before anything is cut (ifconfig down flushes both)
+net_save() {
+  WLAN_ADDR=$(ip -4 addr show dev wlan0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\/[0-9]*\).*/\1/p' | head -n 1)
+  WLAN_GW=$(gateway)
+  ev "saved wlan0 address '$WLAN_ADDR' gateway '$WLAN_GW'"
+}
+
+# net_static_fill: the saved address and default route, when they are not there
+net_static_fill() {
+  [ -n "$(wlan_addr_now)" ] || { [ -n "$WLAN_ADDR" ] && ip addr add "$WLAN_ADDR" dev wlan0 2>/dev/null; }
+  [ -n "$(gateway)" ] || { [ -n "$WLAN_GW" ] && ip route add default via "$WLAN_GW" dev wlan0 2>/dev/null; }
+}
+
+# net_back SECS: wait for the address and the default route; after 5 s ask udhcpc to renew (SIGUSR1), then put the
+# saved values back. True only when both are there.
+net_back() {
+  _i=0
+  while [ $_i -lt "$1" ]; do
+    [ -n "$(wlan_addr_now)" ] && [ -n "$(gateway)" ] && return 0
+    if [ $_i -eq 5 ]; then _up=$(pidof udhcpc 2>/dev/null); [ -n "$_up" ] && kill -USR1 $_up 2>/dev/null; fi
+    sleep 1; _i=$((_i + 1))
+  done
+  net_static_fill
+  [ -n "$(wlan_addr_now)" ] && [ -n "$(gateway)" ]
+}
+
 wlan_down() { ifconfig wlan0 down >/dev/null 2>&1 || ip link set wlan0 down >/dev/null 2>&1; }
 wlan_up() { ifconfig wlan0 up >/dev/null 2>&1 || ip link set wlan0 up >/dev/null 2>&1; }
 wlan_recover() { wlan_up; wpa_cli -i wlan0 reassociate >/dev/null 2>&1; }
 
-# wlan_restore: the bounded retries that end every Wi-Fi check (up, reassociate, 60 s each, three times)
+# wlan_restore: up, association, address and route; three tries of 60 s + 30 s, then it reports the state
 wlan_restore() {
   wlan_up
   _r=0
   while [ $_r -lt 3 ]; do
-    wait_assoc 60 && return 0
+    if wait_assoc 60 && net_back 30; then return 0; fi
     wlan_recover
     _r=$((_r + 1))
   done
-  wlan_assoc
+  wlan_assoc && [ -n "$(wlan_addr_now)" ] && [ -n "$(gateway)" ]
+}
+
+# /mnt/config snapshot: the copy and the md5 list at the start; config_check compares and restores at the end
+config_snapshot() {
+  rm -rf "$OUT/config-before"; mkdir -p "$OUT/config-before"
+  if [ ! -d /mnt/config ]; then : > "$OUT/config-absent"; return; fi
+  cp -R /mnt/config/. "$OUT/config-before/" 2>/dev/null
+  ( cd /mnt/config 2>/dev/null && find . -type f | sort | while read -r f; do md5sum "$f"; done ) > "$OUT/config-before.md5" 2>/dev/null
+}
+
+config_check() {
+  CONFIG_CHECKED=1
+  CUR_ID=GLOBAL; CUR_CHECK=config-unchanged; CUR="GLOBAL/config-unchanged"
+  if [ -f "$OUT/config-absent" ] || [ ! -f "$OUT/config-before.md5" ]; then
+    res FAIL "no /mnt/config snapshot (directory missing at the start or the snapshot was not taken): not checked"; return
+  fi
+  ( cd /mnt/config 2>/dev/null && find . -type f | sort | while read -r f; do md5sum "$f"; done ) > "$OUT/config-now.md5" 2>/dev/null
+  _bad=; _n=0
+  # changed or new files: restored from the snapshot, a new one removed
+  while read -r h p; do
+    p=${p#./}
+    grep -qxF "$h  ./$p" "$OUT/config-before.md5" && continue
+    _n=$((_n + 1)); _bad="$_bad $p"
+    if [ -f "$OUT/config-before/$p" ]; then cp -f "$OUT/config-before/$p" "/mnt/config/$p" 2>/dev/null
+    else rm -f "/mnt/config/$p" 2>/dev/null; fi
+  done < "$OUT/config-now.md5"
+  # removed files: copied back
+  while read -r h p; do
+    p=${p#./}
+    [ -f "/mnt/config/$p" ] && continue
+    _n=$((_n + 1)); _bad="$_bad $p"
+    cp -f "$OUT/config-before/$p" "/mnt/config/$p" 2>/dev/null
+  done < "$OUT/config-before.md5"
+  CUR_ID=GLOBAL; CUR_CHECK=config-unchanged; CUR="GLOBAL/config-unchanged"
+  if [ "$_n" = 0 ]; then res PASS "no file of /mnt/config changed during the run"
+  else res FAIL "$_n file(s) of /mnt/config changed or missing, restored from the snapshot:$_bad"; fi
 }
 
 # password for the curl calls on the camera: a config file (umask 077), so no argument list shows it
@@ -245,8 +323,14 @@ mk_cfg() {
   ( umask 077; printf 'user = "root:%s"\nsilent\n' "$_pw" > "$CFG" )
 }
 
+# night mode: NIGHT_KEEP_AUTO=1 keeps the automatic mode (auto-night-detection is not stopped, so rtspserver.conf
+# keeps its daynight value). The only place the bench switches the night mode.
+dn_set() { NIGHT_KEEP_AUTO=1 sh /mnt/scripts/nightmode.sh "$1" >/dev/null 2>&1; }
+night_now() { sh /mnt/controlscripts/night-mode status 2>/dev/null | grep -q 'PID: OK'; }
+
 # kill_cycles N FILE: N times kill -TERM of tc100_rtsp and a start with the autorun arguments (rtsp-h26x start runs
-# rtsp-launch.sh, the script the boot calls). Per cycle one line in FILE; sets K_OK and K_BAD.
+# rtsp-launch.sh, the script the boot calls). One line per cycle in FILE: "<n> ok ..." or "<n> BAD|no-process|stuck ...".
+# Sets K_OK and K_BAD.
 kill_cycles() {
   K_OK=0; K_BAD=0; : > "$2"
   _i=0
@@ -264,18 +348,20 @@ kill_cycles() {
     wait_stat 45 || _ok=0
     _p1=$(rtsp_pid); _v1=$(venc_irq); _pf=$(log_count 'picture failed'); _s1=$(ctr starts); _x1=$(ctr exit3)
     [ -n "$_p1" ] && [ "$_p1" != "$_p0" ] || _ok=0
-    [ "$_v1" -gt "$_v0" ] 2>/dev/null || _ok=0
+    [ -n "$_v0" ] && [ -n "$_v1" ] && [ "$_v1" -gt "$_v0" ] 2>/dev/null || _ok=0
     [ "$_pf" = 0 ] || _ok=0
-    [ "$_x1" = "$_x0" ] || _ok=0
+    [ -n "$_x0" ] && [ "$_x1" = "$_x0" ] || _ok=0
     if [ $_ok = 1 ]; then
       K_OK=$((K_OK + 1))
-      echo "$_i ok irq+$((_v1 - _v0)) starts+$((_s1 - _s0)) picture_failed=$_pf" >> "$2"
+      echo "$_i ok irq+$((_v1 - _v0)) starts+$(( ${_s1:-0} - ${_s0:-0} )) picture_failed=$_pf" >> "$2"
     else
       K_BAD=$((K_BAD + 1))
-      echo "$_i BAD pid=$_p1 irq+$((_v1 - _v0)) picture_failed=$_pf exit3+$((_x1 - _x0))" >> "$2"
+      echo "$_i BAD pid=$_p1 irq_before=$_v0 irq_after=$_v1 picture_failed=$_pf exit3_before=$_x0 exit3_after=$_x1" >> "$2"
     fi
   done
 }
+
+have_logs() { logread >/dev/null 2>&1 || ls /tmp/log/*.log /tmp/logs/*.log >/dev/null 2>&1; }
 
 # ---------------------------------------------------------------------------------------------------------------
 # checks
@@ -300,6 +386,7 @@ c_preflight() {
 
 c_dmesg() {
   dmesg > "$OUT/dmesg.txt" 2>/dev/null
+  if [ ! -s "$OUT/dmesg.txt" ]; then res FAIL "dmesg printed nothing"; return; fi
   _n=$(grep -Ec "$BAD_RE" "$OUT/dmesg.txt")
   if [ "${_n:-0}" = 0 ]; then
     res PASS "no oops, warning, lockup, hung task, nobody-cared or unbalanced-IRQ line since boot ($(wc -l < "$OUT/dmesg.txt") lines)"
@@ -312,7 +399,7 @@ c_dmesg() {
 c_kill_loop() {
   _n=${RECETTE_KILLS:-50}
   kill_cycles "$_n" "$OUT/kill.stats"
-  ev "$(cat "$OUT/kill.stats" | tail -n 5)"
+  ev "$(tail -n 5 "$OUT/kill.stats")"
   if [ "$K_BAD" = 0 ] && [ "$K_OK" = "$_n" ] && [ -n "$(rtsp_pid)" ]; then
     res PASS "$K_OK/$_n kill -TERM + start: first picture clean, encoder interrupt counting, exit3 unchanged"
   else
@@ -342,9 +429,9 @@ c_irq_switch() {
 
 c_irq_kills() {
   if [ ! -s "$OUT/kill.stats" ]; then res SKIP "kill-loop did not run in this run folder"; return; fi
-  _bad=$(grep -c ' BAD\| stuck\| no-process' "$OUT/kill.stats")
-  _grow=$(grep -c ' ok irq+[1-9]' "$OUT/kill.stats")
-  res $([ "$_bad" = 0 ] && echo PASS || echo FAIL) "$_grow cycles with the encoder interrupt counting, $_bad bad; growth per picture: compare with enc in STAT"
+  _total=$(wc -l < "$OUT/kill.stats")
+  _ok=$(grep -c '^[0-9]* ok irq+[1-9]' "$OUT/kill.stats")
+  res $([ "$_total" -ge 1 ] && [ "$_ok" = "$_total" ] && echo PASS || echo FAIL) "$_ok of $_total cycles: encoder interrupt counting after each start (growth per picture: compare with enc in STAT)"
 }
 
 c_irq_control() {
@@ -352,23 +439,24 @@ c_irq_control() {
   [ -f "$UNLAZY" ] || { res FAIL "no irq_unlazy switch"; return; }
   ORIG_UNLAZY=$(cat "$UNLAZY" 2>/dev/null)
   echo 0 > "$UNLAZY" 2>/dev/null
-  kill_cycles 20 "$OUT/irq-off.stats"; _a=$K_BAD
+  kill_cycles 20 "$OUT/irq-off.stats"; _a=$K_BAD; _ao=$K_OK
   echo 1 > "$UNLAZY" 2>/dev/null
-  kill_cycles 1 "$OUT/irq-on.stats"; _b=$K_BAD
-  kill_cycles 5 "$OUT/irq-on5.stats"; _c=$K_BAD
-  echo "$ORIG_UNLAZY" > "$UNLAZY" 2>/dev/null; ORIG_UNLAZY=
+  kill_cycles 1 "$OUT/irq-on.stats"; _b=$K_BAD; _bo=$K_OK
+  kill_cycles 5 "$OUT/irq-on5.stats"; _c=$K_BAD; _co=$K_OK
+  echo "$ORIG_UNLAZY" > "$UNLAZY" 2>/dev/null
+  _want=$ORIG_UNLAZY; ORIG_UNLAZY=
   _now=$(cat "$UNLAZY" 2>/dev/null)
-  ev "irq_unlazy=0: 20 cycles, bad $_a; =1: 1+5 cycles, bad $_b+$_c; restored to $_now"
-  res $([ $((_a + _b + _c)) = 0 ] && echo PASS || echo FAIL) "control run: bad cycles off=$_a on=$((_b + _c)); switch back to ${_now:-?}; the fix shows only as no lost picture"
+  ev "irq_unlazy=0: 20 cycles ($_ao ok); =1: 1+5 cycles ($_bo+$_co ok); restored to '$_now', was '$_want'"
+  res $([ $((_a + _b + _c)) = 0 ] && [ -n "$_now" ] && [ "$_now" = "$_want" ] && echo PASS || echo FAIL) "control run: bad cycles off=$_a on=$((_b + _c)); switch back to '${_now}' (was '$_want')"
 }
 
 c_irq_sample() {
-  _p=$(rtsp_pid)
-  if [ -z "$_p" ] || [ -z "$(stat_val enc)" ]; then res SKIP "tc100_rtsp not streaming: no STAT line"; return; fi
+  if [ -z "$(rtsp_pid)" ] || [ -z "$(stat_val enc)" ]; then res SKIP "tc100_rtsp not streaming: no STAT line"; return; fi
   _v0=$(venc_irq); _e0=$(stat_val enc); _s0=$(stat_val sub_enc); _pf0=$(log_count 'picture failed')
   sleep 60
   _v1=$(venc_irq); _e1=$(stat_val enc); _s1=$(stat_val sub_enc); _pf1=$(log_count 'picture failed')
-  _dv=$((_v1 - _v0)); _de=$(( (_e1 - _e0) + (_s1 - _s0) ))
+  if [ -z "$_v0" ] || [ -z "$_v1" ] || [ -z "$_e0" ] || [ -z "$_e1" ]; then res FAIL "interrupt or enc counter missing"; return; fi
+  _dv=$((_v1 - _v0)); _de=$(( (_e1 - _e0) + (${_s1:-0} - ${_s0:-0}) ))
   ev "60 s: irq +$_dv, enc+sub_enc +$_de, picture failed +$((_pf1 - _pf0))"
   if [ "$_pf1" != "$_pf0" ]; then res FAIL "picture failed lines in 60 s"
   elif [ "$_de" -gt 0 ] && [ "$_dv" -gt 0 ] && [ "$_dv" -le $((_de * 12 / 10 + 10)) ]; then res PASS "irq +$_dv for $_de encoded pictures in 60 s, no failed picture"
@@ -378,11 +466,12 @@ c_irq_sample() {
 }
 
 c_wlan_cycles() {
+  command -v iw >/dev/null 2>&1 || { res SKIP "no iw on the PATH (/mnt/ext/bin)"; return; }
   _n=${RECETTE_WIFI_CYCLES:-20}; WIFI_TOUCHED=1
-  _gw=$(gateway)
-  if [ -z "$_gw" ]; then res FAIL "no default gateway: Wi-Fi not up before the test"; return; fi
-  _slow=0; _lost=0; _fail=0; _i=0
-  ev "gateway $_gw, clients $(stat_val clients) at start"
+  net_save
+  if [ -z "$WLAN_GW" ] || [ -z "$WLAN_ADDR" ]; then res FAIL "no address or default route before the test (address '$WLAN_ADDR', gateway '$WLAN_GW')"; return; fi
+  _slow=0; _lost=0; _bad=0; _i=0
+  ev "clients $(stat_val clients) at start"
   while [ $_i -lt "$_n" ]; do
     _i=$((_i + 1))
     _t0=$(upt); wlan_down; _t1=$(upt)
@@ -390,22 +479,23 @@ c_wlan_cycles() {
     awk "BEGIN{exit !($_d > 1.0)}" && _slow=$((_slow + 1))
     sleep 2
     wlan_up
-    if ! wait_assoc 60; then
-      ev "cycle $_i: not associated after 60 s, recovery"
-      wlan_restore || { _fail=$((_fail + 1)); break; }
+    if ! wait_assoc 60 || ! net_back 30; then
+      _bad=$((_bad + 1)); ev "cycle $_i: association, address or default route not back"
+      wlan_restore >/dev/null || break
+      continue
     fi
-    _r=$(ping -c 30 -W 1 "$_gw" 2>/dev/null | grep 'packets transmitted')
+    _r=$(ping -c 30 -W 1 "$WLAN_GW" 2>/dev/null | grep 'packets transmitted')
     if [ -z "$_r" ]; then _lost=$((_lost + 1)); ev "cycle $_i: no ping summary"; continue; fi
     set -- $_r
     _lo=$(( ${1:-0} - ${4:-0} ))
     [ "$_lo" -gt 1 ] && _lost=$((_lost + 1))
     ev "cycle $_i: down ${_d}s, ping lost $_lo of ${1:-0}, clients $(stat_val clients)"
   done
-  wlan_restore || _fail=$((_fail + 1))
-  if [ "$_fail" = 0 ] && [ "$_slow" = 0 ] && [ "$_lost" = 0 ]; then
-    res PASS "$_i down/up cycles: each down under 1 s, each association back, no ping loss after the first second"
+  wlan_restore || _bad=$((_bad + 1))
+  if [ "$_bad" = 0 ] && [ "$_slow" = 0 ] && [ "$_lost" = 0 ] && [ "$_i" -ge 1 ]; then
+    res PASS "$_i down/up cycles: each down under 1 s, association, address and default route back, no ping loss after the first second"
   else
-    res FAIL "$_i cycles: $_slow slow down(s), $_lost with ping loss, $_fail not back (wlan0 restored by retries)"
+    res FAIL "$_i cycles: $_slow slow down(s), $_lost with ping loss, $_bad without association/address/route (restored by retries: $(wlan_assoc && echo associated || echo NOT associated))"
   fi
 }
 
@@ -421,49 +511,65 @@ c_urb() {
 }
 
 c_reassoc() {
-  WIFI_TOUCHED=1; _ok=0; _i=0
+  command -v wpa_cli >/dev/null 2>&1 || { res SKIP "no wpa_cli on the PATH (/mnt/ext/bin)"; return; }
+  command -v iw >/dev/null 2>&1 || { res SKIP "no iw on the PATH (/mnt/ext/bin)"; return; }
+  WIFI_TOUCHED=1; net_save
+  _cmd=0; _drop=0; _ok=0; _i=0
   while [ $_i -lt 5 ]; do
     _i=$((_i + 1))
-    wpa_cli -i wlan0 reassociate >/dev/null 2>&1
-    wait_assoc 60 && _ok=$((_ok + 1))
+    _o=$(wpa_cli -i wlan0 reassociate 2>&1); _rc=$?
+    if [ "$_rc" = 0 ] && ! echo "$_o" | grep -q FAIL; then _cmd=$((_cmd + 1)); else ev "cycle $_i: reassociate failed: $_o"; fi
+    _j=0; _dropped=0
+    while [ $_j -lt 15 ]; do
+      wlan_assoc || { _dropped=1; break; }
+      sleep 0.2; _j=$((_j + 1))
+    done
+    [ "$_dropped" = 1 ] && _drop=$((_drop + 1))
+    wait_assoc 60 && net_back 30 && _ok=$((_ok + 1))
   done
-  wlan_restore
-  res $([ "$_ok" = 5 ] && echo PASS || echo FAIL) "$_ok/5 wpa_cli reassociate with the association back"
+  wlan_restore >/dev/null
+  res $([ "$_cmd" = 5 ] && [ "$_drop" = 5 ] && [ "$_ok" = 5 ] && echo PASS || echo FAIL) "$_cmd/5 reassociate commands ok, $_drop/5 link drops seen, $_ok/5 back with address and route"
 }
 
 c_stall_exit() {
-  if grep -qs '^RTSP_CAPTURE_STALL_S=' /mnt/config/rtsp.env; then
+  if grep -qs 'RTSP_CAPTURE_STALL_S' /mnt/config/rtsp.env; then
     res SKIP "rtsp.env sets RTSP_CAPTURE_STALL_S: remove it for the test (the bench does not change /mnt/config)"; return
   fi
-  _x0=$(ctr exit3); _p=$(rtsp_pid)
-  if [ -z "$_p" ]; then ensure_rtsp; _p=$(rtsp_pid); fi
-  kill -TERM "$_p" 2>/dev/null; wait_gone "$_p" 15
+  _x0=$(ctr exit3)
+  if [ -z "$_x0" ]; then res FAIL "no counters file: exit3 unknown before the test"; return; fi
+  _p=$(rtsp_pid)
+  if [ -n "$_p" ]; then kill -TERM "$_p" 2>/dev/null; wait_gone "$_p" 15; fi
   RTSP_CAPTURE_STALL_S=5 sh /mnt/tc100test/rtsp-launch.sh >/dev/null 2>&1
-  wait_stat 45 || { res FAIL "no STAT line with RTSP_CAPTURE_STALL_S=5"; return; }
-  _p=$(rtsp_pid); kill -STOP "$_p" 2>/dev/null; sleep 12; kill -CONT "$_p" 2>/dev/null
+  if ! wait_stat 45 || [ -z "$(rtsp_pid)" ]; then
+    ensure_rtsp; res FAIL "no STAT line with RTSP_CAPTURE_STALL_S=5"; return
+  fi
+  _p=$(rtsp_pid); STOPPED_PID=$_p
+  kill -STOP "$_p" 2>/dev/null; sleep 12; kill -CONT "$_p" 2>/dev/null; STOPPED_PID=
   _i=0; _gone=0
   while [ $_i -lt 40 ]; do
     if ! kill -0 "$_p" 2>/dev/null; then _gone=1; break; fi
     sleep 1; _i=$((_i + 1))
   done
-  _msg=$(grep -c 'no frame for' "$LOG" 2>/dev/null)
-  ev "stopped 12 s; exit seen: $_gone; 'no frame for' lines: ${_msg:-0}"
-  STALL_RUNS=$(( ${STALL_RUNS:-0} + 1 ))
-  # back to the normal arguments (the watchdog would do it within 60 s): a start, then the stream again
-  sleep 2; ensure_rtsp; wait_stat 45
+  _msg=$(log_count 'no frame for')
+  ev "stopped 12 s; exit seen: $_gone; 'no frame for' lines: $_msg"
+  # an instance that did not exit keeps the 5 s limit: stop it, then the normal arguments below
+  if [ "$_gone" = 0 ]; then kill -TERM "$_p" 2>/dev/null; wait_gone "$_p" 15 || kill -9 "$_p" 2>/dev/null; fi
+  [ "$_gone" = 1 ] && STALL_RUNS=$((STALL_RUNS + 1))
+  sleep 2; sh /mnt/controlscripts/rtsp-h26x start >/dev/null 2>&1; wait_stat 45
   _x1=$(ctr exit3)
-  if [ "$_gone" = 1 ] && [ "${_msg:-0}" -ge 1 ] && [ "$((_x1 - _x0))" = 1 ] && [ -n "$(rtsp_pid)" ]; then
+  if grep -qs 'RTSP_CAPTURE_STALL_S' /mnt/config/rtsp.env; then ev "RTSP_CAPTURE_STALL_S found in rtsp.env after the test"; fi
+  if [ "$_gone" = 1 ] && [ "$_msg" -ge 1 ] && [ -n "$_x1" ] && [ "$((_x1 - _x0))" = 1 ] && [ -n "$(rtsp_pid)" ]; then
     res PASS "no frame for 5 s logged, exit 3, exit3 +1, stream back with the normal arguments"
   else
-    res FAIL "exit seen=$_gone, no-frame lines=${_msg:-0}, exit3 +$((_x1 - _x0)), pid '$(rtsp_pid)'"
+    res FAIL "exit seen=$_gone, no-frame lines=$_msg, exit3 +$(( ${_x1:-0} - _x0 )), pid '$(rtsp_pid)'"
   fi
 }
 
 c_no_spurious() {
   _x0=$(cat "$OUT/exit3.start" 2>/dev/null); _x1=$(ctr exit3)
   _exp=${STALL_RUNS:-0}
-  ev "exit3 at start $_x0, now $_x1, expected from this bench $_exp"
-  if [ -z "$_x0" ]; then res SKIP "no exit3 at the start of the run"; return; fi
+  ev "exit3 at start '$_x0', now '$_x1', expected from this bench $_exp"
+  if [ -z "$_x0" ] || [ -z "$_x1" ]; then res FAIL "exit3 unknown (no preflight or no counters file)"; return; fi
   if [ $((_x1 - _x0)) = "$_exp" ]; then res PASS "exit3 +$((_x1 - _x0)): only the bench's own stall test"
   else res FAIL "exit3 +$((_x1 - _x0)) with $_exp expected: a spurious capture stall exit"; fi
 }
@@ -473,8 +579,9 @@ c_arecord() {
   if [ -z "$_p" ]; then res SKIP "no arecord process: the microphone is read by tc100_rtsp (RTSP_ALSA_DIRECT=1)"; return; fi
   kill -9 $_p 2>/dev/null; sleep 3
   _z=$(ps 2>/dev/null | grep -c 'arecord.*defunct')
-  ensure_rtsp; wait_stat 30
-  res $([ -n "$(rtsp_pid)" ] && [ "${_z:-0}" = 0 ] && echo PASS || echo FAIL) "arecord $_p killed, zombies ${_z:-0}, tc100_rtsp pid '$(rtsp_pid)'"
+  # the server is restarted the normal way: with RTSP_ALSA_DIRECT=0 the audio is only restarted by a server start
+  sh /mnt/controlscripts/rtsp-h26x restart >/dev/null 2>&1; wait_stat 45
+  res $([ -n "$(rtsp_pid)" ] && [ "${_z:-0}" = 0 ] && echo PASS || echo FAIL) "arecord $_p killed, zombies ${_z:-0}, server restarted the normal way, pid '$(rtsp_pid)'"
 }
 
 c_ssh_maps() {
@@ -489,12 +596,14 @@ c_ssh_maps() {
 }
 
 c_nounfiltered() {
+  if ! have_logs; then res SKIP "no log readable (logread, /tmp/log, /tmp/logs)"; return; fi
   _n=$( (logread 2>/dev/null; cat /tmp/log/*.log 2>/dev/null) | grep -c 'WITHOUT the LAN filter')
   res $([ "${_n:-0}" = 0 ] && echo PASS || echo FAIL) "'WITHOUT the LAN filter' lines: ${_n:-0}"
 }
 
 c_console_larger() {
-  _n=$(cat /tmp/logs/*.log /tmp/log/*.log 2>/dev/null | grep -c 'is larger than')
+  if ! have_logs; then res SKIP "no log readable (logread, /tmp/log, /tmp/logs)"; return; fi
+  _n=$( (logread 2>/dev/null; cat /tmp/logs/*.log /tmp/log/*.log 2>/dev/null) | grep -c 'is larger than')
   res $([ "${_n:-0}" = 0 ] && echo PASS || echo FAIL) "'is larger than' lines in the logs: ${_n:-0}"
 }
 
@@ -508,45 +617,49 @@ c_pwd_file() {
 c_status_hue() {
   if [ ! -f /var/run/isp_tune.status ]; then res SKIP "no /var/run/isp_tune.status (ISP_TUNE off)"; return; fi
   _h=$(sed -n 's/^HUE=//p' /var/run/isp_tune.status | head -n 1)
+  if [ -z "$_h" ]; then res FAIL "no HUE= line in the status file"; return; fi
   _l=$(grep 'in the ISP' "$LOG" "$LOG.1" 2>/dev/null | tail -n 1)
   ev "status HUE=$_h; last log line: $_l"
   case "$_l" in
     *"hue $_h in the ISP"*) res PASS "HUE=$_h in the status file and in the last log line" ;;
-    *) [ "${_h:-0}" = 0 ] && res PASS "HUE=0" || res FAIL "HUE=$_h but the last log line says: $_l" ;;
+    *) [ "$_h" = 0 ] && res PASS "HUE=0" || res FAIL "HUE=$_h but the last log line says: $_l" ;;
   esac
 }
 
 c_dn_cycles() {
   if [ ! -f /var/run/isp_tune.status ]; then res SKIP "no isp_tune status: hue not in the ISP"; return; fi
-  _n=${RECETTE_DN_CYCLES:-2}; DN_TOUCHED=1
-  _night=0; sh /mnt/controlscripts/night-mode status 2>/dev/null | grep -q 'PID: OK' && _night=1
   _h0=$(sed -n 's/^HUE=//p' /var/run/isp_tune.status | head -n 1)
+  if [ -z "$_h0" ]; then res FAIL "no HUE= line in the status file"; return; fi
+  _n=${RECETTE_DN_CYCLES:-2}
+  night_now && DN_ORIG=1 || DN_ORIG=0
+  DN_TOUCHED=1
   _c0=$(cat "$LOG" "$LOG.1" 2>/dev/null | grep -c 'in the ISP')
   _k=0; _i=0; _bad=0
   while [ $_i -lt "$_n" ]; do
     _i=$((_i + 1))
-    sh /mnt/scripts/nightmode.sh on >/dev/null 2>&1; sleep 5
-    sh /mnt/scripts/nightmode.sh off >/dev/null 2>&1; sleep 5
+    dn_set on; sleep 5
+    dn_set off; sleep 5
     _h=$(sed -n 's/^HUE=//p' /var/run/isp_tune.status | head -n 1)
     [ "$_h" = "$_h0" ] || _bad=$((_bad + 1))
     _k=$((_k + 1))
   done
-  [ "$_night" = 1 ] && sh /mnt/scripts/nightmode.sh on >/dev/null 2>&1
-  DN_TOUCHED=
+  # back to the state the run started in, nothing else
+  if [ "$DN_ORIG" = 1 ]; then dn_set on; else dn_set off; fi
+  DN_TOUCHED=0
   _hl=$(cat "$LOG" "$LOG.1" 2>/dev/null | grep -c 'in the ISP')
-  ev "hue before $_h0, after the cycles $_h, ISP lines $_c0 -> $_hl, started at night: $_night"
-  res $([ "$_bad" = 0 ] && echo PASS || echo FAIL) "$_k day/night cycles: HUE stays $_h0 after each return (ISP lines $_c0 -> $_hl)"
+  ev "hue before $_h0, after the cycles $_h, ISP lines $_c0 -> $_hl, started at night: $DN_ORIG"
+  res $([ "$_bad" = 0 ] && [ "$_hl" -gt "$_c0" ] && echo PASS || echo FAIL) "$_k day/night cycles: HUE stays $_h0 after each return, ISP lines $_c0 -> $_hl"
 }
 
 c_privacy() {
-  _p0=0; _n=0
-  for _i in 1 2 3; do _v=$(stat_val pp_ms); _p0=$((_p0 + ${_v:-0})); _n=$((_n + 1)); sleep 6; done
-  PRIV_SET=0; [ -e /tmp/tc100_privacy ] || { touch /tmp/tc100_privacy; PRIV_SET=1; }
+  if [ -e /tmp/tc100_privacy ]; then res SKIP "privacy already on at the start: not measured"; return; fi
+  _miss=0; _p0=0; _p1=0
+  for _i in 1 2 3; do _v=$(stat_val pp_ms); [ -n "$_v" ] || _miss=1; _p0=$((_p0 + ${_v:-0})); sleep 6; done
+  touch /tmp/tc100_privacy; PRIV_SET=1
   sleep 16
-  _p1=0; _m=0
-  for _i in 1 2 3; do _v=$(stat_val pp_ms); _p1=$((_p1 + ${_v:-0})); _m=$((_m + 1)); sleep 6; done
-  [ "$PRIV_SET" = 1 ] && rm -f /tmp/tc100_privacy
-  PRIV_SET=0
+  for _i in 1 2 3; do _v=$(stat_val pp_ms); [ -n "$_v" ] || _miss=1; _p1=$((_p1 + ${_v:-0})); sleep 6; done
+  rm -f /tmp/tc100_privacy; PRIV_SET=0
+  if [ "$_miss" = 1 ]; then res FAIL "no pp_ms in the STAT lines (privacy file removed)"; return; fi
   _a=$((_p0 / 3)); _b=$((_p1 / 3))
   ev "pp_ms without privacy $_a, with /tmp/tc100_privacy $_b (3 STAT lines each)"
   [ -n "$(rtsp_pid)" ] || ensure_rtsp
@@ -564,11 +677,11 @@ c_isp_diff() {
   mk_cfg || { res SKIP "no password"; return; }
   REQUEST_METHOD=GET QUERY_STRING='cmd=isp_tune&format=json' STATE_RESPONSE_CACHE_BYPASS=1 \
     sh /mnt/www/cgi-bin/state.cgi 2>/dev/null | sed '1,/^$/d' > "$OUT/it-cgi.json"
-  curl -s -K "$CFG" "http://127.0.0.1/cgi-bin/state.cgi?cmd=isp_tune&format=json" > "$OUT/it-native.json"
-  if [ -s "$OUT/it-cgi.json" ] && cmp -s "$OUT/it-cgi.json" "$OUT/it-native.json"; then
+  _code=$(curl -s -K "$CFG" -o "$OUT/it-native.json" -w '%{http_code}' "http://127.0.0.1/cgi-bin/state.cgi?cmd=isp_tune&format=json")
+  if [ -s "$OUT/it-cgi.json" ] && [ "$_code" = 200 ] && cmp -s "$OUT/it-cgi.json" "$OUT/it-native.json"; then
     res PASS "isp_tune JSON of the native route equals the CGI ($(wc -c < "$OUT/it-cgi.json") bytes)"
   else
-    res FAIL "isp_tune JSON differs or is empty (files kept in the run folder)"
+    res FAIL "isp_tune JSON differs, is empty or the native route answered HTTP $_code (files kept in the run folder)"
   fi
 }
 
@@ -576,21 +689,24 @@ c_fullconfig() {
   if [ -z "$RECETTE_PASS" ]; then res SKIP "RECETTE_PASS not set"; return; fi
   mk_cfg || { res SKIP "no password"; return; }
   curl -s -K "$CFG" -D "$OUT/fc.headers" -o /dev/null "http://127.0.0.1/cgi-bin/state.cgi?cmd=fullconfig"
-  _ct=$(grep -i '^content-type' "$OUT/fc.headers" | tr -d '\r')
+  _ct=$(grep -i '^content-type' "$OUT/fc.headers" 2>/dev/null | tr -d '\r')
   res $(echo "$_ct" | grep -qi 'text/plain' && echo PASS || echo FAIL) "fullconfig answered: '$_ct'"
 }
 
 c_hw_state() {
   if [ -z "$RECETTE_PASS" ]; then res SKIP "RECETTE_PASS not set"; return; fi
   mk_cfg || { res SKIP "no password"; return; }
+  if [ ! -f /tmp/log/audit.log ]; then res SKIP "no /tmp/log/audit.log: nothing to count"; return; fi
   _n0=$(grep -c 'cmd=hw_state' /tmp/log/audit.log 2>/dev/null); _n0=${_n0:-0}
-  _i=0; _code=
+  _i=0; _codes=
   while [ $_i -lt 5 ]; do
     _i=$((_i + 1))
-    _code=$(curl -s -K "$CFG" -o /dev/null -w '%{http_code}' "http://127.0.0.1/cgi-bin/action.cgi?cmd=hw_state&format=json")
+    _c=$(curl -s -K "$CFG" -o /dev/null -w '%{http_code}' "http://127.0.0.1/cgi-bin/action.cgi?cmd=hw_state&format=json")
+    _codes="$_codes $_c"
   done
   _n1=$(grep -c 'cmd=hw_state' /tmp/log/audit.log 2>/dev/null); _n1=${_n1:-0}
-  res $([ "$_n1" = "$_n0" ] && echo PASS || echo FAIL) "5 hw_state calls (last HTTP $_code): audit.log lines with hw_state $_n0 -> $_n1"
+  _ok200=$(echo "$_codes" | tr ' ' '\n' | grep -cx 200)
+  res $([ "$_ok200" = 5 ] && [ "$_n1" = "$_n0" ] && echo PASS || echo FAIL) "5 hw_state calls, HTTP codes:$_codes; audit.log lines with hw_state $_n0 -> $_n1"
 }
 
 c_stat_fields() {
@@ -604,7 +720,8 @@ c_stat_fields() {
   esac
   _pf=$(stat_val pic_fail); _cs=$(stat_val cap_stall)
   ev "STAT: $_l"
-  res $([ "$_order" = ok ] && [ "${_pf:-0}" = 0 ] && [ "${_cs:-0}" = 0 ] && echo PASS || echo FAIL) "fields in the STAT order: $_order; pic_fail ${_pf:-?}, cap_stall ${_cs:-?}, pp_ms $(stat_val pp_ms), snd_ms $(stat_val snd_ms)"
+  if [ -z "$_pf" ] || [ -z "$_cs" ]; then res FAIL "pic_fail or cap_stall missing from the STAT line"; return; fi
+  res $([ "$_order" = ok ] && [ "$_pf" = 0 ] && [ "$_cs" = 0 ] && echo PASS || echo FAIL) "fields in the STAT order: $_order; pic_fail $_pf, cap_stall $_cs, pp_ms $(stat_val pp_ms), snd_ms $(stat_val snd_ms)"
 }
 
 c_start_lines() {
@@ -616,14 +733,6 @@ c_start_lines() {
   else res FAIL "direct capture lines ${_d:-0}, old pool-guard lines ${_g:-0}"; fi
 }
 
-c_hold_restart() {
-  _h=$(tail -n 30 /tmp/logs/daynight.log 2>/dev/null | grep -c 'held back')
-  if [ "${_h:-0}" = 0 ]; then res SKIP "no day/night hold in the last 30 log lines (DN-FLAP hold runs at dusk or dawn)"; return; fi
-  sh /mnt/controlscripts/auto-night-detection restart >/dev/null 2>&1; sleep 8
-  _s=$(tail -n 20 /tmp/logs/daynight.log 2>/dev/null | grep -c 'Daemon started')
-  res $([ "${_s:-0}" -ge 1 ] && echo PASS || echo FAIL) "hold seen, restart done, 'Daemon started' lines in the last 20: ${_s:-0}"
-}
-
 c_daynight_lines() {
   if [ ! -f /tmp/logs/daynight.log ]; then res SKIP "no /tmp/logs/daynight.log"; return; fi
   _n=$(wc -l < /tmp/logs/daynight.log)
@@ -631,6 +740,7 @@ c_daynight_lines() {
 }
 
 c_config_tmp() {
+  if [ ! -d /mnt/config ]; then res FAIL "no /mnt/config"; return; fi
   _t=$(find /mnt/config -name '*.tmp' 2>/dev/null | wc -l)
   res $([ "${_t:-0}" = 0 ] && echo PASS || echo FAIL) "leftover *.tmp files in /mnt/config: ${_t:-0}"
 }
@@ -659,6 +769,7 @@ c_wifiq_files() {
 c_fork_rate() {
   _w=${RECETTE_FORK_WINDOW:-600}
   _p0=$(sed -n 's/^processes //p' /proc/stat); sleep "$_w"; _p1=$(sed -n 's/^processes //p' /proc/stat)
+  if [ -z "$_p0" ] || [ -z "$_p1" ]; then res FAIL "no processes counter in /proc/stat"; return; fi
   _rate=$(( (_p1 - _p0) * 60 / _w ))
   ev "processes forked in $_w s: $((_p1 - _p0)), per minute $_rate (all jobs; 13 per wifi-quality run before WIFIQ)"
   if [ -z "${RECETTE_FORK_MAX:-}" ]; then res SKIP "rate $_rate per minute measured; set RECETTE_FORK_MAX to judge it"; return; fi
@@ -667,18 +778,19 @@ c_fork_rate() {
 
 c_counters_stat() {
   if [ ! -f /tmp/tc100_rtsp.counters ]; then res FAIL "no /tmp/tc100_rtsp.counters"; return; fi
-  _ok=1
+  _ok=1; _shown=
   for _k in starts pic_fail enc_reopen cap_stall dq_err sub_off exit3; do
-    [ "$(stat_val $_k)" = "$(ctr $_k)" ] || _ok=0
+    _s=$(stat_val $_k); _c=$(ctr $_k)
+    if [ -z "$_s" ] || [ -z "$_c" ] || [ "$_s" != "$_c" ]; then _ok=0; fi
   done
   res $([ $_ok = 1 ] && echo PASS || echo FAIL) "STAT tail and counters file agree: starts $(ctr starts), pic_fail $(ctr pic_fail), exit3 $(ctr exit3)"
 }
 
 c_counters_term() {
   if [ ! -s "$OUT/kill.stats" ]; then res SKIP "kill-loop did not run in this run folder"; return; fi
-  _n=$(grep -c ' ok \| BAD \| stuck' "$OUT/kill.stats")
-  _x=$(grep -c ' BAD ' "$OUT/kill.stats")
-  res $([ "$_x" = 0 ] && echo PASS || echo FAIL) "$_n kill -TERM cycles, each with starts +1 and exit3 unchanged (bad $_x; a TERM is a clean stop)"
+  _total=$(wc -l < "$OUT/kill.stats")
+  _ok=$(grep -c '^[0-9]* ok ' "$OUT/kill.stats")
+  res $([ "$_total" -ge 1 ] && [ "$_ok" = "$_total" ] && echo PASS || echo FAIL) "$_ok of $_total kill -TERM cycles OK (each: starts +1, exit3 unchanged, a clean TERM is not an exit 3)"
 }
 
 c_memory_files() {
@@ -692,6 +804,7 @@ c_memory_files() {
 }
 
 c_smash() {
+  if ! have_logs && ! dmesg >/dev/null 2>&1; then res SKIP "no log readable"; return; fi
   _n=$( (cat /tmp/logs/*.log /tmp/log/*.log /mnt/sd/logs/*.log 2>/dev/null; logread 2>/dev/null; dmesg 2>/dev/null) | grep -ci 'stack smashing\|illegal instruction')
   res $([ "${_n:-0}" = 0 ] && echo PASS || echo FAIL) "'stack smashing' / 'illegal instruction' lines in the logs: ${_n:-0}"
 }
@@ -700,22 +813,25 @@ c_top() {
   top -b -n 1 2>/dev/null | head -n 20 > "$OUT/top1.txt"
   sleep 30
   top -b -n 1 2>/dev/null | head -n 20 > "$OUT/top2.txt"
-  if [ -s "$OUT/top2.txt" ]; then res PASS "top snapshots kept (top1.txt, top2.txt): compare the CPU of tc100_rtsp, tc100-onvifd, tc100-mqttd, httpfront with the 3.0.1 readings"
+  if [ -s "$OUT/top2.txt" ] && [ -s "$OUT/top1.txt" ]; then res PASS "top snapshots kept (top1.txt, top2.txt): compare the CPU of tc100_rtsp, tc100-onvifd, tc100-mqttd, httpfront with the 3.0.1 readings"
   else res FAIL "top printed nothing"; fi
 }
 
 # ---------------------------------------------------------------------------------------------------------------
-# cleanup: runs at the end and on EXIT, INT, TERM. Restores what a check changed, leaves the video running.
+# cleanup: runs at the end and on EXIT, INT, TERM. Stops a SIGSTOPped check first, restores what a check changed,
+# compares /mnt/config, leaves the video running.
 # ---------------------------------------------------------------------------------------------------------------
 cleanup() {
   trap '' EXIT INT TERM
+  [ -n "$STOPPED_PID" ] && kill -CONT "$STOPPED_PID" 2>/dev/null
   [ -n "$ORIG_UNLAZY" ] && echo "$ORIG_UNLAZY" > "$UNLAZY" 2>/dev/null
-  [ "${PRIV_SET:-0}" = 1 ] && rm -f /tmp/tc100_privacy
-  if [ "${DN_TOUCHED:-}" = 1 ]; then sh /mnt/scripts/nightmode.sh on >/dev/null 2>&1; fi
-  [ "${WIFI_TOUCHED:-0}" = 1 ] && wlan_restore >/dev/null 2>&1
+  [ "$PRIV_SET" = 1 ] && rm -f /tmp/tc100_privacy
+  if [ "$DN_TOUCHED" = 1 ]; then if [ "$DN_ORIG" = 1 ]; then dn_set on; else dn_set off; fi; fi
+  [ "$WIFI_TOUCHED" = 1 ] && wlan_restore >/dev/null 2>&1
   [ "$DRY" = 1 ] || ensure_rtsp
+  if [ "$CONFIG_CHECKED" = 0 ] && [ -f "$OUT/config-before.md5" ]; then config_check; fi
   rm -f "$CFG" "$PASSF"
-  [ "$DRY" = 1 ] || echo "$(date) ended, restored: privacy, irq switch, night mode, wlan0, video" >> "$LOGF" 2>/dev/null
+  [ "$DRY" = 1 ] || echo "$(date) ended; restored: privacy, irq switch, night mode, wlan0 address and route, video server, /mnt/config" >> "$LOGF" 2>/dev/null
   exit "${EXIT_CODE:-0}"
 }
 trap cleanup EXIT INT TERM
@@ -743,6 +859,7 @@ mkdir -p "$OUT" || { echo "cannot create $OUT" >&2; exit 1; }
 if [ -f "$PASSF" ]; then RECETTE_PASS=$(head -n 1 "$PASSF" 2>/dev/null); rm -f "$PASSF"; fi
 echo "start $(date) out $OUT" >> "$LOGF"
 printf '%s\n' "$CHECKS" > "$OUT/checks.txt"
+config_snapshot
 
 # the loop reads a file, not a pipe: the variables the checks set (restore state) stay in this shell for the trap
 while IFS='|' read -r id name mode fn arg; do
@@ -757,6 +874,8 @@ while IFS='|' read -r id name mode fn arg; do
   "$fn"
   [ "$RESN" = "$_before" ] && res FAIL "the check printed no result"
 done < "$OUT/checks.txt"
+
+config_check
 
 RUN_T1=$(upt)
 TOTAL=$(awk "BEGIN{printf \"%d\", $RUN_T1 - ${RUN_T0:-$RUN_T1}}")

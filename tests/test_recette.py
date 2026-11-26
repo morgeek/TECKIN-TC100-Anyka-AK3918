@@ -223,6 +223,74 @@ class BuildIsolation(unittest.TestCase):
         ready = (ROOT / 'docs' / 'linux-port' / 'readiness-3.0.2.md').read_text(encoding='utf-8')
         self.assertIn('recette-host.sh', ready)
 
+class SafetyGuards(unittest.TestCase):
+    """Review fixes of the 3.0.2 bench: night mode, config snapshot, Wi-Fi address and route, SIGSTOP cleanup,
+    credentials, MQTT retained check, PATH."""
+
+    def bench(self):
+        return text(BENCH)
+
+    def host(self):
+        return text(HOST)
+
+    def test_nightmode_only_with_keep_auto(self):
+        for line in self.bench().splitlines():
+            if '/mnt/scripts/nightmode.sh' in line and not line.lstrip().startswith('#'):
+                self.assertIn('NIGHT_KEEP_AUTO=1', line, f'nightmode.sh without the keep-auto variable: {line}')
+
+    def test_no_auto_night_detection_restart(self):
+        self.assertNotIn('auto-night-detection restart', self.bench())
+        self.assertNotIn('auto-night-detection stop', self.bench())
+
+    def test_cleanup_continues_a_stopped_server(self):
+        body = self.bench().split('cleanup() {', 1)[1].split('\n}\n', 1)[0]
+        self.assertIn('kill -CONT', body)
+        self.assertLess(body.index('kill -CONT'), body.index('wlan_restore'))
+
+    def test_stopped_server_is_not_running(self):
+        self.assertIn('[ "$_st" = T ]', self.bench())
+
+    def test_config_snapshot_and_restore_exist(self):
+        b = self.bench()
+        self.assertIn('cp -R /mnt/config/.', b)
+        self.assertIn('config-before.md5', b)
+        self.assertIn('config-unchanged', b)
+        self.assertIn('rm -f "/mnt/config/$p"', b)
+
+    def test_path_has_ext_bin(self):
+        self.assertTrue(any(line.startswith('PATH=/mnt/ext/bin:') for line in self.bench().splitlines()))
+
+    def test_wifi_keeps_address_and_route(self):
+        b = self.bench()
+        self.assertIn('ip route add default via', b)
+        self.assertIn('ip addr add', b)
+        self.assertIn('kill -USR1', b)
+        self.assertIn('command -v wpa_cli', b)
+
+    def test_no_nul_bytes(self):
+        for p in SCRIPTS + [Path(__file__)]:
+            self.assertNotIn(bytes([0]), p.read_bytes(), p.name)
+
+    def test_host_credentials_stay_out_of_argv(self):
+        h = self.host()
+        self.assertNotIn('-P $', h)
+        self.assertIn('XDG_CONFIG_HOME', h)
+        self.assertIn('chmod 700', h)
+        self.assertNotIn('sed "s|$RECETTE_PASS', h)
+        self.assertIn('index(s, p)', h)
+
+    def test_mqtt_retained_check_order_and_trap(self):
+        h = self.host()
+        body = h.split('h_mqtt_retained() {', 1)[1].split('h_mqtt_two() {', 1)[0]
+        self.assertLess(body.index('mosquitto_sub -t "$RES_TOPIC"'), body.index('mqtt-bridge restart'))
+        self.assertIn('delta=', body)
+        self.assertIn('RETAINED_SET=1', body)
+        self.assertIn('RETAINED_SET:-0', h)
+
+    def test_hold_restart_is_manual(self):
+        self.assertIn('SMALL-A-1124|hold-restart|manual|', self.bench())
+        self.assertNotIn('c_hold_restart', self.bench())
+
 
 if __name__ == '__main__':
     unittest.main()
