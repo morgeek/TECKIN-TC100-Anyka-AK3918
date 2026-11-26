@@ -82,7 +82,10 @@ VENCIRQ / CLEANUP (STAT fields vs 3.0.1), DN-FLAP two more evenings, SMALL-A rea
 ## 3. Owner decisions
 
 Taken on 2026-11-25:
-- **NIGHT-CEIL:** decide after the readings (`nightceil.csv`, check B); no night setting by default until then.
+- **NIGHT-CEIL:** cause settled on 26/11 (night noise at high gain, read B and a full dark night); owner: try
+  `RTSP_NIGHT_KBPS=900` on IPCAM1 only (test-queue NIGHT-CEIL-AUTO); the default is decided after that night.
+- **SUBSTREAM-LOOP:** answered on 25/11: the sub-stream client ends its own sessions (`TEARDOWN received`); Frigate /
+  go2rtc side, not the camera.
 - **SD card:** none in the cameras. The 3-day soak files (`memory*.csv`, `nightceil.csv`) stay in RAM: copy them off
   every day, and any reboot restarts the soak.
 - **FTP:** stays off by default, documented; no test (AUDIT-1116-FTP closed by decision).

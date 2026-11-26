@@ -158,6 +158,20 @@ older `to test` entries below.
     under ~1000 kbit/s at the same `gain`, the log line at each change, no false motion events at the switch, the day
     rows as before. **Risk:** a softer night picture (look at a night snapshot / recording before keeping it).
 - **Host tests:** `tests/test_nightceil.py` (`NightCeilLog`, `NightSetting`), `tests/test_abr.py`, `tests/test_md_enc.py`.
+- **2026-11-26, owner's decision (main session):** read B and the first full dark night settled the cause (night noise at
+  high gain: same ~1500-1660 kbit/s before and after a video restart at the same gain; IPCAM1 at its 1600 target all
+  night, IPCAM2 ~825). **Try `RTSP_NIGHT_KBPS=900` on IPCAM1 (.24) only, tonight** (not the QP add; IPCAM2 unchanged as
+  the control):
+  1. On IPCAM1: add the line `RTSP_NIGHT_KBPS=900` to `/mnt/config/rtsp.env` (note its md5 before), then
+     `controlscripts/rtsp-h26x restart` by day; check the start lines (no `night setting` line by day) and `kbps_set`
+     1600 in the first `nightceil.csv` switch row.
+  2. At the evening switch: the line `night setting (night): ... main bit rate 1600 -> 900 kbit/s`; the night `sample`
+     rows at or under ~900-950 kbit/s at gain ~14; `kbps_set` 900; no `md_enc` motion event right after the switch.
+  3. Morning: `night setting (day)` back to 1600, day rows as before; save a night snapshot / a minute of recording of
+     IPCAM1 for the owner to judge the picture (softer is expected).
+  - **Pass:** night rate ~900, no false motion, day unchanged, and the owner accepts the night picture. Then the owner
+    decides whether 900 becomes a default (`config/rtsp.env.dist` or the launcher) or stays per camera. **Revert:**
+    remove the line and restart the video server.
 
 ### MQTT-ADMIN The `telnet`, `ftp` and `reboot` commands over MQTT can be refused: `MQTT_ADMIN_CMDS` (`[mqtt-admin]`) — `to test`
 
