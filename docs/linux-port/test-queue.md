@@ -1900,6 +1900,12 @@ These are the current owner-confirmed work items. The detailed switch-by-switch 
   - So the night ceiling is a property of IPCAM1's scene and gain (noise filling the budget), present with and without
     the evening switch of a running server (see the 00:20 read B), and it follows the light at dawn. The rc5/rc6 night
     setting (`RTSP_NIGHT_VBR_QP_ADD`, `RTSP_NIGHT_KBPS`) is the candidate to try, on IPCAM1 only, on the owner's word.
+- **2026-11-26 07:50, IPCAM2 (.11) updated to 3.0.2-rc6 by the tester at the owner's request** (same package, md5
+  `5bae53d1bea38b45790e71d507a4791a`, same `update.cgi` path over ssh, `nobackup=1`, no SD card). Clean boot:
+  no `Failed power on`, `autorun_start` 11.6 s, `rtsp_launched` 24.7 s, `web_ready` 26.0 s, `boot_complete` 50.2 s;
+  counters 0; settings kept (`rtsp.env` md5 unchanged); `nightceil.csv` running. Basis for the decision: IPCAM1 had
+  run rc6 for 13 h with counters 0 (only the tester's restart), memory flat, one full night. Both cameras are on rc6
+  from here, so tonight's night is the first with the same build on both scenes.
 
 ---
 Historical dated reports (2026-10-30 onward) were archived to [test-queue-archive.md](test-queue-archive.md).
