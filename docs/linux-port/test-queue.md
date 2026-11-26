@@ -219,6 +219,15 @@ older `to test` entries below.
   entries they belong to (KERNEL, VENCIRQ, USB, RTSP, NET, CLEANUP-1124, SMALL-A/B-1124, WIFIQ-FORKS, HARDEN, B1, B4, T1B5,
   W5, FAILCOUNT, MEMWATCH); a FAIL is written as it is, with the `recette.log` lines around it.
 - **Results:** (testers write here)
+  - **2026-11-26, first runs on cameras (tester):** IPCAM2 safe 21 PASS / 3 FAIL, IPCAM2 `--disruptive --wifi` short
+    (10 kills, 3 Wi-Fi cycles) 28 PASS / 5 FAIL, IPCAM1 safe only 21 PASS / 2 FAIL; state restored on both
+    (IPCAM1 not touched, same video-server pid, `rtsp.env` and its `RTSP_NIGHT_KBPS=900` unchanged). Full lines, the six
+    FAILs read against `recette.log`, and the defects of the bench: [recette-2026-11-26.md](recette-2026-11-26.md).
+    **Two camera findings:** `user.pwd` is mode 644 (IPCAM2) and 755 (IPCAM1), not 0600 (B1-ONVIF); stall-exit and
+    pp-privacy FAIL are undetermined (camera or bench). **Main bench defect:** `kill_cycles` never ends (the wait
+    helpers reuse its `_i` counter; fix `_i` to `_wi` in `recette.sh` lines 208-264); the tester stopped it after 62 clean
+    kill + start cycles. The cameras have no `scp`; the copy step needs `ssh cat`. IPCAM1 `--disruptive --wifi` waits
+    for tonight's night reading.
 
 ## Audit of 2026-11-16 (`[audit-1116]`): fixes waiting for the camera
 
