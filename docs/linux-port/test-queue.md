@@ -1920,6 +1920,11 @@ These are the current owner-confirmed work items. The detailed switch-by-switch 
   counters 0; settings kept (`rtsp.env` md5 unchanged); `nightceil.csv` running. Basis for the decision: IPCAM1 had
   run rc6 for 13 h with counters 0 (only the tester's restart), memory flat, one full night. Both cameras are on rc6
   from here, so tonight's night is the first with the same build on both scenes.
+- **2026-11-26 10:10, NIGHT-CEIL-AUTO step 1 done on IPCAM1 (owner's go in chat): `RTSP_NIGHT_KBPS=900` added to
+  `rtsp.env`** (md5 before `94fb3ad3be4c`, after `181748783257`; copy of the old file kept in RAM on the camera), video
+  server restarted by day (`starts=3`, other counters 0). The running process holds `RTSP_NIGHT_KBPS=900`; no
+  `night setting` line by day, first switch row of `nightceil.csv` shows `kbps_set` 1600 and `night_kbps` 0 by day as
+  the protocol expects. IPCAM2 (rc6, unchanged) is the control. Steps 2 and 3 (evening switch, morning, snapshot) follow.
 
 ---
 Historical dated reports (2026-10-30 onward) were archived to [test-queue-archive.md](test-queue-archive.md).
