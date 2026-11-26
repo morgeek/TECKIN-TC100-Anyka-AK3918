@@ -176,7 +176,7 @@ class HostScript(unittest.TestCase):
 
 class BuildIsolation(unittest.TestCase):
     """No build, package or test pack takes tests/camera: a glob or a copy of tests/ in a build file would."""
-    SKIP_DIRS = {'.git', 'tests', 'docs', 'node_modules', 'scratchpad'}
+    SKIP_DIRS = {'.git', 'tests', 'docs', 'node_modules', 'scratchpad', '.pytest_cache', '__pycache__'}
     SKIP_NAMES = {'.git'}
 
     def test_no_build_file_names_the_bench(self):
