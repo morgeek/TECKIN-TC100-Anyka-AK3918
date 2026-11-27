@@ -130,6 +130,7 @@ apply_deleted() {
   while read f; do
     case "$f" in "$b"/*) ;; *) continue ;; esac
     case "$f" in *..*) continue ;; esac
+    case "$f" in */update-keys/*) continue ;; esac   # [up-sign] the update keys are never removed by a list from a slot or an archive
     rm -f "$(dirname "$CFG")/$f"
   done < "$CFG/.cfg-deleted"
 }

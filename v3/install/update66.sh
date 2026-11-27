@@ -23,6 +23,7 @@ sum_of() { awk -v f="$2" '$2 == f || $2 == "*" f { print $1; exit }' "$1/MD5SUMS
 SIGCHECK=${UPDATE66_SIGCHECK:-/mnt/bin/tc100-sigcheck}
 KEYDIRS=${UPDATE66_KEYDIRS:-/mnt/v3/install/update-keys /mnt/config/update-keys}
 SIGST=${UPDATE66_SIGST:-/tmp/update66.sig}
+SHA256SUM=${UPDATE66_SHA256SUM:-sha256sum}
 BOOTCONF=${UPDATE66_BOOTCONF:-/mnt/config/boot.conf}
 LOG=; grep -q ' /mnt/sd vfat ' /proc/mounts && mkdir -p /mnt/sd/tc100-3 2>/dev/null && LOG=/mnt/sd/tc100-3/update66.log
 
@@ -36,9 +37,27 @@ sig_set() { echo "$*" > "$SIGST"; [ -n "$LOG" ] && echo "$(date '+%Y-%m-%d %H:%M
 # verify_sig DIR: 0 = go on, 1 = refuse (the reason on stdout). Reads only. A signature that is present and BAD is always
 # refused; unsigned or unknown-key packages are accepted with a warning unless UPDATE_REQUIRE_SIG=1 and a key is installed
 # (with no key installed the switch cannot lock the owner out: warning, behaves as 0).
+# key_count: the usable public keys, as the verifier itself counts them (a .pub that does not parse is no key); the number
+# of .pub files when the verifier cannot run (then a present signature cannot be checked either, see below)
+key_count() {
+	nk=$("$SIGCHECK" keys $KEYDIRS 2>/dev/null)
+	case "$nk" in ''|*[!0-9]*) nk=0; for kd in $KEYDIRS; do for kf in "$kd"/*.pub; do [ -f "$kf" ] && nk=$((nk + 1)); done; done ;; esac
+	echo "$nk"
+}
 verify_sig() {
-	d=$1; req=$(require_sig); rm -f "$SIGST"; nk=0; note=
-	for kd in $KEYDIRS; do for kf in "$kd"/*.pub; do [ -f "$kf" ] && nk=$((nk + 1)); done; done
+	verify_sig_core "$1" || return 1
+	# no sha256sum applet: the files cannot be checked against SHA256SUMS. Policy 0 falls back to the md5 checks with a warning
+	# (it must not block every package); policy 1 with a key installed refuses
+	if ! command -v "$SHA256SUM" >/dev/null 2>&1 && [ -f "$1/SHA256SUMS" ]; then
+		if [ "$(require_sig)" = 1 ] && [ "$(key_count)" != 0 ]; then
+			sig_set "refused sha256sum is not available"; echo "sha256sum is not available: the package cannot be checked (UPDATE_REQUIRE_SIG=1)"; return 1
+		fi
+		sig_set "unsigned sha256sum is not available on this camera: SHA256SUMS not checked, md5 only"
+	fi
+	return 0
+}
+verify_sig_core() {
+	d=$1; req=$(require_sig); rm -f "$SIGST"; note=; nk=$(key_count)
 	if [ "$req" = 1 ] && [ "$nk" = 0 ]; then req=0; note=" (UPDATE_REQUIRE_SIG=1 but no public key is installed on this camera: treated as 0)"; fi
 	if [ ! -f "$d/SHA256SUMS.sig" ]; then
 		if [ "$req" = 1 ]; then sig_set "refused the package is not signed and UPDATE_REQUIRE_SIG=1"; echo "the package is not signed and this camera accepts only signed packages (UPDATE_REQUIRE_SIG=1)"; return 1; fi
@@ -71,8 +90,10 @@ pkg_auth() {
 			  if (!ok || length($1) != 64 || $1 !~ /^[0-9a-fA-F]+$/) bad = 1 }
 			END { for (i = 1; i <= 5; i++) if (n[f[i]] != 1) bad = 1; exit bad }' "$D/SHA256SUMS" ||
 			{ sig_set "refused SHA256SUMS does not list the files of the package"; echo "SHA256SUMS does not list exactly the files of a 3.0 update package"; return 1; }
-		command -v sha256sum >/dev/null 2>&1 || { sig_set "refused sha256sum is not available"; echo "sha256sum is not available: the package cannot be checked"; return 1; }
-		( cd "$D" && sha256sum -c SHA256SUMS >/dev/null 2>&1 ) || { sig_set "refused the package is damaged or changed (sha256)"; echo "the package is damaged or changed (sha256)"; return 1; }
+		# (without the applet verify_sig has already decided: warning at policy 0, refused at policy 1)
+		if command -v "$SHA256SUM" >/dev/null 2>&1; then
+		( cd "$D" && "$SHA256SUM" -c SHA256SUMS >/dev/null 2>&1 ) || { sig_set "refused the package is damaged or changed (sha256)"; echo "the package is damaged or changed (sha256)"; return 1; }
+		fi
 	fi
 	echo ok
 }

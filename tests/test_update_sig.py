@@ -15,6 +15,7 @@ import hashlib
 import io
 import json
 import os
+import shlex
 import shutil
 import stat
 import subprocess
@@ -162,6 +163,13 @@ class SigcheckTool(unittest.TestCase):
         self.assertEqual(run(TOOL, 'verify').returncode, 2)
         self.assertEqual(run(TOOL, 'frobnicate').returncode, 2)
 
+    def test_keys_counts_usable_keys(self):
+        empty = self.d / 'empty2'
+        empty.mkdir(exist_ok=True)
+        (empty / 'broken.pub').write_text('zz\n')
+        self.assertEqual(run(TOOL, 'keys', self.d / 'a', self.d / 'b', empty).stdout.strip(), '2')
+        self.assertEqual(run(TOOL, 'keys', empty, self.d / 'missing').stdout.strip(), '0')
+
     def test_pub_with_comments(self):
         g = self.d / 'commented.pub'
         g.write_text('# my key\n\n' + self.p1.read_text())
@@ -233,11 +241,13 @@ class UpdaterCheck(unittest.TestCase):
             (d / 'SHA256SUMS.sig').write_text(sign(key, d / 'SHA256SUMS'))
         return d
 
-    def check(self, d, require=None, tool=None):
+    def check(self, d, require=None, tool=None, sha=None):
         env = dict(os.environ, UPDATE66_LIB=str(self.root / 'lib'), UPDATE66_SIGCHECK=str(tool or TOOL),
                    UPDATE66_KEYDIRS='%s %s' % (self.keys, self.cfgkeys), UPDATE66_SIGST=str(self.sigst),
                    UPDATE66_BOOTCONF=str(self.bootconf))
         env.pop('UPDATE_REQUIRE_SIG', None)
+        if sha:
+            env['UPDATE66_SHA256SUM'] = sha
         if require is not None:
             env['UPDATE_REQUIRE_SIG'] = str(require)
         r = subprocess.run(SH + [str(self.script), 'check', str(d)], capture_output=True, text=True, env=env, timeout=60)
@@ -434,9 +444,60 @@ class UpdaterCheck(unittest.TestCase):
                 continue            # part_size reads the partition sizes
             self.assertNotIn(word, body.replace('flashw -b', ''))
         self.assertLess(s.index('verify_sig "$D"'), s.index('md5sum -c MD5SUMS'))
-        self.assertLess(s.index('sha256sum -c SHA256SUMS'), s.index('md5sum -c MD5SUMS'))
+        self.assertLess(s.index('"$SHA256SUM" -c SHA256SUMS'), s.index('md5sum -c MD5SUMS'))
         apply_ = s[s.index('if [ "$1" = apply ]'):]
         self.assertLess(apply_.index('r=$(check "$D")'), apply_.index('exec /bin/sh $R/update66.sh apply-ram'))
+
+    # ---- review 2026-11-27: key counting, missing sha256sum
+    def test_policy_1_counts_usable_keys_not_files(self):
+        """only an unreadable .pub: policy 1 behaves as 0 with a warning; a garbage signature is still refused"""
+        (self.keys / 'junk.pub').write_text('zz\n')
+        d = self.package(self.kA)                                         # well formed, but no usable key to check it
+        rc, out, st = self.check(d, 1)
+        self.assertEqual((rc, out), (0, 'ok'), st)
+        self.assertTrue(st.startswith('unsigned'), st)
+        self.assertIn('no public key is installed', st)
+        (d / 'SHA256SUMS.sig').write_text('garbage\n')
+        self.assertEqual(self.check(d, 1)[0], 1)
+        self.assertEqual(self.check(d, 0)[0], 1)
+
+    def test_policy_1_with_usable_keys_refuses_an_unverifiable_signature(self):
+        self.install_key(self.pA)
+        (self.keys / 'junk.pub').write_text('zz\n')
+        d = self.package(self.kA)
+        (d / 'SHA256SUMS.sig').write_text('tc100-sig1 12345678 ' + 'ab' * 64 + '\n')   # unknown key id
+        self.assertEqual(self.check(d, 1)[0], 1)
+        (d / 'SHA256SUMS.sig').write_text('tc100-sig1 %s %s\n' % (self.idA, 'ab' * 64))   # installed key, forged
+        self.assertEqual(self.check(d, 1)[0], 1)
+
+    def test_missing_sha256sum_policy_0_falls_back_to_md5(self):
+        self.install_key(self.pA)
+        d = self.package(self.kA)
+        rc, out, st = self.check(d, 0, sha='no-such-sha256sum-applet')
+        self.assertEqual((rc, out), (0, 'ok'), st)
+        self.assertTrue(st.startswith('unsigned sha256sum is not available'), st)     # not shown as "signed"
+        (d / 'SHA256SUMS.sig').unlink()
+        self.assertEqual(self.check(self.package(), 0, sha='no-such-sha256sum-applet')[0], 0)
+        # the md5 checks still run
+        d = self.package(self.kA)
+        (d / 'c66.img').write_bytes(b'changed')
+        rc, out, st = self.check(d, 0, sha='no-such-sha256sum-applet')
+        self.assertEqual(rc, 1)
+        self.assertIn('md5', out)
+
+    def test_missing_sha256sum_policy_1(self):
+        d = self.package(self.kA)
+        self.assertEqual(self.check(d, 1, sha='no-such-sha256sum-applet')[0], 0)      # no key installed: behaves as 0
+        self.install_key(self.pA)
+        rc, out, st = self.check(d, 1, sha='no-such-sha256sum-applet')
+        self.assertEqual(rc, 1)
+        self.assertIn('sha256sum is not available', out)
+
+    def test_bad_signature_refused_without_sha256sum(self):
+        self.install_key(self.pA)
+        d = self.package(self.kA)
+        (d / 'SHA256SUMS').write_text((d / 'SHA256SUMS').read_text() + ' ')
+        self.assertEqual(self.check(d, 0, sha='no-such-sha256sum-applet')[0], 1)
 
     def test_sigcheck_command_runs_outside_flash_mode(self):
         """the read-only "sigcheck DIR" for a camera started from the SD card (no /tmp/flashmode)"""
@@ -540,6 +601,66 @@ class Wiring(unittest.TestCase):
         self.assertIn('"Unsigned: accepted (warning)": "Non signé', fr)
         self.assertIn('Signé (clé $1)', fr)
         self.assertIn('Refusé : la signature du paquet', fr)
+
+
+class RestoreKeepsThePolicy(unittest.TestCase):
+    """[up-sign] a settings restore (config_exchange.cgi cmd=restore) never installs or removes update keys and never
+    changes UPDATE_REQUIRE_SIG (it could otherwise be used to switch the signature check off)"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cfg = Path(self.tmp.name) / 'config'
+        (self.cfg / 'update-keys').mkdir(parents=True)
+        (self.cfg / 'boot.conf').write_text('BOOT_GUARD=1\nUPDATE_REQUIRE_SIG=1\n')
+        (self.cfg / 'update-keys' / 'mine.pub').write_text('ab' * 32 + ' mine\n')
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def restore(self, entries):
+        from tests.test_feature_completions import function, tgz
+        body = tgz(entries)
+        code = '. ' + shlex.quote(str(ROOT / 'scripts/config-transaction.sh')) + '\n'
+        code += 'json_body_err() { printf \'{"ok":false,"error":"%s","message":"%s"}\\n\' "$1" "$2"; }\n'
+        code += function('www/cgi-bin/config_exchange.cgi', '_ce_restore') + '\n_ce_restore\n'
+        env = dict(os.environ, CONFIG_ROOT=str(self.cfg), CONTENT_LENGTH=str(len(body)))
+        r = subprocess.run(['/bin/bash', '-c', code], input=body, capture_output=True, timeout=30, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout.decode())
+
+    @unittest.skipUnless(shutil.which('bash'), 'needs bash')
+    def test_keys_skipped_and_policy_kept(self):
+        res = self.restore([('config', None), ('config/update-keys', None), ('config/update-keys/evil.pub', b'cd' * 32 + b' evil\n'),
+                            ('config/update-keys/mine.pub', b'ef' * 32 + b'\n'),
+                            ('config/boot.conf', b'BOOT_GUARD=0\nUPDATE_REQUIRE_SIG=0\nWIFI_COUNTRY=FR\n')])
+        self.assertTrue(res.get('ok'), res)
+        self.assertEqual(res['skipped_update_keys'], 2)
+        self.assertEqual(sorted(p.name for p in (self.cfg / 'update-keys').iterdir()), ['mine.pub'])
+        self.assertEqual((self.cfg / 'update-keys' / 'mine.pub').read_text(), 'ab' * 32 + ' mine\n')
+        conf = (self.cfg / 'boot.conf').read_text()
+        self.assertIn('BOOT_GUARD=0', conf)                      # the other settings are restored
+        self.assertIn('WIFI_COUNTRY=FR', conf)
+        self.assertEqual(conf.count('UPDATE_REQUIRE_SIG='), 1)
+        self.assertIn('UPDATE_REQUIRE_SIG=1', conf)              # the camera's value, not the archive's
+
+    @unittest.skipUnless(shutil.which('bash'), 'needs bash')
+    def test_policy_cannot_be_raised_by_an_archive_either(self):
+        (self.cfg / 'boot.conf').write_text('BOOT_GUARD=1\n')           # this camera has no setting: 0
+        res = self.restore([('config/boot.conf', b'BOOT_GUARD=0\nUPDATE_REQUIRE_SIG=1\n')])
+        self.assertTrue(res.get('ok'), res)
+        self.assertEqual((self.cfg / 'boot.conf').read_text(), 'BOOT_GUARD=0\n')
+
+    def test_cfg_persist_keeps_update_keys_and_never_deletes_them(self):
+        s = (ROOT / 'v3/linux66-sd/cfg-persist').read_text()
+        self.assertIn('*/update-keys/*) continue', s)               # apply_deleted skips them
+        # list() stores every non-default file: the keys are saved to the flash slots and restored at boot
+        d = Path(self.tmp.name)
+        (d / 'defaults').mkdir()
+        r = subprocess.run(['sh', str(ROOT / 'v3/linux66-sd/cfg-persist'), 'archive'], capture_output=True,
+                           env=dict(os.environ, CFG=str(self.cfg), DEFAULTS=str(d / 'defaults')), timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with tarfile.open(fileobj=io.BytesIO(r.stdout), mode='r:gz') as t:
+            self.assertIn('config/update-keys/mine.pub', t.getnames())
 
 
 @unittest.skipUnless(CC, 'needs a C compiler')

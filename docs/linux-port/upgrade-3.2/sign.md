@@ -5,6 +5,13 @@ Plan phase 2 ([../plan-upgrade-3.1.md](../plan-upgrade-3.1.md)), finding SEC-4 o
 with `MD5SUMS`, which catches damage, not forgery. This stream adds an Ed25519 signature that the owner makes on his own
 machine. The CI never holds a private key and signs nothing: an unsigned package is the normal CI output.
 
+**What it protects, honestly.** The signature protects against a forged or tampered package installed by someone who does not
+have the web password, or by the owner tricked into uploading it (a package from a fake download page, a swapped file). It
+does not defend against a holder of the web password: the web administrator is root-equivalent on the camera (configuration
+editor, scripts, ssh settings) and can switch the policy off on purpose or add his own public key. Policy 1 is therefore a
+guard against mistakes and forged packages, not a barrier against the administrator. Two paths must not do it by accident or
+by trick, and they are closed: a settings **restore** never installs or removes keys and never changes the policy (below).
+
 Switch: `UPDATE_REQUIRE_SIG` in `/mnt/config/boot.conf` (`config/boot.conf.dist`, the single source). Default **0** on this
 branch.
 
@@ -31,13 +38,15 @@ backup logic is untouched.
 | no signature, or no `SHA256SUMS` (older package) | accepted with a warning | **refused** |
 | signed by a key that is not installed | accepted with a warning | **refused** |
 | signature present and **bad** (changed `SHA256SUMS`, forged, truncated, garbage, `SHA256SUMS` missing) | **refused** | **refused** |
-| `1` but **no public key installed** (none usable) | | warning, behaves as `0`: it can never lock the owner out |
-| verifier missing or failing | accepted with a warning | refused |
+| `1` but **no usable public key** (the verifier counts the keys that parse: `tc100-sigcheck keys`; unreadable `.pub` files do not count) | | warning, behaves as `0`: it can never lock the owner out. A malformed or garbage signature is still refused |
+| `1`, usable keys, signature present but not verifiable (unknown key id, forged, garbage) | | **refused** |
+| verifier missing or failing (exit 2: unreadable or oversized file) | accepted with a warning (it cannot lock the owner out) | refused |
+| `sha256sum` applet missing, `SHA256SUMS` present | warning, falls back to the MD5 checks (shown as unsigned, never "signed", because the files were not checked) | refused (with a usable key installed) |
 
 "Bad" is decided by the key id written in the signature file: a signature that names an installed key and does not verify
 is bad; one that names a key the camera does not have is "unknown" (accepted at 0, refused at 1). Stripping the signature
 turns a package into "unsigned", which policy 0 accepts: policy 0 protects against accidents and in-transit tampering of a
-signed package, not against an attacker who may also remove the signature. Policy 1 is the real protection.
+signed package, not against an attacker who may also remove the signature. Policy 1 is the protection against that, within the limits stated above.
 
 The value is read at each check from `boot.conf` (the environment variable wins, for tests); `0` or absent = 0, any
 other value = 1. No restart needed.
@@ -59,6 +68,16 @@ package is staged. `www/settings.html` shows it under the version line: "Signed 
   only, **none yet**).
 - `/mnt/config/update-keys/*.pub`: keys the owner adds on the camera itself (kept across updates; also the way to test a
   key before committing it).
+
+Persistence: `cfg-persist` saves every file of `config/` that differs from the shipped defaults, so `config/update-keys/*.pub`
+goes to the flash slots with the other settings and comes back at each boot (checked by `tests/test_update_sig.py`). The
+key list is never edited by a restore or a deletion list: the restore of an archive (Backup page,
+`config_exchange.cgi cmd=restore`) skips everything under `config/update-keys/` (the answer says `skipped_update_keys`) and
+keeps the camera's own `UPDATE_REQUIRE_SIG` line in the restored `boot.conf` (the archive's value is dropped, whether it
+lowers or raises the policy); `cfg-persist`'s `apply_deleted` ignores `update-keys` entries. Changing the policy or the keys
+is a deliberate act: the configuration editor (`configeditor.cgi`, which logs `configeditor_save` in the audit log), `ssh`,
+or the SD-booted system. It is not a side effect of a restore or of the JSON import (that one only touches listed keys, and
+`UPDATE_REQUIRE_SIG` is not listed).
 
 Several keys can be installed at once (rotation). The keys that verify a package are the ones of the **running** image, so
 a new key is first shipped in an image signed with the old one.

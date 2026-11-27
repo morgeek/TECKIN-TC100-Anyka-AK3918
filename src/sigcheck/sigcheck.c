@@ -2,6 +2,7 @@
  *
  * Camera build (musl, static code from Monocypher 4.0.2, BSD-2-Clause / CC0):
  *   tc100-sigcheck verify FILE SIGFILE KEY...   KEY = a public key file (*.pub) or a folder (its *.pub files)
+ *   tc100-sigcheck keys KEY...                  the number of usable public keys in these files / folders
  *   tc100-sigcheck id KEYFILE                   the short id (8 hex digits) of a public key
  * Host build (-DSIGCHECK_HOST, the owner's tool, scripts/sign_update.py): also
  *   tc100-sigcheck keygen PREFIX                writes PREFIX.key (private, mode 0600) and PREFIX.pub
@@ -177,6 +178,16 @@ static int cmd_verify(int argc, char **argv)
 	return 1;
 }
 
+/* keys KEY...: how many usable public keys these files and folders hold (the updater's policy decision) */
+static int cmd_keys(int argc, char **argv)
+{
+	struct pubkey keys[MAXKEYS];
+	int nk = 0;
+	for (int i = 0; i < argc; i++) collect(argv[i], keys, &nk);
+	printf("%d\n", nk);
+	return 0;
+}
+
 static int cmd_id(int argc, char **argv)
 {
 	struct pubkey k;
@@ -252,6 +263,7 @@ int main(int argc, char **argv)
 {
 	if (argc >= 2) {
 		if (strcmp(argv[1], "verify") == 0) return cmd_verify(argc - 2, argv + 2);
+		if (strcmp(argv[1], "keys") == 0) return cmd_keys(argc - 2, argv + 2);
 		if (strcmp(argv[1], "id") == 0) return cmd_id(argc - 2, argv + 2);
 #ifdef SIGCHECK_HOST
 		if (strcmp(argv[1], "keygen") == 0) return cmd_keygen(argc - 2, argv + 2);
