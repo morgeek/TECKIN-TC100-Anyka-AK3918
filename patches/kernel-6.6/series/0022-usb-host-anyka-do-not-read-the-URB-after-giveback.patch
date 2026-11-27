@@ -1,4 +1,4 @@
-From b650a0e8837dc53023dee86ac1888ce865424d9d Mon Sep 17 00:00:00 2001
+From 324a25ea5e30e5e0952536bb9800c57cc80a21ad Mon Sep 17 00:00:00 2001
 From: test <test@localhost>
 Date: Sat, 14 Nov 2026 11:58:04 +0100
 Subject: [PATCH] usb: host: anyka: do not read the URB after giveback
@@ -11,7 +11,7 @@ Take the pipe type before the giveback (as the read-only counters already do for
  1 file changed, 9 insertions(+), 1 deletion(-)
 
 diff --git a/drivers/usb/host/anyka/usb-hc.c b/drivers/usb/host/anyka/usb-hc.c
-index 5f30be8..3ac115a 100644
+index 5f30be8426cb..3ac115a965cc 100644
 --- a/drivers/usb/host/anyka/usb-hc.c
 +++ b/drivers/usb/host/anyka/usb-hc.c
 @@ -679,9 +679,13 @@ static void finish_request_epx(

@@ -10,8 +10,8 @@
 # Python packages (tests/docker/requirements-whep-interop.txt, `pip --require-hashes`), apt packages (signed by the
 # distribution) and the Docker base images (tags).
 
-LINUX_TAG=v6.6
-LINUX_COMMIT=ffc253263a1375a65fa6c9f62a893e9767fbebfa
+LINUX_TAG=v6.6.163
+LINUX_COMMIT=e2bb30811e063ce0db964484357973b855b06572
 BUILDROOT_TAG=2024.02.9
 BUILDROOT_COMMIT=d37527ba498c34508b9f3fede34135686c94581e
 MBEDTLS_VERSION=2.28.9
@@ -20,7 +20,8 @@ MBEDTLS_SHA256=e85ea97aaf78dd6c0a5ba2e54dd5932ffa15f39abfc189c26beef7684630c02b
 LINUX_FIRMWARE_TAG=20241017
 RTL8188FU_FW_SHA256=e6189d6d7032b83f0ed4284629c43db66262449a866f33fd329e611239f62e1f
 RTL8188FU_FW_URLS="https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/rtlwifi/rtl8188fufw.bin?h=$LINUX_FIRMWARE_TAG https://gitlab.com/kernel-firmware/linux-firmware/-/raw/$LINUX_FIRMWARE_TAG/rtlwifi/rtl8188fufw.bin"
-LINUX_URLS="https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git https://github.com/torvalds/linux.git"
+# the torvalds mirror has no 6.6.y stable tags: gregkh/linux is the stable mirror
+LINUX_URLS="https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git https://github.com/gregkh/linux.git"
 MBEDTLS_URL="https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-$MBEDTLS_VERSION/mbedtls-$MBEDTLS_VERSION.tar.bz2"
 
 fetch_sha256() {

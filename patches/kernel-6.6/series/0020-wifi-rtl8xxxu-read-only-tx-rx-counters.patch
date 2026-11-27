@@ -1,4 +1,4 @@
-From f124a9d89c01a9005c8b26204bb65ec5667fd98c Mon Sep 17 00:00:00 2001
+From 626de808388c36a55fd7f6337af1fe8eea2a00e1 Mon Sep 17 00:00:00 2001
 From: test <test@localhost>
 Date: Fri, 13 Nov 2026 14:18:17 +0100
 Subject: [PATCH] wifi: rtl8xxxu: read-only TX/RX counters
@@ -9,7 +9,7 @@ Read-only (0444) module parameters to see where the transmit path waits during a
  1 file changed, 72 insertions(+)
 
 diff --git a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
-index a4dd3d9..f340f23 100644
+index ad085b8acbf3..a0e5ed6abc2b 100644
 --- a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
 +++ b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
 @@ -79,6 +79,57 @@ MODULE_PARM_DESC(ampdu_rx, "Allow RX A-MPDU (BlockAck) aggregation (default Y)")
@@ -70,7 +70,7 @@ index a4dd3d9..f340f23 100644
  static int rtl8xxxu_submit_rx_urb(struct rtl8xxxu_priv *priv,
  				  struct rtl8xxxu_rx_urb *rx_urb);
  
-@@ -5172,6 +5223,7 @@ static void rtl8xxxu_free_tx_resources(struct rtl8xxxu_priv *priv)
+@@ -5161,6 +5212,7 @@ static void rtl8xxxu_free_tx_resources(struct rtl8xxxu_priv *priv)
  	list_for_each_entry_safe(tx_urb, tmp, &priv->tx_urb_free_list, list) {
  		list_del(&tx_urb->list);
  		priv->tx_urb_free_count--;
@@ -78,7 +78,7 @@ index a4dd3d9..f340f23 100644
  		usb_free_urb(&tx_urb->urb);
  	}
  	spin_unlock_irqrestore(&priv->tx_urb_lock, flags);
-@@ -5189,9 +5241,13 @@ rtl8xxxu_alloc_tx_urb(struct rtl8xxxu_priv *priv)
+@@ -5178,9 +5230,13 @@ rtl8xxxu_alloc_tx_urb(struct rtl8xxxu_priv *priv)
  	if (tx_urb) {
  		list_del(&tx_urb->list);
  		priv->tx_urb_free_count--;
@@ -92,7 +92,7 @@ index a4dd3d9..f340f23 100644
  			ieee80211_stop_queues(priv->hw);
  		}
  	}
-@@ -5212,9 +5268,11 @@ static void rtl8xxxu_free_tx_urb(struct rtl8xxxu_priv *priv,
+@@ -5201,9 +5257,11 @@ static void rtl8xxxu_free_tx_urb(struct rtl8xxxu_priv *priv,
  
  	list_add(&tx_urb->list, &priv->tx_urb_free_list);
  	priv->tx_urb_free_count++;
@@ -104,7 +104,7 @@ index a4dd3d9..f340f23 100644
  		ieee80211_wake_queues(priv->hw);
  	}
  
-@@ -5242,6 +5300,9 @@ static void rtl8xxxu_tx_complete(struct urb *urb)
+@@ -5231,6 +5289,9 @@ static void rtl8xxxu_tx_complete(struct urb *urb)
  
  	if (!urb->status)
  		tx_info->flags |= IEEE80211_TX_STAT_ACK;
@@ -114,7 +114,7 @@ index a4dd3d9..f340f23 100644
  
  	ieee80211_tx_status_irqsafe(hw, skb);
  
-@@ -5841,6 +5902,7 @@ static void rtl8xxxu_free_rx_resources(struct rtl8xxxu_priv *priv)
+@@ -5830,6 +5891,7 @@ static void rtl8xxxu_free_rx_resources(struct rtl8xxxu_priv *priv)
  		list_del(&rx_urb->list);
  		priv->rx_urb_pending_count--;
  		usb_free_urb(&rx_urb->urb);
@@ -122,7 +122,7 @@ index a4dd3d9..f340f23 100644
  	}
  
  	spin_unlock_irqrestore(&priv->rx_urb_lock, flags);
-@@ -5863,6 +5925,7 @@ static void rtl8xxxu_queue_rx_urb(struct rtl8xxxu_priv *priv,
+@@ -5857,6 +5919,7 @@ static void rtl8xxxu_queue_rx_urb(struct rtl8xxxu_priv *priv,
  		skb = (struct sk_buff *)rx_urb->urb.context;
  		dev_kfree_skb_irq(skb);
  		usb_free_urb(&rx_urb->urb);
@@ -130,16 +130,16 @@ index a4dd3d9..f340f23 100644
  	}
  
  	spin_unlock_irqrestore(&priv->rx_urb_lock, flags);
-@@ -5911,6 +5974,8 @@ static void rtl8xxxu_rx_urb_work(struct work_struct *work)
- 			skb = (struct sk_buff *)rx_urb->urb.context;
- 			dev_kfree_skb(skb);
+@@ -5899,6 +5962,8 @@ static void rtl8xxxu_rx_urb_work(struct work_struct *work)
+ 			dev_warn(&priv->udev->dev,
+ 				 "failed to requeue urb with error %i\n", ret);
  			usb_free_urb(&rx_urb->urb);
 +			atomic_dec(&rtl8xxxu_dbg_rx_alive);
 +			atomic_inc(&rtl8xxxu_dbg_rx_lost);
  		}
  	}
  }
-@@ -6491,6 +6556,8 @@ static void rtl8xxxu_rx_complete(struct urb *urb)
+@@ -6481,6 +6546,8 @@ static void rtl8xxxu_rx_complete(struct urb *urb)
  	return;
  
  cleanup:
@@ -148,7 +148,7 @@ index a4dd3d9..f340f23 100644
  	usb_free_urb(urb);
  	dev_kfree_skb(skb);
  }
-@@ -7235,7 +7302,10 @@ static int rtl8xxxu_start(struct ieee80211_hw *hw)
+@@ -7227,7 +7294,10 @@ static int rtl8xxxu_start(struct ieee80211_hw *hw)
  		tx_urb->hw = hw;
  		list_add(&tx_urb->list, &priv->tx_urb_free_list);
  		priv->tx_urb_free_count++;
@@ -159,7 +159,7 @@ index a4dd3d9..f340f23 100644
  
  	priv->tx_stopped = false;
  
-@@ -7243,6 +7313,7 @@ static int rtl8xxxu_start(struct ieee80211_hw *hw)
+@@ -7235,6 +7305,7 @@ static int rtl8xxxu_start(struct ieee80211_hw *hw)
  	priv->shutdown = false;
  	spin_unlock_irqrestore(&priv->rx_urb_lock, flags);
  
@@ -167,11 +167,14 @@ index a4dd3d9..f340f23 100644
  	for (i = 0; i < RTL8XXXU_RX_URBS; i++) {
  		rx_urb = kmalloc(sizeof(struct rtl8xxxu_rx_urb), GFP_KERNEL);
  		if (!rx_urb) {
-@@ -7254,6 +7325,7 @@ static int rtl8xxxu_start(struct ieee80211_hw *hw)
+@@ -7246,6 +7317,7 @@ static int rtl8xxxu_start(struct ieee80211_hw *hw)
  		usb_init_urb(&rx_urb->urb);
  		INIT_LIST_HEAD(&rx_urb->list);
  		rx_urb->hw = hw;
 +		atomic_inc(&rtl8xxxu_dbg_rx_alive);
  
  		ret = rtl8xxxu_submit_rx_urb(priv, rx_urb);
- 		if (ret) {
+ 		if (ret)
+-- 
+2.43.0
+

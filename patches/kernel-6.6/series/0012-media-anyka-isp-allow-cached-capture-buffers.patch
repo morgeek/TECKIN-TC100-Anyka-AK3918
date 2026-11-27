@@ -1,4 +1,4 @@
-From 5f1c2e9d8a7b4c3e6f0a1d2b3c4e5f6a7b8c9d01 Mon Sep 17 00:00:00 2001
+From 6b18c59d0cc5dfa8d79d7a0e06eea55d20a06ddc Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 29 Oct 2026 10:00:00 +0100
 Subject: [PATCH] media: anyka-isp: allow cached (non-coherent) capture buffers
@@ -14,9 +14,10 @@ Userspace that does not ask keeps the coherent (uncached) buffers.
  1 file changed, 1 insertion(+)
 
 diff --git a/drivers/media/platform/anyka-isp/ak39_vi.c b/drivers/media/platform/anyka-isp/ak39_vi.c
+index 6a34cf41e175..ed0b6e6b8119 100644
 --- a/drivers/media/platform/anyka-isp/ak39_vi.c
 +++ b/drivers/media/platform/anyka-isp/ak39_vi.c
-@@ -843,6 +843,7 @@ static int vi_probe(struct platform_device *pdev)
+@@ -965,6 +965,7 @@ static int vi_probe(struct platform_device *pdev)
  	vi->q.buf_struct_size = sizeof(struct ak39_vi_buf);
  	vi->q.ops = &vi_qops;
  	vi->q.mem_ops = &vb2_dma_contig_memops;

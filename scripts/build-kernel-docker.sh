@@ -10,7 +10,7 @@ mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
 if [ ! -d linux-src ]; then
-  echo "[+] Cloning Linux 6.6 stable tree (Tag v6.6)..."
+  echo "[+] Cloning Linux 6.6 stable tree (tag pinned in .github/ci-pins.sh)..."
   . "$ROOT_DIR/.github/ci-pins.sh"
   git_clone_pinned "$LINUX_TAG" "$LINUX_COMMIT" linux-src $LINUX_URLS
 fi

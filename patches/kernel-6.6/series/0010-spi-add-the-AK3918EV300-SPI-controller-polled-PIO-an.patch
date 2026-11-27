@@ -1,4 +1,4 @@
-From d8afd8d28c5da89084bebf3f6f3bc7a69300a0fd Mon Sep 17 00:00:00 2001
+From bb2e6fd3f26feebfda5138753e5c524a493a8cee Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 22 Oct 2026 14:04:46 +0200
 Subject: [PATCH] spi: add the AK3918EV300 SPI controller (polled PIO) and
@@ -8,18 +8,18 @@ Access to the 8 MiB SPI NOR so that the system can boot and run from
 flash: controller driver without DMA or interrupts, the flash and its
 partitions in the device tree (boot, mac and env read-only).
 ---
- arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts |  55 ++++
+ arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts |  60 +++++
  drivers/spi/Kconfig                           |   7 +
  drivers/spi/Makefile                          |   1 +
  drivers/spi/spi-ak39.c                        | 229 ++++++++++++++++++
- 4 files changed, 292 insertions(+)
+ 4 files changed, 297 insertions(+)
  create mode 100644 drivers/spi/spi-ak39.c
 
 diff --git a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
-index 28580fca8..454808235 100644
+index 6af1fc4b8dcf..876559630f0b 100644
 --- a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
 +++ b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
-@@ -88,6 +88,66 @@ l2: l2@20140000 {
+@@ -90,6 +90,66 @@ l2: l2@20140000 {
  		interrupts = <12>;
  	};
  
@@ -87,7 +87,7 @@ index 28580fca8..454808235 100644
  		compatible = "anyka,ak3918ev300-mmc0";
  		reg = <0x20100000 0x8000>;
 diff --git a/drivers/spi/Kconfig b/drivers/spi/Kconfig
-index 2c21d5b96..39c335b59 100644
+index cda333f226b6..371a69818efe 100644
 --- a/drivers/spi/Kconfig
 +++ b/drivers/spi/Kconfig
 @@ -57,6 +57,13 @@ config SPI_MEM
@@ -105,7 +105,7 @@ index 2c21d5b96..39c335b59 100644
  	tristate "Altera SPI Controller platform driver"
  	select SPI_ALTERA_CORE
 diff --git a/drivers/spi/Makefile b/drivers/spi/Makefile
-index 6af54842b..ae176935c 100644
+index 6af54842b9fa..ae176935cd2e 100644
 --- a/drivers/spi/Makefile
 +++ b/drivers/spi/Makefile
 @@ -14,6 +14,7 @@ obj-$(CONFIG_SPI_SPIDEV)		+= spidev.o
@@ -118,7 +118,7 @@ index 6af54842b..ae176935c 100644
  obj-$(CONFIG_SPI_ALTERA_DFL)		+= spi-altera-dfl.o
 diff --git a/drivers/spi/spi-ak39.c b/drivers/spi/spi-ak39.c
 new file mode 100644
-index 000000000..5d6e8f26e
+index 000000000000..5d6e8f26e4aa
 --- /dev/null
 +++ b/drivers/spi/spi-ak39.c
 @@ -0,0 +1,229 @@
@@ -351,3 +351,6 @@ index 000000000..5d6e8f26e
 +
 +MODULE_DESCRIPTION("Anyka AK3918EV300 SPI controller (polled PIO)");
 +MODULE_LICENSE("GPL");
+-- 
+2.43.0
+

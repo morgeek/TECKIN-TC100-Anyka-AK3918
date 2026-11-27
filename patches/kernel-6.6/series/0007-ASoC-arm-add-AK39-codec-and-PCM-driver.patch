@@ -1,7 +1,7 @@
-From 7137df42e7131c7980d0b85fbfc67e4b607fbd29 Mon Sep 17 00:00:00 2001
+From 431c2f27d462d54b4681eebfee62ce19bdceb6fd Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 22 Oct 2026 10:09:16 +0200
-Subject: [PATCH 7/9] ASoC: arm: add AK39 codec and PCM driver
+Subject: [PATCH] ASoC: arm: add AK39 codec and PCM driver
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
@@ -9,10 +9,10 @@ Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
  include/sound/ak_pcm.h |   54 +
  sound/arm/Kconfig      |   11 +
  sound/arm/Makefile     |    6 +
- sound/arm/ak39_codec.c | 2208 ++++++++++++++++++++++++++++++++++++++++
+ sound/arm/ak39_codec.c | 2219 ++++++++++++++++++++++++++++++++++++++++
  sound/arm/ak_codec.h   |  163 +++
- sound/arm/ak_pcm.c     | 1539 ++++++++++++++++++++++++++++
- 6 files changed, 3981 insertions(+)
+ sound/arm/ak_pcm.c     | 1567 ++++++++++++++++++++++++++++
+ 6 files changed, 4020 insertions(+)
  create mode 100644 include/sound/ak_pcm.h
  create mode 100644 sound/arm/ak39_codec.c
  create mode 100644 sound/arm/ak_codec.h
@@ -20,7 +20,7 @@ Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
 
 diff --git a/include/sound/ak_pcm.h b/include/sound/ak_pcm.h
 new file mode 100644
-index 000000000..3ddd9cc58
+index 000000000000..3ddd9cc58c45
 --- /dev/null
 +++ b/include/sound/ak_pcm.h
 @@ -0,0 +1,54 @@
@@ -79,7 +79,7 @@ index 000000000..3ddd9cc58
 +
 +#endif
 diff --git a/sound/arm/Kconfig b/sound/arm/Kconfig
-index dea2c661b..4e4650202 100644
+index dea2c661b353..4e4650202192 100644
 --- a/sound/arm/Kconfig
 +++ b/sound/arm/Kconfig
 @@ -28,6 +28,17 @@ config SND_PXA2XX_AC97
@@ -101,7 +101,7 @@ index dea2c661b..4e4650202 100644
  
  config SND_PXA2XX_LIB
 diff --git a/sound/arm/Makefile b/sound/arm/Makefile
-index 34c769489..980f43b2a 100644
+index 34c769489877..980f43b2ae8e 100644
 --- a/sound/arm/Makefile
 +++ b/sound/arm/Makefile
 @@ -12,3 +12,9 @@ snd-pxa2xx-lib-$(CONFIG_SND_PXA2XX_LIB_AC97)	+= pxa2xx-ac97-lib.o
@@ -116,7 +116,7 @@ index 34c769489..980f43b2a 100644
 +snd-codec-ak39-objs		:= ak39_codec.o
 diff --git a/sound/arm/ak39_codec.c b/sound/arm/ak39_codec.c
 new file mode 100644
-index 000000000..66bdc52da
+index 000000000000..b92635a53133
 --- /dev/null
 +++ b/sound/arm/ak39_codec.c
 @@ -0,0 +1,2219 @@
@@ -2341,7 +2341,7 @@ index 000000000..66bdc52da
 +
 diff --git a/sound/arm/ak_codec.h b/sound/arm/ak_codec.h
 new file mode 100644
-index 000000000..711011eb1
+index 000000000000..711011eb107d
 --- /dev/null
 +++ b/sound/arm/ak_codec.h
 @@ -0,0 +1,163 @@
@@ -2510,7 +2510,7 @@ index 000000000..711011eb1
 +#endif
 diff --git a/sound/arm/ak_pcm.c b/sound/arm/ak_pcm.c
 new file mode 100644
-index 000000000..7a9cdec59
+index 000000000000..3fd329bb3f52
 --- /dev/null
 +++ b/sound/arm/ak_pcm.c
 @@ -0,0 +1,1567 @@

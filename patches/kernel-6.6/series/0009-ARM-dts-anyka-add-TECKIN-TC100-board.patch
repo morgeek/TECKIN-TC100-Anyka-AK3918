@@ -1,7 +1,7 @@
-From ce74fea322b38bffa53b06997175ddbb957cf490 Mon Sep 17 00:00:00 2001
+From 7ae5d48647062833dfb25d318e558b16c59582c1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 22 Oct 2026 10:09:17 +0200
-Subject: [PATCH 9/9] ARM: dts: anyka: add TECKIN TC100 board
+Subject: [PATCH] ARM: dts: anyka: add TECKIN TC100 board
 
 Device tree for the TC100, including the 28 MiB CMA pool and the encoder nodes.
 
@@ -16,7 +16,7 @@ Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
  create mode 100644 arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
 
 diff --git a/arch/arm/boot/dts/Makefile b/arch/arm/boot/dts/Makefile
-index efe38eb25..64b87182f 100644
+index efe38eb25301..64b87182fb81 100644
 --- a/arch/arm/boot/dts/Makefile
 +++ b/arch/arm/boot/dts/Makefile
 @@ -1,5 +1,6 @@
@@ -28,7 +28,7 @@ index efe38eb25..64b87182f 100644
  subdir-y += alphascale
 diff --git a/arch/arm/boot/dts/anyka/Makefile b/arch/arm/boot/dts/anyka/Makefile
 new file mode 100644
-index 000000000..3abfe2c11
+index 000000000000..3abfe2c1149d
 --- /dev/null
 +++ b/arch/arm/boot/dts/anyka/Makefile
 @@ -0,0 +1,2 @@
@@ -36,7 +36,7 @@ index 000000000..3abfe2c11
 +dtb-y += ak3918ev300-tc100.dtb
 diff --git a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
 new file mode 100644
-index 000000000..28580fca8
+index 000000000000..6af1fc4b8dcf
 --- /dev/null
 +++ b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
 @@ -0,0 +1,216 @@

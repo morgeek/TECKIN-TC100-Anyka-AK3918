@@ -1,8 +1,9 @@
 # Linux 6.6 series for the TECKIN TC100 (AK3918EV300)
 
-Twenty-five patches on top of tag `v6.6`, one per subsystem or feature:
+Twenty-five patches on top of the stable tag `v6.6.163` (`.github/ci-pins.sh`; written against `v6.6` and rebased, see
+`docs/linux-port/upgrade-3.2/kernel.md`), one per subsystem or feature:
 
-    git clone --depth 1 -b v6.6 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+    git clone --depth 1 -b v6.6.163 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
     cd linux && git am ../patches/kernel-6.6/series/*.patch   # or: git apply
 
 The series is the only source of the kernel changes (CI applies it with `git am`).
