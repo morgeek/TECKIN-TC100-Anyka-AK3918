@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [3.2.0] - unreleased (branch `upgrade-3.2`, the major upgrade; SD-card tests only)
+
+### Security
+- **Kernel 6.6.0 -> 6.6.163** (`[up-kernel]`): the 25 patches rebased on the latest 6.6.y (163 stable releases of
+  fixes); `oipc.img` 1,814,552 bytes, 278,528 free in the 2 MiB slot. Test-queue UP32-KERNEL.
+- **Signed update packages** (`[up-sign]`): `SHA256SUMS` + detached Ed25519 `SHA256SUMS.sig`, verified on the camera by
+  `tc100-sigcheck` (Monocypher 4.0.2) before any flash write; `UPDATE_REQUIRE_SIG` (0 on this branch); the owner signs
+  with `scripts/sign_update.py`. Test-queue UP32-SIGN.
+
+### Fixed
+- **tc100-onvifd:** an ISO 8601 duration such as `PT999999H` overflowed and gave a negative subscription time (found by
+  the new fuzzing). Test-queue UP32-FUZZ.
+
+### Build
+- **Fuzzing** (`[up-fuzz]`): 13 libFuzzer targets on the RTSP, HTTP, ONVIF, MQTT, WHEP/STUN/SDP and mDNS parsers, a CI job
+  and `sh tests/docker/local-ci.sh fuzz`.
+- **SBOM and CVE report** (`[up-sbom]`): CycloneDX 1.5 SBOM and a non-blocking CVE report (Buildroot `pkg-stats`, kernel
+  stable lag) in every release artifact.
+
 ## [Unreleased]
 
 ### Docs

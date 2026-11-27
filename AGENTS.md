@@ -66,7 +66,7 @@ hardware facts, test loop), then `docs/known-issues.md`.
 - `main` is 3.0 only. The 2.x firmware (vendor kernel 3.4, lighttpd, `libtc100fix`, `src/flash`, `autorun.sh`) is on the
   branch `2.x`; do not bring its files back. Shared scripts still carry `[ -f /tmp/linux66 ]` branches from the time both
   lived here: the 3.0 side is the one that matters.
-- `patches/kernel-6.6/series/00NN-*.patch` are the source of truth for the kernel (applied on tag `v6.6`). `patches/kernel-6.6/audio/`
+- `patches/kernel-6.6/series/00NN-*.patch` are the source of truth for the kernel (applied on the 6.6.y tag pinned in `.github/ci-pins.sh`: `v6.6` on `main`, `v6.6.163` on branch `upgrade-3.2`). `patches/kernel-6.6/audio/`
   and `defconfig_cma` are reference copies. Editing a patch that adds a whole file: recompute the `@@ -0,0 +1,N @@` count
   (`git apply --stat` must pass).
 - CI `.github/workflows/build-kernel-linux66.yml` (~12-19 min per push) builds the kernel: artifact `tc100-linux66-cma16-kernel`

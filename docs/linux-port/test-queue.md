@@ -210,6 +210,46 @@ older `to test` entries below.
 - **Pass:** as above; no reboot with `0`. Host tests: `tests/test_mqttd.py` (`test_admin_cmds_off_*`, parity case
   `admin commands off`).
 
+## 3.2 on branch `upgrade-3.2` (the major upgrade): SD-card tests only
+
+Branch `upgrade-3.2` (docs/linux-port/upgrade-3.2/README.md), not `main`. Every test below runs on the camera started
+**from the SD card in RAM** (`pack66/boot66b.sh` with `tc100test/c66.img` + `c66rd.gz` of the CI artifact
+`tc100-linux66-cma16-kernel` of a run on `upgrade-3.2`); nothing is written to the flash, U-Boot and its environment are
+not touched, the way back is a power cycle (the flash firmware boots). Flash writes of this branch wait for the owner.
+
+### UP32-KERNEL Kernel 6.6.0 -> 6.6.163, the 25 patches rebased (`[up-kernel]`) — `to test` (one camera, SD, 24 h)
+- **What / notes:** [upgrade-3.2/kernel.md](upgrade-3.2/kernel.md) (patch by patch, config diff, `oipc.img` 1,814,552
+  bytes, 278,528 free in the 2 MiB slot). Reviewed: same patch content, only 0004 resolved by hand (6.6.0 behaviour).
+- **Switch:** none in the kernel; the way back is the flash kernel (power cycle).
+- **Test:** kernel.md "Camera test": `/proc/cmdline` with the full initrd size, `uname -r` = 6.6.163, video 1080p and 720p,
+  sub-stream, 3D-NR, audio in/out, Wi-Fi, USB, clean `dmesg`, encoder 24 h. **Also (review):** the Wi-Fi signal: compare
+  `iw dev wlan0 link` / `station dump` signal at the same place with the flash kernel (6.6.0) and this one: stable commit
+  0f6b8aed5d91 clamps the 8188F TX power index when the efuse is blank (0xFF), up to ~12 dB less on such a chip; and the
+  Wi-Fi start time (stable retries the firmware download up to 6 times; with patch 0004's retries a bad USB link is slow
+  and verbose rather than quick to fail).
+- **Pass:** all of the above, no oops, signal within a few dB of 6.6.0.
+
+### UP32-SIGN Signed update packages (Ed25519, `tc100-sigcheck`, `UPDATE_REQUIRE_SIG`) (`[up-sign]`) — `to test` (SD)
+- **What / notes:** [upgrade-3.2/sign.md](upgrade-3.2/sign.md). Reviewed: nothing reaches the flash before the checks;
+  review fixes in (a settings restore never adds keys nor changes the policy; usable-key count; no lock-out without
+  `sha256sum`).
+- **Switch:** `UPDATE_REQUIRE_SIG` in `boot.conf` (0 on this branch: unsigned accepted with a warning, bad signature
+  always refused).
+- **Test:** sign.md "Camera test" steps 1-5 with the read-only `update66.sh sigcheck DIR` on the SD-booted camera.
+- **Pass:** steps 1-5 as written. Before 3.2 final: the owner's public key in `v3/install/update-keys/`, default 1.
+
+### UP32-FUZZ onvifd duration overflow fix, httpfront rebuilt (`[up-fuzz]`) — `to test` (SD, short)
+- **What / notes:** [upgrade-3.2/fuzz.md](upgrade-3.2/fuzz.md): 13 libFuzzer targets in CI; one bug found and fixed
+  (`dur_s()` in `src/onvifd/onvifd.c`: `PT999999H` wrapped to a negative duration).
+- **Test:** fuzz.md "Camera test": ONVIF discovery, profiles, stream, a motion subscription (Create, Pull, Renew); the web
+  UI opens as before. **Pass:** as on 3.0.2.
+
+### UP32-SBOM SBOM and CVE report in every build (`[up-sbom]`) — `CI only` (nothing on the camera)
+- **What / notes:** [upgrade-3.2/sbom.md](upgrade-3.2/sbom.md). `sbom.cdx.json`, `sbom.md`, `cve-report.md/.json` in the
+  `tc100-3-release` artifact; the CVE step is non-blocking, its NVD data cached per ISO week.
+- **Check (owner, GitHub):** open `cve-report.md` of the latest `upgrade-3.2` run and read the kernel line and the
+  Buildroot package findings.
+
 ## Acceptance of the 3.0.2 final (`[recette]`)
 
 ### RECETTE-BENCH Acceptance bench: the scriptable checks of the readiness, one command per camera (`[recette]`) — `to test` (tester, session 2, then each camera)
