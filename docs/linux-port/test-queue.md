@@ -2048,3 +2048,5 @@ Historical dated reports (2026-10-30 onward) were archived to [test-queue-archiv
   Suggested bench fix for the implementer: wait for the cap to settle (or take the baseline's last 3 windows) after `kill-loop`.
 - State after the run: tc100_rtsp running (starts 31 counted by the bench, pic_fail 0, exit3 0), default route back on wlan0, no `/tmp/tc100_privacy`, day mode,
   rtsp.env unchanged. Results files kept on the tester's side (res-24-disr).
+- **2026-11-27 08:55, IPCAM1 on rc7, owner's confirmation (in chat): "everything works" (web login, MQTT, Frigate with the secret files at 600).** Both
+  cameras are on 3.0.2-rc7 (version file read on each); no commit of the other agent after e1a5c28. ONVIF still not read on rc7 (owner does not report it).
