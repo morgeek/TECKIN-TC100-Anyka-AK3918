@@ -103,3 +103,31 @@ jobs:
       # the camera's C library is musl: compile there too (the base image build is the only other place, 40 min)
       - name: tc100-whep compiled with musl
         run: docker run --rm -v "$PWD:/src:ro" alpine:3.20 sh /src/tests/docker/whep-musl.sh
+
+  # [up-fuzz] (audit 2026-11-27 SEC-5): libFuzzer on the parsers that read the network (RTSP, HTTP front, ONVIF, MQTT, STUN /
+  # SDP / DTLS ClientHello of the WebRTC gateway, mDNS). Host only (x86, clang with AddressSanitizer and UBSan), never in the
+  # camera image. 13 targets, 60 s each, 4 at a time. A crash, a hang or a leak fails the job and its input is uploaded.
+  # Details: docs/linux-port/upgrade-3.2/fuzz.md; locally: sh tests/docker/local-ci.sh fuzz
+  fuzz:
+    name: Fuzz the network parsers (libFuzzer)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Install clang (libFuzzer, AddressSanitizer)
+        run: sudo apt-get update && sudo apt-get install -y -qq clang
+      - name: Build every harness and run it for 60 s
+        run: sh tests/fuzz/run.sh -t 60 -j 4 -o fuzz-out
+      - name: Crash inputs and logs
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: fuzz-findings
+          path: |
+            fuzz-out/*/crash-*
+            fuzz-out/*/timeout-*
+            fuzz-out/*/oom-*
+            fuzz-out/*/leak-*
+            fuzz-out/*/log
+          if-no-files-found: ignore
+          retention-days: 14

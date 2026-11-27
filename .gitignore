@@ -100,3 +100,4 @@ dist/
 
 # musl sysroot made by v3/musl/build-musl.sh
 /build/
+tests/fuzz/out/

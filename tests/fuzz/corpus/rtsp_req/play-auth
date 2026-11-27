@@ -1,0 +1,6 @@
+PLAY rtsp://192.168.1.11:554/video0_unicast RTSP/1.0
+CSeq: 6
+User-Agent: LibVLC/3.0.20 (LIVE555 Streaming Media v2016.11.28)
+Session: 0a1b2c3d
+Range: npt=0.000-
+

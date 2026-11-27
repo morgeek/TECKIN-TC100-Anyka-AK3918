@@ -1,0 +1,6 @@
+SETUP rtsp://192.168.1.11:554/video0_unicast/track2 RTSP/1.0
+CSeq: 4
+User-Agent: LibVLC/3.0.20 (LIVE555 Streaming Media v2016.11.28)
+Transport: RTP/AVP/TCP;unicast;interleaved=2-3
+Session: 0a1b2c3d
+

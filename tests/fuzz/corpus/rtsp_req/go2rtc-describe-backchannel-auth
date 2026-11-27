@@ -1,0 +1,6 @@
+DESCRIBE rtsp://192.168.1.11:554/video0_unicast RTSP/1.0
+CSeq: 2
+User-Agent: go2rtc/1.9.4
+Require: www.onvif.org/ver20/backchannel
+Accept: application/sdp
+

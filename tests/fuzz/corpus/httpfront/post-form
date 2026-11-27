@@ -1,0 +1,7 @@
+POST /cgi-bin/action.cgi?cmd=snapshot HTTP/1.1
+Host: ipcam1
+Authorization: Basic YWRtaW46cGxhaW5wYXNz
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 11
+
+a=1&b=2&c=3

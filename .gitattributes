@@ -14,3 +14,5 @@
 *.woff2 binary
 # a CGI script named like a picture (Thingino web UI)
 thingino_port/package/thingino-webui/cgi-bin/ch0.jpg text eol=lf
+# fuzz seeds are byte streams (CRLF requests, MQTT and DTLS packets): never normalised
+tests/fuzz/corpus/** binary

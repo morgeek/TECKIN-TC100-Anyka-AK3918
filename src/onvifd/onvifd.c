@@ -1424,8 +1424,11 @@ static int dur_s(const char *s, int d)
 		else if (*s == '.' && dg) { while (s[1] >= '0' && s[1] <= '9') s++; }
 		else if (!dg) return d;
 		else {
-			if (*s == 'H') tot += n * 3600; else if (*s == 'M') tot += n * 60; else if (*s == 'S') tot += n; else return d;
-			if (tot > 1000000) tot = 1000000;	/* no int overflow on "PT99999H99999H..."; callers clamp further */
+			/* n goes up to 999999: n * 3600 does not fit an int (found by tests/fuzz, "PT999999H" wrapped to a negative duration) */
+			long long add = *s == 'H' ? (long long)n * 3600 : *s == 'M' ? (long long)n * 60 : *s == 'S' ? n : -1;
+
+			if (add < 0) return d;
+			tot = tot + add > 1000000 ? 1000000 : tot + (int)add;	/* no int overflow on "PT99999H99999H..."; callers clamp further */
 			n = 0; dg = 0;
 		}
 	}

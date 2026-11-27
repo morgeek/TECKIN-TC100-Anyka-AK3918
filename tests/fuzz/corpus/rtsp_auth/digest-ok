@@ -1,0 +1,4 @@
+DESCRIBE rtsp://192.168.1.11:554/video0_unicast RTSP/1.0
+CSeq: 2
+Authorization: Digest username="root", realm="TC100", nonce="0123456789abcdef0123456789abcdef", uri="rtsp://192.168.1.11:554/video0_unicast", response="029e9b17604590a5daf4b29a66e3e290"
+

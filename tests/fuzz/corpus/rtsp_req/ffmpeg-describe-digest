@@ -1,0 +1,6 @@
+DESCRIBE rtsp://192.168.1.11:554/video0_unicast RTSP/1.0
+CSeq: 2
+User-Agent: Lavf60.16.100
+Accept: application/sdp
+Authorization: Digest username="root", realm="TC100", nonce="0123456789abcdef0123456789abcdef", uri="rtsp://192.168.1.11:554/video0_unicast", response="029e9b17604590a5daf4b29a66e3e290"
+

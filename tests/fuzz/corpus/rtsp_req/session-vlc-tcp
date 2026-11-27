@@ -1,0 +1,31 @@
+OPTIONS rtsp://192.168.1.11:554/video0_unicast RTSP/1.0
+CSeq: 1
+User-Agent: LibVLC/3.0.20 (LIVE555 Streaming Media v2016.11.28)
+
+DESCRIBE rtsp://192.168.1.11:554/video0_unicast RTSP/1.0
+CSeq: 2
+User-Agent: LibVLC/3.0.20 (LIVE555 Streaming Media v2016.11.28)
+Accept: application/sdp
+
+SETUP rtsp://192.168.1.11:554/video0_unicast/track1 RTSP/1.0
+CSeq: 3
+User-Agent: LibVLC/3.0.20 (LIVE555 Streaming Media v2016.11.28)
+Transport: RTP/AVP/TCP;unicast;interleaved=0-1
+
+SETUP rtsp://192.168.1.11:554/video0_unicast/track2 RTSP/1.0
+CSeq: 4
+User-Agent: LibVLC/3.0.20 (LIVE555 Streaming Media v2016.11.28)
+Transport: RTP/AVP/TCP;unicast;interleaved=2-3
+Session: 0a1b2c3d
+
+PLAY rtsp://192.168.1.11:554/video0_unicast RTSP/1.0
+CSeq: 6
+User-Agent: LibVLC/3.0.20 (LIVE555 Streaming Media v2016.11.28)
+Session: 0a1b2c3d
+Range: npt=0.000-
+
+TEARDOWN rtsp://192.168.1.11:554/video0_unicast RTSP/1.0
+CSeq: 8
+User-Agent: LibVLC/3.0.20 (LIVE555 Streaming Media v2016.11.28)
+Session: 0a1b2c3d
+
