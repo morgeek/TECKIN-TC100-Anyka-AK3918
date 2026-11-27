@@ -343,7 +343,9 @@ class AttributesBeforeTheRename(unittest.TestCase):
             subprocess.run(root + ['chown', '0:%d' % GID, str(p)], check=True)
         r = subprocess.run((root or []) + [str(exe), str(p), 'w', '0', 'fps', '20'], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn('fps=20', p.read_text())
+        # root:1001 0640: an ordinary user (sudo case) cannot read it back itself
+        body = subprocess.run((root or []) + ['cat', str(p)], capture_output=True, text=True, check=True).stdout
+        self.assertIn('fps=20', body)
         st = os.stat(p)
         self.assertEqual((st.st_uid, st.st_gid, st.st_mode & 0o777), (0, GID, 0o640))
 
@@ -568,8 +570,13 @@ class RealProcesses(unittest.TestCase):
         os.chmod(self.work, 0o755)
 
     def tearDown(self):
+        # under sudo, p.pid is sudo: SIGKILL to it leaves the daemon (another uid) running. Kill every process started
+        # from this class's temporary folder, then the launchers.
+        pids = [x for x in pids_matching(str(self.tmp)) if x not in (p.pid for p in self.procs)]
+        pids += [p.pid for p in self.procs]
+        if pids:
+            subprocess.run((self.root or []) + ['kill', '-9'] + [str(x) for x in pids], capture_output=True)
         for p in self.procs:
-            subprocess.run((self.root or []) + ['kill', '-9', str(p.pid)], capture_output=True)
             try:
                 p.wait(5)
             except subprocess.TimeoutExpired:
@@ -649,7 +656,7 @@ class RealProcesses(unittest.TestCase):
     def test_onvifd_without_the_option_keeps_its_identity(self):
         self.write_conf()
         cmd, env = self.onvif_cmd([])
-        p = subprocess.Popen(cmd, env=env, stderr=subprocess.DEVNULL)
+        p = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.procs.append(p)
         self.wait_port()
         self.assertEqual(uid_of(p.pid), [os.getuid()] * 4)
@@ -678,7 +685,7 @@ class RealProcesses(unittest.TestCase):
         self.write_conf()
         cmd, env = self.onvif_cmd(['-D', '65000:65001'])
         p = subprocess.Popen(self.root + ['env'] + ['%s=%s' % kv for kv in env.items() if kv[0].startswith('ONVIFD_')] + cmd,
-                             stderr=subprocess.DEVNULL)
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.procs.append(p)
         self.wait_port()
         pid = self.child_pid(p, 'onvifd')
@@ -709,7 +716,7 @@ class RealProcesses(unittest.TestCase):
         os.chown(self.work / 'user.pwd', 0, 0) if os.geteuid() == 0 else None
         cmd, env = self.onvif_cmd(['-D', '65000:65001'])
         p = subprocess.Popen(self.root + ['env'] + ['%s=%s' % kv for kv in env.items() if kv[0].startswith('ONVIFD_')] + cmd,
-                             stderr=subprocess.DEVNULL)
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.procs.append(p)
         self.wait_port()
         self.assertEqual(self.soap_status('media_service', '<trt:GetProfiles/>'), 400, 'password set: refused without credentials')
@@ -728,7 +735,7 @@ class RealProcesses(unittest.TestCase):
         self.write_conf(mode=0o640)
         os.chown(self.work / 'user.pwd', 0, 65001)
         cmd, env = self.onvif_cmd(['-D', '65000:65001'])
-        p = subprocess.Popen(['env'] + ['%s=%s' % kv for kv in env.items() if kv[0].startswith('ONVIFD_')] + cmd, stderr=subprocess.DEVNULL)
+        p = subprocess.Popen(['env'] + ['%s=%s' % kv for kv in env.items() if kv[0].startswith('ONVIFD_')] + cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.procs.append(p)
         self.wait_port()
         self.assertEqual(self.soap_status('media_service', '<trt:GetProfiles/>'), 400)
@@ -745,7 +752,7 @@ class RealProcesses(unittest.TestCase):
     def start_dropped(self, root_cmd=True, rtsp=False):
         cmd, env = self.onvif_cmd(['-D', '65000:65001'], rtsp=rtsp)
         p = subprocess.Popen((self.root if root_cmd else []) + ['env'] + ['%s=%s' % kv for kv in env.items() if kv[0].startswith('ONVIFD_')] + cmd,
-                             stderr=subprocess.DEVNULL)
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.procs.append(p)
         self.wait_port()
         return p
@@ -823,7 +830,7 @@ class RealProcesses(unittest.TestCase):
             os.setgid(65000)
             os.setuid(65000)
         cmd, env = self.onvif_cmd(extra or [])
-        p = subprocess.Popen(cmd, env=env, stderr=subprocess.DEVNULL, preexec_fn=to_user)
+        p = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, preexec_fn=to_user)
         self.procs.append(p)
         self.wait_port()
         return p
@@ -889,7 +896,7 @@ class RealProcesses(unittest.TestCase):
         rx.settimeout(10)
         port = rx.getsockname()[1]
         p = subprocess.Popen(self.root + [str(self.logfwd), '-r', '127.0.0.1:%d' % port, '-f', str(log), '-D', '65000:65001'],
-                             stderr=subprocess.DEVNULL)
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.procs.append(p)
         pid = None
         for _ in range(50):
