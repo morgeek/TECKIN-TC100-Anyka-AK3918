@@ -32,7 +32,9 @@ Rules for every stream (on top of `AGENTS.md`):
 ## State on 2026-11-27 evening (hand-off)
 
 **3.2.0-rc2** (audit of the branch, `[audit 3.2]`: three read-only reviews, their fixes in `ee731ee`, see CHANGELOG)
-replaces rc1 for the camera tests: use the artifacts of the build run of the rc2 commit. **3.2.0-rc1** (`df8fb95`) had all six streams merged, each reviewed by the reviewer agent (the
+replaces rc1 for the camera tests: build run 46066002754 (`e9dc57b`, green; CI run 46066002560 green, the privdrop
+module now also runs as root there) gives `tc100-3-release` (SD zip, `tc100-3.2.0-rc2-update.tar`) and
+`tc100-linux66-cma16-kernel` (`tc100test/c66.img`, `c66rd.gz`). **3.2.0-rc1** (`df8fb95`) had all six streams merged, each reviewed by the reviewer agent (the
 kernel, the signature, the base system / DTLS port and the privilege drop twice), local CI green (tests, cross, kernel,
 fuzz, whep). GitHub: build run 46024956529 (`df8fb95`) green, it gives the SD files and the update tar
 (`tc100-3-release`); CI run 46051058827 (`1ef1b20`, test and CI fixes only, no firmware change) green. Nothing has run on a
