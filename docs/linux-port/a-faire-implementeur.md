@@ -1,4 +1,4 @@
-# Liste de l'implémenteur — état courant au 2026-11-26 (3.0.2-rc6)
+# Liste de l'implémenteur — état courant au 2026-11-27 (3.0.2-rc8)
 
 Les sections datées qui suivent sont des notes historiques des RC précédentes ; leurs cases non cochées ne forment pas
 à elles seules le backlog courant. L'état terrain ci-dessous et les entrées les plus récentes de `test-queue.md` font
@@ -178,11 +178,12 @@ sur une caméra, interrupteur de retour arrière, entrée dans test-queue.md.
   seulement si `SUnreclaim` monte (la baisse de ~0,4 Mo / jour n'est pas l'espace utilisateur).
 
 ### B3. Trouvé dans la première nuit en 3.0.2-rc2 (24/11)
-- [ ] **NIGHT-CEIL, tranché le 26/11 : bruit de nuit à fort gain (relevé B : même débit avant et après un
-  redémarrage vidéo au même gain ; nuit complète en rc6 : .24 à 1552 kbit/s de moyenne, .11 à 825).** Pas d'état de
-  bascule. Décision du propriétaire du 26/11 : essai `RTSP_NIGHT_KBPS=900` sur la .24 seule (la .11 sert de témoin),
-  protocole dans l'entrée NIGHT-CEIL-AUTO de `test-queue.md`. Reste : la lecture de cette nuit, puis la décision du
-  propriétaire (900 par défaut, ou réglage par caméra). Les points ci-dessous sont l'historique de l'enquête.
+- [x] **NIGHT-CEIL, clos le 27/11 : bruit de nuit à fort gain, plafond de 900 kbit/s la nuit par défaut depuis la
+  rc8.** Nuit du 26-27/11 sur la .24 avec `RTSP_NIGHT_KBPS=900` : moyenne ~910 kbit/s sur 50 mesures, retour à 1600 le
+  jour, aucun faux mouvement ; image acceptée par le propriétaire (27/11 08:15). La .11 sans plafond tournait d'elle-même
+  à ~945. Le propriétaire a validé le défaut (27/11) : `NIGHT_KBPS_DEFAULT 900` dans `tc100_rtsp.c`, clé absente = 900,
+  `RTSP_NIGHT_KBPS=0` dans `rtsp.env` = pas de plafond. Reste la vérification caméra NIGHT-KBPS-DEFAULT (`test-queue.md`).
+  Les points ci-dessous sont l'historique de l'enquête.
 - [x] **NIGHT-CEIL, analyse du code du 25/11 (lecture seule) : pas de bug de bascule trouvé, ne rien corriger avant
   les relevés A et B.** Un démarrage en nuit passe aussi par `style_switch(1)` (première image, `tc100_rtsp.c` ~:4610)
   et `isp_bases_reset()` remet toutes les bases à zéro ; le pilote recharge les 24 modules du jeu de nuit dans les deux

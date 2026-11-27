@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [3.0.2-rc8] - 2026-11-27
+
+### Changed
+- **900 kbit/s night ceiling by default** (`[night-ceil]`, owner's decision after the NIGHT-CEIL-AUTO night): at night
+  the main stream stays under 900 kbit/s unless `rtsp.env` sets `RTSP_NIGHT_KBPS` (0 = no ceiling, as before). In a dark
+  room the sensor noise at high gain filled the whole 1600 kbit/s all night; on IPCAM1 the ceiling held a mean ~910
+  kbit/s, the day rate came back unchanged, no false motion, and the owner accepted the softer night picture. A quiet
+  room stays under it by itself (~945 on IPCAM2 without it). Test-queue NIGHT-KBPS-DEFAULT.
+
+### Docs
+- README: the clock (NTP) is the one outgoing connection by default, local recording is off until switched on, the
+  current release line, the night ceiling under the limits; `known-issues.md` brought to 2026-11-27.
+
+### Tests (not in the firmware)
+- **Acceptance bench:** the privacy check waits for a steady capture rate before its baseline (its FAIL on IPCAM1 on
+  2026-11-27 was the catch-up of the video server restarted by the kill loop, no frame lost).
+
 ## [3.0.2-rc7] - 2026-11-26
 
 ### Fixed

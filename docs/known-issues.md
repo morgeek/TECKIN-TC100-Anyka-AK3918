@@ -4,7 +4,8 @@ Moved out of the README in 2.0.0. History of every fix: [CHANGELOG.md](../CHANGE
 
 ## 3.0 (Linux 6.6)
 
-State as of 2026-11-13 (development head then: `3.0.1-rc43` on `main`; released as `3.0.1` on 2026-11-15, see [CHANGELOG.md](../CHANGELOG.md); last multi-hour baseline snapshot: 2026-11-09 on rc36 IPCAM2 / rc35 IPCAM1): two cameras of the same variant;
+State as of 2026-11-27 (last release `3.0.1` of 2026-11-15; development head `3.0.2-rc8` on `main`, both test cameras on
+`3.0.2-rc7`, see [CHANGELOG.md](../CHANGELOG.md)): two cameras of the same variant;
 details and results are in [linux-port/test-queue.md](linux-port/test-queue.md):
 - **Qualification status:** many core areas have passed real-camera checks on both devices, including flash boot,
   V3 services, the free encoder, and short RTSP decoding checks. After the latest installs, the report records
@@ -28,12 +29,17 @@ details and results are in [linux-port/test-queue.md](linux-port/test-queue.md):
   the Wi-Fi USB driver.
 - **Intermittent Wi-Fi ping loss:** bursts have been recorded, including one 90% loss sample on IPCAM2 followed by clean
   samples. A two-hour diagnostic run did not show the USB interrupt or Wi-Fi receive counters freezing; the cause is
-  still unresolved and may be on the access point / LAN / ICMP path. Normal association and transfers work.
+  still unresolved and may be on the access point / LAN / ICMP path. Normal association and transfers work. The ~8 s
+  downstream stalls of one camera were the camera's own TX aggregation (A-MPDU) sessions: off by default since 3.0.1
+  (`WIFI_AMPDU_TX=0` in `boot.conf`).
 - **Speaker and talk:** speaker playback works, but browser push-to-talk (UI-13) and end-to-end ONVIF/RTSP backchannel
   talk from go2rtc / Frigate / Home Assistant (P4) still need camera qualification. The audio-duck code mutes the
   microphone while the speaker plays (`RTSP_AUDIO_DUCK=1`).
 - **Day / night:** anti-flapping minimum switch delay defaults to 180 s; optional dynamic 720p night mode (`NIGHT_720P=1`)
-  can drop resolution at night for higher SNR and lower bitrate.
+  can drop resolution at night for higher SNR and lower bitrate. In a dark room the sensor noise at high gain used to
+  fill the whole main bit rate (~1600 kbit/s) all night; since 3.0.2-rc8 the main stream stays under 900 kbit/s at
+  night (`RTSP_NIGHT_KBPS`, 0 in `rtsp.env` = no ceiling), with a slightly softer night picture (accepted by the owner
+  after a night on 2026-11-26).
 - **Storage:** in-camera FAT32 format action available in Settings (`scripts/sd-format.sh`) with 32 KB clusters for smooth
   long-term video recording without card exhaustion.
 - **Memory:** `MemAvailable` about 17 MB while one client streams at 25 fps (measured 2026-11-14, 9600K encoder pool). The

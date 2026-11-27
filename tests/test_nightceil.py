@@ -280,8 +280,8 @@ class NightSetting(unittest.TestCase):
         return out, steps
 
     def test_both_keys_at_0_change_nothing(self):
-        ref, _ = self.run_s(sync='0')                     # night_enc_sync never called: today's behaviour
-        for qp, kbps in ((None, None), ('0', '0'), ('0', None), (None, '0'), ('-2', '-5')):
+        ref, _ = self.run_s(sync='0')                     # night_enc_sync never called: the behaviour before rc6
+        for qp, kbps in (('0', '0'), (None, '0'), ('-2', '-5')):   # the ceiling is off only when written as 0
             out, st = self.run_s(qp, kbps)
             self.assertEqual(out, ref, (qp, kbps))       # call for call, log line for log line
             self.assertNotIn('night setting', out)
@@ -293,7 +293,8 @@ class NightSetting(unittest.TestCase):
         self.assertEqual(out, self.run_s(sync='0', vbr='0')[0])
 
     def test_night_qp_applied_at_night_and_restored_by_day(self):
-        out, st = self.run_s(qp='3')
+        # the QP add alone: the night ceiling (900 by default since rc8) written off
+        out, st = self.run_s(qp='3', kbps='0')
         self.assertEqual(st['day0']['qp'], 33)
         self.assertEqual(st['night']['qp'], 36)
         self.assertEqual(st['night']['restarts'], 1)                 # md_enc_restart at the change
@@ -309,12 +310,23 @@ class NightSetting(unittest.TestCase):
         self.assertIn('night setting (night): VBR quality QP 33 -> 36 (RTSP_NIGHT_VBR_QP_ADD=3)', out)
         self.assertIn('night setting (night, new main encoder): VBR quality QP 33 -> 36', out)
         self.assertIn('night setting (day): VBR quality QP 36 -> 33', out)
-        _, big = self.run_s(qp='99')                                  # clamped to 6
+        _, big = self.run_s(qp='99', kbps='0')                                  # clamped to 6
         self.assertEqual(big['night']['qp'], 39)
-        out, cbr = self.run_s(qp='3', vbr='0')                       # CBR: the quality QP is not used
+        out, cbr = self.run_s(qp='3', kbps='0', vbr='0')                       # CBR: the quality QP is not used
         self.assertIn('VBR quality QP unchanged (CBR)', out)
         self.assertEqual(cbr['night']['qps'], 0)
         self.assertEqual(cbr['night']['restarts'], 0)
+
+    def test_absent_ceiling_key_means_900(self):
+        # 3.0.2-rc8: NIGHT-CEIL-AUTO passed on IPCAM1 (owner, 2026-11-27): 900 kbit/s at night unless rtsp.env says 0
+        self.assertIn('#define NIGHT_KBPS_DEFAULT 900', SRC.read_text(encoding='utf-8'))
+        ref, ref_st = self.run_s(kbps='900')
+        for qp, kbps in ((None, None), ('0', None), (None, '')):
+            out, st = self.run_s(qp, kbps)
+            self.assertEqual(out, ref, (qp, kbps))
+            self.assertEqual((st['night']['kbps'], st['night']['cap']), (900, 900))
+            self.assertEqual((st['day']['kbps'], st['day']['cap']), (1400, 0))
+        self.assertIn('night setting (night): main bit rate 2000 -> 900 kbit/s', ref)
 
     def test_night_ceiling_applied_and_restored_with_abr(self):
         out, st = self.run_s(kbps='900')

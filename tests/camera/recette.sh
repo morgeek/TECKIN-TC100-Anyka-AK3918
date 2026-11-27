@@ -233,6 +233,17 @@ stat_mean() {
   stat_window_vals "$1" "$2" "$3" | awk '{ s += $1; n++ } END { if (n) printf "%d", s / n }'
 }
 
+# stat_settled KEY: the last 3 STAT windows of KEY are within 10% of their mean, or all 0. A video server restarted just
+# before (the kill loop) catches up first, with windows above the capture rate (113 and 104 at 10 fps on 2026-11-27),
+# then runs at its steady rate: a baseline must not start on the catch-up.
+stat_settled() {
+  _ss_n=$(stat_count)
+  [ "$_ss_n" -ge 3 ] || return 1
+  stat_window_vals "$1" $((_ss_n - 3)) "$_ss_n" | awk '{ v[n++] = $1; s += $1 } END {
+    if (n < 3) exit 1; if (s <= 0) exit 0; m = s / n
+    for (i = 0; i < n; i++) if (v[i] * 10 > m * 11 || v[i] * 10 < m * 9) exit 1; exit 0 }'
+}
+
 # wait_stat_count N: until the current log has at least N STAT lines (MAX_WAIT_S seconds at most)
 wait_stat_count() {
   _swc_t=0
@@ -702,6 +713,16 @@ c_privacy() {
   # The windows are the STAT lines (one per 5 s tick). Without privacy: the windows of the 30 s before the switch. With
   # privacy: the windows after the first one that came after the file appeared (that window holds the switch itself).
   # After removal: the first window after the removal is skipped and the next two are recorded, as evidence only.
+  # The baseline starts once the capture rate is steady (stat_settled: after the kill loop the first windows are the
+  # catch-up of the restarted server, which made a false FAIL on 2026-11-27), 12 more windows (60 s) at most.
+  _pv_w=0
+  while [ "$_pv_w" -lt 12 ] && ! stat_settled cap; do
+    _pv_s=$(stat_count)
+    wait_stat_count $((_pv_s + 1)) || break
+    _pv_w=$((_pv_w + 1))
+  done
+  if stat_settled cap; then ev "capture rate steady before the baseline (after $_pv_w more windows)"
+  else ev "capture rate still not steady after $_pv_w more windows: baseline taken anyway"; fi
   _pv_a0=$(stat_count)
   wait_stat_count $((_pv_a0 + 6)) || true
   _pv_a1=$(stat_count)

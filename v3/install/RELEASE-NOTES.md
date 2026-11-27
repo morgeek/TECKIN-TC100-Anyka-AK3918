@@ -2,6 +2,14 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
+## What is new in 3.0.2-rc8 (test build, branch main)
+Everything of 3.0.2-rc7, plus:
+- **Night bit rate capped at 900 kbit/s by default:** in a dark room the sensor noise used to fill the whole 1600
+  kbit/s all night. The night picture is a little softer (tried on one camera for a night and accepted).
+  `RTSP_NIGHT_KBPS=0` in `rtsp.env` removes the ceiling; another value sets another one.
+- **To test:** `NIGHT-KBPS-DEFAULT` (one night on a camera without `RTSP_NIGHT_KBPS` in `rtsp.env`), the rest of
+  `SECRET-MODES` (ONVIF, settings import), then the acceptance bench again.
+
 ## What is new in 3.0.2-rc7 (test build, branch main)
 Everything of 3.0.2-rc6, plus:
 - **Password and key files protected:** the files of the settings folder that hold a password, a token or the Wi-Fi

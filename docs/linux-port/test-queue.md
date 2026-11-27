@@ -98,7 +98,7 @@ older `to test` entries below.
 - **Pass:** every close of the night has a line with a reason; the cause of the ~3 min loop is named.
 - **Host tests:** `tests/test_tc100rtsp.py` class `CloseReasons`.
 
-### NIGHT-CEIL-AUTO The night bit rate measured by the camera itself: `nightceil.csv` (`[night-ceil]`) — `to test` (both cameras, 2-3 nights)
+### NIGHT-CEIL-AUTO The night bit rate measured by the camera itself: `nightceil.csv` (`[night-ceil]`) — `passed 2026-11-27` (IPCAM1 night at 900 kbit/s, owner accepted the picture; the default follows in NIGHT-KBPS-DEFAULT)
 - **Why:** the .24 sat at the ceiling (~1600 kbit/s: 10 fps night set, VBR quality QP 33, 20000 bytes a picture) for a
   whole deep night (a-faire NIGHT-CEIL). The code analysis of 25/11 found no switch-only state; the most likely cause
   is the night noise at ~26x total gain filling the R1 night budget. Checks A and B settle it; this entry makes the
@@ -172,6 +172,26 @@ older `to test` entries below.
   - **Pass:** night rate ~900, no false motion, day unchanged, and the owner accepts the night picture. Then the owner
     decides whether 900 becomes a default (`config/rtsp.env.dist` or the launcher) or stays per camera. **Revert:**
     remove the line and restart the video server.
+- **2026-11-27, closed (main session):** steps 1-3 passed on IPCAM1 (dated readings at the end of this file: mean ~910
+  kbit/s over 50 samples, `kbps_set` 900 all night, day back to 1600, no `md_enc` event, owner accepted the picture at
+  08:15); IPCAM2 without the ceiling ran at ~945 by itself. The owner's go for the default (27/11): it is a C default
+  of `tc100_rtsp` (`NIGHT_KBPS_DEFAULT`), not a launcher line or a `.dist` file, so `rtsp.env` stays the one place to
+  change it. Camera check of that default: NIGHT-KBPS-DEFAULT below. `nightceil.csv` stays on (`RTSP_NIGHTCEIL_LOG`).
+
+### NIGHT-KBPS-DEFAULT 900 kbit/s night ceiling by default (`[night-ceil]`, 3.0.2-rc8) — `to test` (IPCAM2, one night)
+- **What:** `RTSP_NIGHT_KBPS` absent or empty in `/mnt/config/rtsp.env` now means 900 (`NIGHT_KBPS_DEFAULT` in
+  `src/tc100rtsp/tc100_rtsp.c`); before rc8 it meant 0. The mechanism is the one IPCAM1 ran on 26-27/11 with the key
+  written in its file; nothing else changes (`RTSP_NIGHT_VBR_QP_ADD` stays 0). A configured main rate under 900 is
+  left alone (the ceiling is the lower of the two).
+- **Switch:** `RTSP_NIGHT_KBPS=0` in `/mnt/config/rtsp.env`, then `controlscripts/rtsp-h26x restart` (the night rate as
+  before rc8). Another value (at least 100) sets another ceiling.
+- **Test (IPCAM2, the camera without the key; IPCAM1 may keep its line, it is the same value):** after the rc8 update,
+  `grep RTSP_NIGHT /mnt/config/rtsp.env` prints nothing. By day the first `nightceil.csv` switch row shows `kbps_set`
+  1600 and `night_kbps` 0. At the evening switch: the line `night setting (night): main bit rate 1600 -> 900 kbit/s` in
+  `/tmp/logs/tc100_rtsp.log` (copy it within the hour: the 1 MB log rotates), the switch row `night_kbps` 900, the
+  night `sample` rows at or under ~950 kbit/s, no `md_enc` event right after the switch. Morning: `night setting
+  (day)` back to 1600, day rows as before.
+- **Pass:** one night on IPCAM2 as above with the key absent, counters 0, no false motion.
 
 ### MQTT-ADMIN The `telnet`, `ftp` and `reboot` commands over MQTT can be refused: `MQTT_ADMIN_CMDS` (`[mqtt-admin]`) — `to test`
 
@@ -229,8 +249,13 @@ older `to test` entries below.
     kill + start cycles. The cameras have no `scp`; the copy step needs `ssh cat`. IPCAM1 `--disruptive --wifi` waits
     for tonight's night reading.
   - **Bench FAIL 1 (user.pwd 644 / 755): fix in the SECRET-MODES entry below** (`[secmode]`, `to test`).
+  - **2026-11-27, pp-privacy FAIL of the IPCAM1 run (bench artefact) fixed in the bench:** its baseline started on the
+    catch-up of the server restarted by the kill loop just before (cap 71 113 104, then 55 50 51 at 10 fps). `c_privacy`
+    now waits until the last 3 STAT windows of `cap` are within 10% of their mean (`stat_settled`, 12 more windows at
+    most, the wait logged) before it takes the baseline. Host test `test_privacy_baseline_waits_for_the_catch_up`
+    with the IPCAM1 numbers. Next run: `pp-privacy` should PASS on both cameras; nothing to change on the cameras.
 
-### SECRET-MODES The secret files of the settings folder are mode 600 (`[secmode]`, bench FAIL 1) — `to test`
+### SECRET-MODES The secret files of the settings folder are mode 600 (`[secmode]`, bench FAIL 1) — `testing` (steps 1-2 passed on both cameras on rc7 except ONVIF; steps 3-4 open)
 - **What:** `user.pwd`, `rtspserver.conf` (USERPASSWORD), `mqtt.conf` (MQTT_PASSWORD), `wpa_supplicant.conf` (Wi-Fi key),
   `telegram.conf` (bot token) and `notify.conf` (upload user:password) are written back by a restore or an old in-place
   write with the mode they had there (644, or 755 under umask 022). New writes were already 600 (`all_password`). Now one
@@ -252,6 +277,10 @@ older `to test` entries below.
   4. `cfg-persist` does not save at every boot: `cat /tmp/cfg-persist.status` and `/tmp/cfg-persist.sig` times, or the
      `[cfg-persist]` lines of the boot log, show no save after the reboot when nothing was changed.
 - **Pass:** 1 to 3 as described; 4 shows no new save; no service lost its credentials. Results go under this entry.
+- **2026-11-26 / 27, rc7 on both cameras (tester readings at the end of this file):** step 1 passed (the six files
+  `-rw-------` on IPCAM2; `.dist` and `.bak-*` copies stay 644); step 2: web login, MQTT and Frigate (RTSP) work on both
+  (owner), ONVIF not read yet. Left: ONVIF `GetProfiles` with the password, step 3 (settings import, then `ls -l`),
+  step 4 (`/tmp/cfg-persist.status` after a reboot with nothing changed).
 
 ## Audit of 2026-11-16 (`[audit-1116]`): fixes waiting for the camera
 

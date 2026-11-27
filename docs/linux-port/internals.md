@@ -78,7 +78,8 @@ Contents: [Full feature list](#full-feature-list) - [How the SD install works, a
 - Diagnostics: memory, processes, events, service health, reboot history with the cause.
 
 **Privacy**
-- No cloud and no outgoing connection, unless you turn on the GitHub release check (`UPDATE_CHECK=1`). Web login,
+- No cloud. The only outgoing connection by default is the clock (NTP: `ntp_srv.conf`, `ENABLE_NTP=0` in `boot.conf`
+  turns it off); the GitHub release check (`UPDATE_CHECK=1`) is off by default. Web login,
   CSRF protection and only the local network may connect by default (web page, RTSP, telnet, FTP; not ssh).
 
 **What 3.0 does not do**: HTTPS on the camera (it serves plain HTTP with a login; put a
@@ -497,8 +498,9 @@ after its start and after each day / night change (`kind=switch`, `entered=start
 luma and exposure, the NR / sharpness / contrast offsets, 3D-NR and its overflow count, the capture rate and the main
 encoder's budget, VBR QP and rate in force. Rows wait in RAM (appended hourly, at once after a switch, and at stop); cap
 504 rows in RAM, 2016 on the card. `RTSP_NIGHTCEIL_LOG=0` in `rtsp.env` turns it off. Columns and reading:
-`test-queue.md` NIGHT-CEIL-AUTO. The candidate fix beside it, off by default: `RTSP_NIGHT_VBR_QP_ADD` (night VBR
-quality QP + N) and `RTSP_NIGHT_KBPS` (night ceiling; the rate in force is the lower of it and ABR's), same entry.
+`test-queue.md` NIGHT-CEIL-AUTO. The night setting beside it: `RTSP_NIGHT_KBPS` (night ceiling, **900 kbit/s by default
+since 3.0.2-rc8**, 0 = off; the rate in force is the lower of it and ABR's) and `RTSP_NIGHT_VBR_QP_ADD` (night VBR
+quality QP + N, off by default), same entry and NIGHT-KBPS-DEFAULT.
 
 ---
 

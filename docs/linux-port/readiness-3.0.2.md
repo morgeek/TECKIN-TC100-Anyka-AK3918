@@ -92,6 +92,8 @@ VENCIRQ / CLEANUP (STAT fields vs 3.0.1), DN-FLAP two more evenings, SMALL-A rea
 Taken on 2026-11-25:
 - **NIGHT-CEIL:** cause settled on 26/11 (night noise at high gain, read B and a full dark night); owner: try
   `RTSP_NIGHT_KBPS=900` on IPCAM1 only (test-queue NIGHT-CEIL-AUTO); the default is decided after that night.
+  **Decided 27/11:** the night passed (mean ~910 kbit/s, day back to 1600, no false motion, picture accepted); 900 is
+  the default since 3.0.2-rc8 (`RTSP_NIGHT_KBPS=0` = off), camera check NIGHT-KBPS-DEFAULT.
 - **SUBSTREAM-LOOP:** answered on 25/11: the sub-stream client ends its own sessions (`TEARDOWN received`); Frigate /
   go2rtc side, not the camera.
 - **SD card:** none in the cameras. The 3-day soak files (`memory*.csv`, `nightceil.csv`) stay in RAM: copy them off
@@ -104,8 +106,7 @@ Taken on 2026-11-25:
 
 Still pending (from before):
 
-1. NIGHT-CEIL after checks A and B: keep the night ceiling (~1600 kbit/s), or make a night setting the default
-   (softer night picture).
+1. ~~NIGHT-CEIL after checks A and B~~: decided 27/11, 900 kbit/s at night by default (see above).
 2. An SD card in one camera (MEMWATCH, `nightceil.csv`, log persistence).
 3. AUDIT-1116-FLASHBOOT: a hook-installed camera to check; a failure needs a U-Boot environment change (owner).
 4. AUDIT-1116-FTP: test a wrong password, or keep FTP off and say so.

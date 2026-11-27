@@ -426,6 +426,29 @@ venc_irq() { _vn=$(cat "$VF"); echo $((_vn + 10)) > "$VF"; echo $((_vn + 10)); }
                       Path(env['RESFILE']).read_text(encoding='utf-8'))
 
 
+    SETTLED_NAMES = ['stat_count', 'stat_window_vals', 'stat_settled']
+
+    def settled(self, caps):
+        body = 'printf "STAT cap %s enc 1\\n" ' + ' '.join(str(c) for c in caps) + ' > "$LOG"\n' \
+               'stat_settled cap && echo SETTLED || echo MOVING\n'
+        r, _ = self.harness(self.SETTLED_NAMES, body)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout.strip()
+
+    def test_privacy_baseline_waits_for_the_catch_up(self):
+        # IPCAM1, 2026-11-27: the windows after the kill loop were 71 113 104 55 50 51 (10 fps camera)
+        self.assertEqual(self.settled([71, 113, 104]), 'MOVING')
+        self.assertEqual(self.settled([113, 104, 55]), 'MOVING')
+        self.assertEqual(self.settled([104, 55, 50]), 'MOVING')
+        self.assertEqual(self.settled([71, 113, 104, 55, 50, 51]), 'SETTLED')
+        self.assertEqual(self.settled([0, 0, 0]), 'SETTLED')
+        self.assertEqual(self.settled([50, 51]), 'MOVING')
+
+    def test_privacy_waits_for_a_steady_rate_before_its_baseline(self):
+        body = function_text(text(BENCH), 'c_privacy')
+        self.assertLess(body.index('stat_settled cap'), body.index('_pv_a0=$(stat_count)'))
+
+
 class BenchStaticLoops(unittest.TestCase):
     def test_every_while_counter_belongs_to_one_function(self):
         src = text(BENCH)

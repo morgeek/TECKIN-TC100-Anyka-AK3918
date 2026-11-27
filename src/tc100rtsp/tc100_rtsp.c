@@ -3916,14 +3916,16 @@ static void nc_stop(void)
 	nc_flush(1);
 }
 
-/* ---- NIGHT-CEIL, the night setting of the main stream (the candidate fix; off by default) ----------------------------
+/* ---- NIGHT-CEIL, the night setting of the main stream (the ceiling is on by default since 3.0.2-rc8: 900 kbit/s) -------
  * rtsp.env, the environment of the process (read at the start and at each black-and-white change; after an edit of the
  * file: controlscripts/rtsp-h26x restart):
  * - RTSP_NIGHT_VBR_QP_ADD=N (0..6, default 0): at night the VBR quality QP is the encoder's day one (RTSP_VBR_QP, 33;
  *   qmin + 2 when that is 0) + N, clamped to qmax (fe_set_vbr_qp); by day the day value again. Free encoder in VBR only
  *   (CBR does not use the quality QP: logged, nothing done).
- * - RTSP_NIGHT_KBPS=N (0 = off, the default; at least 100): at night the main bit rate is at most N kbit/s (p_set_br);
- *   by day the rate without it again.
+ * - RTSP_NIGHT_KBPS=N (default 900 when the key is absent or empty, NIGHT_KBPS_DEFAULT; 0 = off; at least 100): at
+ *   night the main bit rate is at most N kbit/s (p_set_br); by day the rate without it again. The default follows the
+ *   NIGHT-CEIL-AUTO night of 2026-11-26 on IPCAM1 (noise at high gain filled 1600 kbit/s; at 900: mean ~910, no false
+ *   motion, the owner accepted the picture; the quiet control camera ran at ~945 by itself).
  *   Precedence: the rate in force is min(base, N); base = ABR's current rate (abr_cur) once ABR follows this encoder,
  *   else the configured rate (-b: ABR off, or an encoder just opened at the setting). ABR keeps regulating abr_cur
  *   between RTSP_ABR_MIN and the setting as before, and abr_tick hands the encoder min(abr_cur, ceiling)
@@ -3933,7 +3935,9 @@ static void nc_stop(void)
  * Applied at the first picture after the change (night_enc_sync: two compares a picture otherwise), and again to a main
  * encoder opened anew (after an idle period, a reopen after failures: it opens at the configured values). A change
  * restarts the encoder motion mean (md_enc_restart: a QP step changes the frame sizes without motion; md_enc_track also
- * follows the new budget). One log line per change. Both keys at 0: nothing is called, as before. */
+ * follows the new budget). One log line per change. Both keys at 0 (RTSP_NIGHT_KBPS=0 written in rtsp.env): nothing is
+ * called, as before 3.0.2-rc8. */
+#define NIGHT_KBPS_DEFAULT 900	/* RTSP_NIGHT_KBPS when the key is absent or empty */
 static int night_qp_add, night_kbps;	/* RTSP_NIGHT_VBR_QP_ADD, RTSP_NIGHT_KBPS */
 static int ns_bw = -1, ns_qp_on, ns_day_qp;	/* the mode applied (-1: none yet); the night QP is on; the day value it replaced */
 static unsigned ns_gen;
@@ -3942,7 +3946,7 @@ static void *ns_enc;
 static void night_cfg_read(void)
 {
 	const char *q = getenv("RTSP_NIGHT_VBR_QP_ADD"), *k = getenv("RTSP_NIGHT_KBPS");
-	int a = q && *q ? atoi_(q) : 0, b = k && *k ? atoi_(k) : 0;
+	int a = q && *q ? atoi_(q) : 0, b = k && *k ? atoi_(k) : NIGHT_KBPS_DEFAULT;
 
 	night_qp_add = a < 0 ? 0 : a > 6 ? 6 : a;
 	night_kbps = b <= 0 ? 0 : b < 100 ? 100 : b;
@@ -4883,7 +4887,7 @@ int main(int argc, char **argv)
 				}
 			}
 			if (fail_main) { LOG("ak_venc_open failed\n"); break; }
-			night_enc_sync();	/* NIGHT-CEIL: RTSP_NIGHT_VBR_QP_ADD / RTSP_NIGHT_KBPS (nothing when both are 0) */
+			night_enc_sync();	/* NIGHT-CEIL: RTSP_NIGHT_VBR_QP_ADD / RTSP_NIGHT_KBPS (default 900; nothing when both are 0) */
 			rsi = rec_sub && S[1].on ? 1 : 0;
 			for (k = 0; k < 2; k++) {	/* smart mode: still scene and keyframe requests, handed to the encoder */
 				struct strm *s = &S[k];
