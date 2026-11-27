@@ -31,12 +31,13 @@ Rules for every stream (on top of `AGENTS.md`):
 
 ## State on 2026-11-27 evening (hand-off)
 
-**3.2.0-rc1** (`df8fb95`, `VERSION` 3.2.0-rc1) has all six streams merged, each reviewed by the reviewer agent (the
+**3.2.0-rc2** (audit of the branch, `[audit 3.2]`: three read-only reviews, their fixes in `ee731ee`, see CHANGELOG)
+replaces rc1 for the camera tests: use the artifacts of the build run of the rc2 commit. **3.2.0-rc1** (`df8fb95`) had all six streams merged, each reviewed by the reviewer agent (the
 kernel, the signature, the base system / DTLS port and the privilege drop twice), local CI green (tests, cross, kernel,
 fuzz, whep). GitHub: build run 46024956529 (`df8fb95`) green, it gives the SD files and the update tar
 (`tc100-3-release`); CI run 46051058827 (`1ef1b20`, test and CI fixes only, no firmware change) green. Nothing has run on a
 camera yet. Entries: `test-queue.md` section "3.2 on branch `upgrade-3.2`" (UP32-KERNEL, UP32-BASE, UP32-SIGN,
-UP32-PRIVDROP, UP32-FUZZ, UP32-FLASH, UP32-SBOM). Owner's decision of 2026-11-27: after the SD gate, the rc1 may be
+UP32-PRIVDROP, UP32-FUZZ, UP32-FLASH, UP32-SBOM). Owner's decision of 2026-11-27: after the SD gate, the rc2 may be
 written to ONE camera (UP32-FLASH, ways back written there).
 
 Open, in order:

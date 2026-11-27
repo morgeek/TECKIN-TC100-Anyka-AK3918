@@ -279,17 +279,17 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
   finds the step.
 - **Pass:** all of the above.
 
-### UP32-FLASH 3.2.0-rc1 written to the flash of ONE camera (owner's decision of 2026-11-27) — `to test` (after the SD gate)
-- **What:** the web update `tc100-3.2.0-rc1-update.tar` of the CI artifact `tc100-3-release` of the rc1 run on
+### UP32-FLASH 3.2.0-rc2 written to the flash of ONE camera (owner's decision of 2026-11-27) — `to test` (after the SD gate)
+- **What:** the web update `tc100-3.2.0-rc2-update.tar` of the CI artifact `tc100-3-release` of the rc2 run on
   `upgrade-3.2` (same build as the SD test files). It writes `stack`, the kernel and the initramfs through `flashw`
   (read back, md5); U-Boot, `boot`, `mac` and the U-Boot environment are not touched.
 - **Gate before flashing (a flashed kernel that does not boot never reaches the rescue initramfs, AGENTS.md):** the
-  same rc1 booted from the SD card in RAM on that camera first, at least: UP32-KERNEL boot checks (`/proc/cmdline`
+  same rc2 booted from the SD card in RAM on that camera first, at least: UP32-KERNEL boot checks (`/proc/cmdline`
   complete, `uname -r` 6.6.163, video 1080p and 720p, audio, Wi-Fi signal close to the flash kernel's, clean `dmesg`)
   and one hour of streaming, and UP32-BASE steps Wi-Fi join, ssh and web UI. Owner near the camera; the SD card in it
   (the update saves each partition to the card first, `flashw -b`; no card = only with "install without a backup").
 - **Install:** web UI, Settings -> Update & backup, upload the tar. The 3.0.2-rc8 updater of the camera installs it
-  (it ignores the new `SHA256SUMS`). Expected: version 3.2.0-rc1 after the reboot, settings kept.
+  (it ignores the new `SHA256SUMS`). Expected: version 3.2.0-rc2 after the reboot, settings kept.
 - **Switch:** none: the way back is a write of the previous package (below). Each partition is written only after the
   owner confirms it at the time of the update (AGENTS.md: explicit agreement per partition write).
 - **Ways back:** (1) web update with `tc100-3.0.2-rc8-update.tar` (the 3.2 updater accepts an unsigned package at
