@@ -31,7 +31,9 @@ Rules for every stream (on top of `AGENTS.md`):
 
 ## State on 2026-11-27 evening (hand-off)
 
-**3.2.0-rc2** (audit of the branch, `[audit 3.2]`: three read-only reviews, their fixes in `ee731ee`, see CHANGELOG)
+**3.2.0-rc3** (second audit: root-only `/tmp` with PRIVDROP, restore re-check, CI hardened; `65f0bc9`) replaces
+rc2 for the camera tests: build run 46073514675 and CI run 46073514679 green, no initramfs size warning; artifacts
+`tc100-3-release` (SD zip, `tc100-3.2.0-rc3-update.tar`) and `tc100-linux66-cma16-kernel`. Earlier: **3.2.0-rc2** (audit of the branch, `[audit 3.2]`: three read-only reviews, their fixes in `ee731ee`, see CHANGELOG)
 replaces rc1 for the camera tests: build run 46066002754 (`e9dc57b`, green; CI run 46066002560 green, the privdrop
 module now also runs as root there) gives `tc100-3-release` (SD zip, `tc100-3.2.0-rc2-update.tar`) and
 `tc100-linux66-cma16-kernel` (`tc100test/c66.img`, `c66rd.gz`). **3.2.0-rc1** (`df8fb95`) had all six streams merged, each reviewed by the reviewer agent (the
