@@ -31,7 +31,10 @@ kernel_headers() {
 [ -f "$DEST/.musl-$VER" ] && [ -x "$DEST/bin/musl-gcc" ] && { kernel_headers; echo "musl $VER: $DEST (already built)"; exit 0; }
 W=$(mktemp -d)
 trap 'rm -rf "$W"' EXIT
-if [ -n "${MUSL_TARBALL:-}" ]; then cp "$MUSL_TARBALL" "$W/musl.tar.gz"; else curl -fsSL -o "$W/musl.tar.gz" "$URL"; fi
+if [ -n "${MUSL_TARBALL:-}" ]; then cp "$MUSL_TARBALL" "$W/musl.tar.gz"; else
+	# musl.libc.org times out now and then (CI exit 28, 2026-11-27): retry; the SHA-256 below still decides
+	curl -fsSL --connect-timeout 30 --max-time 300 --retry 5 --retry-delay 15 --retry-all-errors -o "$W/musl.tar.gz" "$URL"
+fi
 echo "$SHA  $W/musl.tar.gz" | sha256sum -c - >/dev/null || { echo "build-musl: SHA-256 mismatch" >&2; exit 1; }
 tar xzf "$W/musl.tar.gz" -C "$W"
 cd "$W/musl-$VER"
