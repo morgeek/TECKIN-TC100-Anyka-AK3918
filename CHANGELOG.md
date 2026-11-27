@@ -19,6 +19,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   1.2.4 -> 1.2.6 for the free programs; a build-time check that every program finds its libraries. Test-queue UP32-BASE.
 - **Network daemons without root** (`[up-privdrop]`, `PRIVDROP=1`): onvifd and whep as `tc100svc`, mdnsd and logfwd as
   `tc100net`; the web front, MQTT and the video server keep root. Test-queue UP32-PRIVDROP.
+- **Audit of the branch** (`[audit 3.2]`, 2026-11-27): with `PRIVDROP` on, the kernel's protection of `/tmp` links and
+  files is turned on at boot (a daemon without root cannot redirect a write of root through `/tmp`); a settings archive
+  holding an empty `boot.conf` no longer empties the camera's (it dropped every boot setting and the signature policy);
+  the CI fails a kernel larger than the 0x1ce000 bytes the first hand-installed cameras load (it was a warning).
 
 ### Fixed
 - **tc100-onvifd:** an ISO 8601 duration such as `PT999999H` overflowed and gave a negative subscription time (found by

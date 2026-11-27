@@ -175,7 +175,8 @@ jobs:
         run: |
           python3 scripts/flash_budget.py --kernel output/oipc.img
           # cameras installed by hand on 2026-10-24 load 0x1ce000 bytes of the kernel partition (U-Boot flashload)
-          n=$(wc -c < output/oipc.img); [ "$n" -le 1892352 ] || echo "::warning::kernel is $n bytes: more than the 0x1ce000 that the first hand-made flashload reads" 
+          # [audit 3.2] an error, not a warning: such a kernel written to those cameras would not boot (camera-side guard: imgcheck.sh)
+          n=$(wc -c < output/oipc.img); [ "$n" -le 1892352 ] || { echo "::error::kernel is $n bytes: more than the 0x1ce000 that the first hand-made flashload reads"; exit 1; }
 
       - name: Get our base root filesystem
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -257,9 +258,10 @@ jobs:
 
       # [up-sbom] software bill of materials (CycloneDX 1.5 + table) of this build; docs/linux-port/upgrade-3.2/sbom.md
       - name: SBOM (sbom.cdx.json, sbom.md)
+        # [audit 3.2] never blocks the release (as the CVE step): a failure is a warning in the annotations
         run: |
-          set -e
-          python3 scripts/sbom.py --show-info base-rootfs/show-info.json --out output/release/sbom
+          python3 scripts/sbom.py --show-info base-rootfs/show-info.json --out output/release/sbom ||
+            echo "::warning title=sbom::scripts/sbom.py failed: no SBOM in this build"
 
       # the NVD data pkg-stats downloads (about 20 minutes from scratch) is kept for the ISO week: the first build of a
       # week refreshes it, the others reuse it

@@ -698,6 +698,9 @@ _ce_restore() {
     _rs_skipped=$(find "$_rs/x/config/update-keys" -type f | wc -l)
     rm -rf "$_rs/x/config/update-keys"
   fi
+  # an EMPTY boot.conf in the archive is not a marker: it would empty the camera's boot.conf (every boot setting and the
+  # signature policy). It is left out; the camera keeps its own.
+  [ -f "$_rs/x/config/boot.conf" ] && [ ! -s "$_rs/x/config/boot.conf" ] && rm -f "$_rs/x/config/boot.conf"
   if [ -s "$_rs/x/config/boot.conf" ]; then
     _rs_cur=$(grep -E '^[[:space:]]*UPDATE_REQUIRE_SIG=' "$CONFIG_ROOT/boot.conf" 2>/dev/null | tail -n 1)
     { grep -vE '^[[:space:]]*UPDATE_REQUIRE_SIG=' "$_rs/x/config/boot.conf"; [ -z "$_rs_cur" ] || echo "$_rs_cur"; } > "$_rs/bc.new" &&

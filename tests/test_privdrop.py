@@ -469,6 +469,46 @@ class StartScripts(unittest.TestCase):
                 time.sleep(0.3)
 
 
+class TmpLinkProtection(unittest.TestCase):
+    """[audit 3.2] with PRIVDROP on, autorun turns on the kernel's protection of /tmp links and files (a daemon that no
+    longer runs as root must not be able to redirect a write of root through /tmp); PRIVDROP=0 leaves it as before"""
+
+    def block(self):
+        s = text('v3/autorun-linux66.sh')
+        return s[s.index('bt step_0c'):s.index('\nbt step_0\n')]
+
+    def run_block(self, boot):
+        d = Path(tempfile.mkdtemp())
+        try:
+            (d / 'config').mkdir()
+            (d / 'config' / 'boot.conf').write_text(boot)
+            sysd = d / 'sys'
+            sysd.mkdir()
+            code = 'bt() { :; }\n' + self.block().replace('/mnt/config', str(d / 'config')).replace('/proc/sys/fs', str(sysd)).replace(
+                '/mnt/scripts/secret-modes.sh', str(ROOT / 'scripts' / 'secret-modes.sh'))
+            r = subprocess.run(SH + ['-c', code], capture_output=True, text=True, timeout=20)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            return {p.name: p.read_text().strip() for p in sysd.iterdir()}
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_on_by_default_and_with_privdrop(self):
+        want = {'protected_symlinks': '1', 'protected_hardlinks': '1', 'protected_fifos': '1', 'protected_regular': '2'}
+        for boot in ('', 'PRIVDROP=1\n', 'PRIVDROP="1" # on\n'):
+            with self.subTest(boot=boot):
+                self.assertEqual(self.run_block(boot), want)
+
+    def test_off_with_privdrop_0(self):
+        for boot in ('PRIVDROP=0\n', "PRIVDROP='off'\n", 'PRIVDROP=0 # why\n'):
+            with self.subTest(boot=boot):
+                self.assertEqual(self.run_block(boot), {})
+
+    def test_before_any_service(self):
+        s = text('v3/autorun-linux66.sh')
+        self.assertLess(s.index('bt step_0c'), s.index('\nbt step_0\n'))
+        self.assertLess(s.index('bt step_0c'), s.index('/mnt/controlscripts/'))
+
+
 class TheImage(unittest.TestCase):
     def test_users_table_and_defconfig(self):
         cfg = text('v3/buildroot/configs/tc100_defconfig')

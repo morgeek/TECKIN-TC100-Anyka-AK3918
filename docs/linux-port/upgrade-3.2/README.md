@@ -18,7 +18,7 @@ the ones of `main`: `tc100-linux66-cma16-kernel` (`tc100test/c66.img`, `c66rd.gz
 | `[up-fuzz]` | 1 | libFuzzer harnesses for the network parsers, run in CI | [fuzz.md](fuzz.md) |
 | `[up-sign]` | 2 | signed update packages (ed25519, Monocypher), warn-only until the owner's key is in | [sign.md](sign.md) |
 | `[up-base]` | 3 | Buildroot 2025.02.x, Mbed TLS 3.6 LTS (WebRTC port), musl 1.2.6, toolchain | [base.md](base.md) |
-| `[up-kernel]` | 4 | kernel 6.6.0 -> latest 6.6.y, the 26 patches rebased | [kernel.md](kernel.md) |
+| `[up-kernel]` | 4 | kernel 6.6.0 -> latest 6.6.y, the 25 patches rebased | [kernel.md](kernel.md) |
 | `[up-privdrop]` | 6 | network daemons without root, behind a switch | [privdrop.md](privdrop.md) |
 
 Rules for every stream (on top of `AGENTS.md`):

@@ -241,8 +241,11 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
 ### UP32-FUZZ onvifd duration overflow fix, httpfront rebuilt (`[up-fuzz]`) — `to test` (SD, short)
 - **What / notes:** [upgrade-3.2/fuzz.md](upgrade-3.2/fuzz.md): 13 libFuzzer targets in CI; one bug found and fixed
   (`dur_s()` in `src/onvifd/onvifd.c`: `PT999999H` wrapped to a negative duration).
+- **Switch:** none (a bound check in the parser; the fuzzing itself runs only in CI, never on the camera).
 - **Test:** fuzz.md "Camera test": ONVIF discovery, profiles, stream, a motion subscription (Create, Pull, Renew); the web
-  UI opens as before. **Pass:** as on 3.0.2.
+  UI opens as before.
+- **Pass:** each of these answers as on 3.0.2 (same profiles, stream plays, the subscription renews), no daemon restart
+  in `/tmp/logs/onvif.log`.
 
 ### UP32-BASE Base system: Buildroot 2025.02.20, Mbed TLS 3.6.7 (WebRTC port), musl 1.2.6 (`[up-base]`) — `to test` (SD, 48 h)
 - **What / notes:** [upgrade-3.2/base.md](upgrade-3.2/base.md): BusyBox 1.37, Dropbear 2026.93, wpa_supplicant/hostapd
@@ -261,13 +264,19 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
   and `tc100-logfwd` as `tc100net` (1002, no secret); `httpfront`, `tc100-mqttd`, `tc100_rtsp` keep root (CGIs, admin
   commands, devices). Two review rounds: owner/group/mode kept by every writer (rwconf, rewrite_config, import,
   all_password), onvifd keeps its last good config, `auth_closed` refuses every authenticated ONVIF call while
-  `user.pwd` cannot be read.
-- **Switch:** `PRIVDROP=0` in `boot.conf` (every daemon as root, secret files back to 600), then a reboot.
+  `user.pwd` cannot be read. Audit of 2026-11-27 (`[audit 3.2]`): with PRIVDROP on, autorun step 0c turns on the
+  kernel's `/tmp` protection (`fs.protected_symlinks=1`, `protected_hardlinks=1`, `protected_fifos=1`,
+  `protected_regular=2`), so a daemon that no longer runs as root cannot redirect a root write (`/tmp/update66.sig`,
+  `/tmp/upd66`) through a link it planted.
+- **Switch:** `PRIVDROP=0` in `boot.conf` (every daemon as root, secret files back to 600, `/tmp` protection left off),
+  then a reboot.
 - **Test:** privdrop.md section 5: `ps -o user,comm` shows the four daemons under 1001/1002 (names only after an
   initramfs with the users), and every function works: web UI incl. a settings save, backup and restore, live view
   WebRTC, RTSP in Frigate, ONVIF discovery / stream / events, MQTT state and commands, mDNS name, log forwarding;
   a volume or motion change from the web UI keeps ONVIF's profiles right (the rwconf owner fix); `PRIVDROP=0` brings root
-  back for all.
+  back for all. `cat /proc/sys/fs/protected_symlinks /proc/sys/fs/protected_regular` gives `1` and `2` (`0 0` with
+  `PRIVDROP=0`); a web update of the same package still goes through (it uses `/tmp`), and `grep step_0c /tmp/boot-trace.txt`
+  finds the step.
 - **Pass:** all of the above.
 
 ### UP32-FLASH 3.2.0-rc1 written to the flash of ONE camera (owner's decision of 2026-11-27) — `to test` (after the SD gate)
@@ -281,6 +290,8 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
   (the update saves each partition to the card first, `flashw -b`; no card = only with "install without a backup").
 - **Install:** web UI, Settings -> Update & backup, upload the tar. The 3.0.2-rc8 updater of the camera installs it
   (it ignores the new `SHA256SUMS`). Expected: version 3.2.0-rc1 after the reboot, settings kept.
+- **Switch:** none: the way back is a write of the previous package (below). Each partition is written only after the
+  owner confirms it at the time of the update (AGENTS.md: explicit agreement per partition write).
 - **Ways back:** (1) web update with `tc100-3.0.2-rc8-update.tar` (the 3.2 updater accepts an unsigned package at
   `UPDATE_REQUIRE_SIG=0`, the default; 3.0.2 sets the secret files back to 600 at boot); (2) if the camera does not come
   up: the 3.0.2-rc8 SD card with `tc100test/c66.img` (the SD kernel boots before the flash one), then Settings ->
@@ -292,6 +303,8 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
   `tc100-3-release` artifact; the CVE step is non-blocking, its NVD data cached per ISO week.
 - **Check (owner, GitHub):** open `cve-report.md` of the latest `upgrade-3.2` run and read the kernel line and the
   Buildroot package findings.
+- **Switch:** none on the camera (build step only; the CVE step never fails the build, the SBOM step only warns).
+- **Pass:** both files present in the artifact, the kernel listed as 6.6.163, no unexplained critical finding.
 
 ## Acceptance of the 3.0.2 final (`[recette]`)
 

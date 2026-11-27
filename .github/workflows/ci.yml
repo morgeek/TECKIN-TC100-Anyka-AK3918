@@ -66,6 +66,12 @@ jobs:
             exit 1; }
           # as local-ci.sh: no "Ran N tests" line (python3 missing, an import error) is not a pass
           grep -q "^Ran [1-9]" /tmp/py.log || { echo "python tests did not run"; tail -20 /tmp/py.log; exit 1; }
+      # [audit 3.2] the privilege-drop tests that need root (ONVIF password after the drop, files already right, rwconf as
+      # another user) skip above as the runner user: run the module again as root, as tests/docker/local-ci.sh does
+      - name: Privilege drop as root
+        run: |
+          sudo env "PATH=$PATH" python3 -m unittest tests.test_privdrop 2>&1 | tee /tmp/privroot.log
+          grep -qE "^OK" /tmp/privroot.log || { grep -E '^(FAIL|ERROR): ' /tmp/privroot.log | while read -r l; do echo "::error title=privdrop-root::$l"; done; exit 1; }
       # 2026-11-07: tc100-mqttd, -onvifd, -supervisord, -logfwd, rwconf and libnetacl-musl are musl programs (the camera's
       # libc): build musl 1.2.6 and run the ARM builds under qemu with the real musl loader. A step of its own, after the
       # regressions above (which run without qemu-arm, as before).

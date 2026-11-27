@@ -14,8 +14,8 @@ and a non-blocking report of known vulnerabilities, and ships both with the rele
 Sources of the SBOM (`scripts/sbom.py`; no version is written in the script, everything is read):
 - the Buildroot base system: `make show-info` JSON of the base build (`br-out/show-info.json`, saved next to
   `rootfs.cpio.gz` in the `tc100-base-rootfs` artifact; target packages only, host tools are not in the image);
-- the kernel: `LINUX_TAG` / `LINUX_COMMIT` of `.github/ci-pins.sh` (tag `v6.6` is listed as 6.6.0, the later `6.6.y`
-  stays as the pin says) and the names of `patches/kernel-6.6/series/*.patch`; the RTL8188FU firmware pin;
+- the kernel: `LINUX_TAG` / `LINUX_COMMIT` of `.github/ci-pins.sh` (on this branch `v6.6.163`, listed as
+  6.6.163) and the names of `patches/kernel-6.6/series/*.patch`; the RTL8188FU firmware pin;
 - musl of the free programs (`v3/musl/build-musl.sh`), the standalone Mbed TLS pin and the Buildroot pin (both
   `excluded`: test builds and build system; the image's Mbed TLS is the Buildroot package);
 - the free programs of `src/` and the web UI: version = `VERSION` + 12 characters of the git commit, licence GPL-2.0-only;

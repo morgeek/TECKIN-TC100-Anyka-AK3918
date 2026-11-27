@@ -650,6 +650,15 @@ class RestoreKeepsThePolicy(unittest.TestCase):
         self.assertTrue(res.get('ok'), res)
         self.assertEqual((self.cfg / 'boot.conf').read_text(), 'BOOT_GUARD=0\n')
 
+    @unittest.skipUnless(shutil.which('bash'), 'needs bash')
+    def test_an_empty_boot_conf_in_the_archive_never_empties_the_camera_one(self):
+        """[audit 3.2] an empty file of the archive is a marker (the file is emptied): never for boot.conf, which would drop
+        UPDATE_REQUIRE_SIG and every boot setting"""
+        res = self.restore([('config/boot.conf', b''), ('config/notes.txt', b'kept\n')])
+        self.assertTrue(res.get('ok'), res)
+        self.assertEqual((self.cfg / 'boot.conf').read_text(), 'BOOT_GUARD=1\nUPDATE_REQUIRE_SIG=1\n')
+        self.assertEqual((self.cfg / 'notes.txt').read_text(), 'kept\n')
+
     def test_cfg_persist_keeps_update_keys_and_never_deletes_them(self):
         s = (ROOT / 'v3/linux66-sd/cfg-persist').read_text()
         self.assertIn('*/update-keys/*) continue', s)               # apply_deleted skips them
