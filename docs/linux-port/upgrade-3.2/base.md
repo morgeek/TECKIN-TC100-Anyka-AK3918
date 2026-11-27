@@ -182,6 +182,38 @@ the same CI run goes on the card (`tree/`). Owner runs, in this order (stop at t
 Switch to go back: none in the image (one base). The way back is booting the 3.0.2 kernel and card, or a 3.0.x web update
 for a camera that ever had this base flashed (owner's decision, after the SD rounds).
 
+## Review follow-ups (second round)
+
+1. **`psa_crypto_init()`**: `tc100_whep.c` now calls it once at start (guarded by `MBEDTLS_PSA_CRYPTO_C`), before the
+   entropy / DRBG setup and so before any `mbedtls_ssl_setup`; `ssl.h` of 3.6.7 asks for it when TLS 1.3 is built in or
+   `MBEDTLS_USE_PSA_CRYPTO` is on. A failure is logged (`psa_crypto_init failed: <status>`) and the daemon exits 1.
+   aiortc interop re-run: OK; musl compile check OK.
+2. **NEEDED check at build time** (`v3/check-needed.sh`, called by `v3/build-rootfs66.sh` after the prune and by
+   `v3/build-stack.sh` before the squashfs; `tests/test_check_needed.py` covers it with a fake `readelf`): every dynamically
+   linked ELF of the image must find each `NEEDED` (readelf -d) as an existing file (a dangling link does not count) in the
+   search path of that image. Initramfs: `/lib` and `/usr/lib` only (what the prune list moved is not there in the rescue
+   mode). Stack: its own `ext/lib` and `lib`, plus the libraries the initramfs keeps (the base minus the prune list);
+   the stock uClibc `bin/busybox` of the SD hook is skipped. Results on the locally built 2025.02 tree:
+   - initramfs: **5 ELF files, 7 NEEDED entries, 0 unresolved** (BusyBox, wpa_supplicant, libc.so, libnl-3, libnl-genl-3);
+   - stack: **32 ELF files, 61 NEEDED entries, 0 unresolved**;
+   - negative test: adding `usr/lib/libnl-3.so.200` to the prune list makes `build-rootfs66.sh` fail with exit 1 and name
+     `wpa_supplicant` and `libnl-genl-3` ("needs libnl-3.so.200").
+3. **`flashcp` in BusyBox 1.37** (`miscutils/flashcp.c` of the built tree, read in full): it erases every erase block that
+   covers the file (`MEMERASE` in a loop, `erase_count = ceil(size / erasesize)`, no option, unconditional), then writes the
+   file in 4 KiB chunks (the last one zero-padded), then reads the device back and `memcmp`s it
+   ("verification mismatch at 0x..."). `CONFIG_FEATURE_FLASHCP_ERASE` was only a switch of the 1.36 build that has become
+   the fixed behaviour; no fragment option is needed and `flashw` (`flashcp -v`, then its own md5 read-back) is unchanged.
+4. **Failed kernel/initrd write after the stack write** (`update66.sh` writes stack, kernel, initrd; `libc.so` is in the
+   initrd): the new stack's dynamically linked programs would then run on the OLD (2024.02, musl 1.2.4) initramfs. Checked
+   with `readelf --dyn-syms` on the 29 dynamically linked ELF files of the new stack tree (of 32): **1,863 imported
+   (non-weak) symbol references are not provided by a library of the stack, and all 1,863 are exported by the old initramfs
+   libraries (musl libc.so plus libnl-3 / libnl-genl-3, 2,099 exported symbols)**: no symbol missing. The first run listed
+   only weak `_ITM_*` / `__register_frame_info` references (optional, null when absent) and `iw`'s `nla_*` / `nl_*` (provided by
+   libnl in the old initramfs, same libnl 3.x file size): not a problem. Limits of the check: it covers symbols, not
+   behaviour (a changed musl function), and the free programs built against musl 1.2.6 import nothing newer than
+   what 1.2.4 exports. The write order is unchanged. The other direction (new initrd, old stack: wpa_supplicant 2.12 and
+   libc 1.2.6 under an old stack) is not affected by the order. Nothing to propose.
+
 ## Open points for the main session
 
 - The GitHub CI must confirm the base image build (cache key changed, it builds from scratch) and the two budget steps.

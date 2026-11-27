@@ -34,6 +34,7 @@
  * its one field is read through MBEDTLS_PRIVATE() (needs this define before the first Mbed TLS include) */
 #define MBEDTLS_ALLOW_PRIVATE_ACCESS
 #include "mbedtls/ctr_drbg.h"
+#include "psa/crypto.h"
 #include "mbedtls/entropy.h"
 #include "mbedtls/md.h"
 #include "mbedtls/pk.h"
@@ -861,6 +862,16 @@ int main(int argc, char **argv)
 	if (G.max > MAXS) G.max = MAXS;
 	for (i = 0; i < MAXS; i++) G.s[i].rfd = -1;
 	signal(SIGPIPE, SIG_IGN); signal(SIGTERM, on_term); signal(SIGINT, on_term);
+#if defined(MBEDTLS_PSA_CRYPTO_C)
+	/* Mbed TLS 3.6: the PSA core must be initialised before mbedtls_ssl_setup when TLS 1.3 is built in or
+	 * MBEDTLS_USE_PSA_CRYPTO is on (ssl.h); the DTLS 1.2 path works without today, but a point release or a
+	 * configuration change must not turn into a failed handshake for every viewer */
+	{
+		psa_status_t ps = psa_crypto_init();
+
+		if (ps != PSA_SUCCESS) { LOG("psa_crypto_init failed: %d", (int)ps); return 1; }
+	}
+#endif
 	mbedtls_entropy_init(&G.ent); mbedtls_ctr_drbg_init(&G.drbg);
 	if (mbedtls_ctr_drbg_seed(&G.drbg, mbedtls_entropy_func, &G.ent, (const unsigned char *)"tc100-whep", 10)) { LOG("no entropy"); return 1; }
 	if (cert_init()) return 1;

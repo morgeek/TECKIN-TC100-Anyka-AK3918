@@ -138,6 +138,17 @@ for f in ext/bin/aplay ext/bin/arecord ext/bin/amixer ext/bin/dropbear ext/lib/l
 done
 # the LAN-only filter of ssh is an LD_PRELOAD (netacl_exec): a static dropbear would silently ignore it
 grep -q 'ld-musl-arm' "$T/ext/bin/dropbear" || { echo "build-stack: ext/bin/dropbear is not a dynamic musl program: NET_LAN_ONLY cannot filter ssh" >&2; exit 1; }
+# every dynamically linked program of the user space must find its libraries: in ext/lib or lib of this tree, or in
+# /lib and /usr/lib of the initramfs (the base without what v3/initramfs-prune.txt removes); bin/busybox is the stock
+# uClibc helper of the SD hook, left out of the flash image
+mkdir -p "$W/rdlib"
+for d in lib usr/lib; do
+	for f in "$W/base/$d"/*; do
+		[ -f "$f" ] || continue
+		pruned "$d/${f##*/}" || pruned "$(readlink -f "$f" | sed "s|^$W/base/||")" || cp -L "$f" "$W/rdlib/"
+	done
+done
+CHECK_SKIP="bin/busybox" READELF="$READELF" sh "$REPO/v3/check-needed.sh" "$T" "$T/ext/lib:$T/lib:$W/rdlib"
 cd "$REPO"
 # scripts call /mnt/bin/curl: a wrapper (a FAT card cannot hold links). No jq any more (audit 2026-11-06 S1: the two
 # scripts that used it read JSON with scripts/jsonflat.awk; jq, libjq and oniguruma were ~110-240 KB of the image)
