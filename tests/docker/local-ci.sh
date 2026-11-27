@@ -2,7 +2,7 @@
 # Local CI in Docker, run BEFORE pushing (the GitHub runs take 15-20 minutes each).
 #   sh tests/docker/local-ci.sh tests    # Python regressions + frontend tests (as the CI job)
 #   sh tests/docker/local-ci.sh cross    # ARM build of tc100_rtsp, libakuio, httpfront, tc100-mqttd, tc100-onvifd, tc100-logfwd, libnetacl.so (as the kernel job)
-#   sh tests/docker/local-ci.sh kernel   # Linux 6.6 + patches/kernel-6.6/series + zImage + dtbs (slow the first time)
+#   sh tests/docker/local-ci.sh kernel   # Linux 6.6.y (LINUX_TAG) + patches/kernel-6.6/series + zImage + dtbs (slow the first time)
 #   sh tests/docker/local-ci.sh whep     # item 35: the WHEP daemon against aiortc (builds mbedTLS, needs network; not part of all)
 #   sh tests/docker/local-ci.sh all      # tests, cross, kernel
 # Works from Git Bash on Windows (Docker Desktop) and from Linux. The tree is copied into the container (read-only
@@ -111,17 +111,19 @@ run_whep() {
 }
 
 run_kernel() {
-	echo "== kernel (v6.6 + series, zImage + dtbs)"
+	echo "== kernel (stable tag from ci-pins.sh + series, zImage + dtbs)"
 	docker volume create tc100-linux66 >/dev/null
 	docker run --rm -v "$SRC:/src:ro" -v tc100-linux66:/k debian:bookworm sh -c '
 		apt-get update -qq >/dev/null && apt-get install -y -qq build-essential bc libssl-dev libelf-dev flex bison \
 			gcc-arm-linux-gnueabi git curl ca-certificates device-tree-compiler u-boot-tools >/dev/null 2>&1
 		set -e
 		. /src/.github/ci-pins.sh
-		[ -d /k/v6.6 ] || git_clone_pinned "$LINUX_TAG" "$LINUX_COMMIT" /k/v6.6 $LINUX_URLS
-		cd /k/v6.6 && git config user.email ci@example.invalid && git config user.name ci
+		# one directory per pinned tag, so that an old volume content never mixes with a new base
+		KD=/k/linux-$LINUX_TAG
+		[ -d "$KD" ] || git_clone_pinned "$LINUX_TAG" "$LINUX_COMMIT" "$KD" $LINUX_URLS
+		cd "$KD" && git config user.email ci@example.invalid && git config user.name ci
 		git am --abort >/dev/null 2>&1 || true
-		git reset -q --hard v6.6 2>/dev/null || git reset -q --hard "$(git rev-list --max-parents=0 HEAD | head -1)"
+		git reset -q --hard "$LINUX_COMMIT"
 		git am -q --whitespace=nowarn /src/patches/kernel-6.6/series/*.patch
 		mkdir -p firmware/rtlwifi
 		echo "$RTL8188FU_FW_SHA256  firmware/rtlwifi/rtl8188fufw.bin" | sha256sum -c - >/dev/null 2>&1 || fetch_sha256 "$RTL8188FU_FW_SHA256" firmware/rtlwifi/rtl8188fufw.bin $RTL8188FU_FW_URLS

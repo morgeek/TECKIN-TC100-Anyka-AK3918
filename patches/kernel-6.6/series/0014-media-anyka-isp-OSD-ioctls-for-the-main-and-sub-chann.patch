@@ -1,4 +1,4 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From 07db42db9b8472dcca514223a7d472307b0b1866 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 30 Oct 2026 12:00:00 +0100
 Subject: [PATCH] media: anyka-isp: OSD ioctls for the main and sub channels
@@ -22,7 +22,7 @@ writing into every captured frame (RTSP_ISPOSD=1).
  2 files changed, 111 insertions(+)
 
 diff --git a/drivers/media/platform/anyka-isp/ak_isp_char.c b/drivers/media/platform/anyka-isp/ak_isp_char.c
-index 2e2360c..5c22064 100644
+index 2e2360cb65ee..992af41d5faf 100644
 --- a/drivers/media/platform/anyka-isp/ak_isp_char.c
 +++ b/drivers/media/platform/anyka-isp/ak_isp_char.c
 @@ -53,6 +53,11 @@ struct akisp_char_pirv {
@@ -137,7 +137,7 @@ index 2e2360c..5c22064 100644
  		{
  			int iso = ak_isp_get_iso();
 diff --git a/drivers/media/platform/anyka-isp/ak_isp_char.h b/drivers/media/platform/anyka-isp/ak_isp_char.h
-index 545bcbf..530a222 100644
+index 545bcbf811cf..530a222dbf3b 100644
 --- a/drivers/media/platform/anyka-isp/ak_isp_char.h
 +++ b/drivers/media/platform/anyka-isp/ak_isp_char.h
 @@ -157,6 +157,27 @@
@@ -168,6 +168,3 @@ index 545bcbf..530a222 100644
  /* Blow is the params that user can adjust in real time */
  typedef struct {
  	int id;
--- 
-2.43.0
-

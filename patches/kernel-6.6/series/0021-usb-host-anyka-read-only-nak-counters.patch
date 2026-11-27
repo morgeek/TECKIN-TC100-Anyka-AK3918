@@ -1,4 +1,4 @@
-From ff997f8d3f18fcaac3faeb3f1079a7879e3c421b Mon Sep 17 00:00:00 2001
+From d3c01bfda78111ea68085b54d3a192595f37e1e2 Mon Sep 17 00:00:00 2001
 From: test <test@localhost>
 Date: Fri, 13 Nov 2026 14:18:17 +0100
 Subject: [PATCH] usb: host: anyka: read-only NAK counters
@@ -9,7 +9,7 @@ Read-only (0444) parameters of the Anyka host controller driver: bulk OUT and IN
  1 file changed, 110 insertions(+)
 
 diff --git a/drivers/usb/host/anyka/usb-hc.c b/drivers/usb/host/anyka/usb-hc.c
-index 94af00d..5f30be8 100644
+index 94af00d063f9..5f30be8426cb 100644
 --- a/drivers/usb/host/anyka/usb-hc.c
 +++ b/drivers/usb/host/anyka/usb-hc.c
 @@ -44,6 +44,97 @@ static bool fifo32;

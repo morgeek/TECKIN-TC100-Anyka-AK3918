@@ -1,4 +1,4 @@
-From e400d6beceec8b96625b3b7159d906f6c10e68cb Mon Sep 17 00:00:00 2001
+From dc1f4bf197b96e92dabdef42a54df9e5f4844478 Mon Sep 17 00:00:00 2001
 From: morgeek <morgeek@users.noreply.github.com>
 Date: Mon, 16 Nov 2026 19:54:56 +0100
 Subject: [PATCH] misc: ak39_venc: mask the encoder interrupt when it is
@@ -16,7 +16,7 @@ Not run on a camera yet: test-queue entry AUDIT-1116-VENCIRQ.
  1 file changed, 35 insertions(+)
 
 diff --git a/drivers/misc/ak39_venc.c b/drivers/misc/ak39_venc.c
-index 82d66c5..abe5517 100644
+index 82d66c5f57d7..abe55178e89f 100644
 --- a/drivers/misc/ak39_venc.c
 +++ b/drivers/misc/ak39_venc.c
 @@ -48,6 +48,7 @@ struct ak39_venc {
@@ -89,6 +89,3 @@ index 82d66c5..abe5517 100644
  	ret = devm_request_irq(dev, v->irq, ak39_venc_irq, 0, "ak39-venc", v);
  	if (ret)
  		return ret;
--- 
-2.43.0
-

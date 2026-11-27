@@ -1,4 +1,4 @@
-From 4aa9d12242f101a675e99af9d6e82614027a3bb5 Mon Sep 17 00:00:00 2001
+From 3ec62d17f66ea138b7de4fb978dd3e15eed37977 Mon Sep 17 00:00:00 2001
 From: test <test@localhost>
 Date: Fri, 13 Nov 2026 00:10:04 +0100
 Subject: [PATCH] wifi: rtl8xxxu: 8188f runtime tx_atten parameter
@@ -8,7 +8,7 @@ Subject: [PATCH] wifi: rtl8xxxu: 8188f runtime tx_atten parameter
  1 file changed, 18 insertions(+), 9 deletions(-)
 
 diff --git a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_8188f.c b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_8188f.c
-index 66db531..d15f701 100644
+index 7098777892ad..1af64c5a6f47 100644
 --- a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_8188f.c
 +++ b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_8188f.c
 @@ -370,6 +370,18 @@ void rtl8188f_channel_to_group(int channel, int *group, int *cck_group)
@@ -64,6 +64,3 @@ index 66db531..d15f701 100644
  	mcs = mcsbase | mcsbase << 8 | mcsbase << 16 | mcsbase << 24;
  
  	rtl8xxxu_write32(priv, REG_TX_AGC_A_MCS03_MCS00, mcs);
--- 
-2.54.0 (Apple Git-157)
-

@@ -73,6 +73,16 @@ class DownloadsChecked(unittest.TestCase):
         self.assertTrue('ci-pins.sh' in readme or m.group(1) in readme)
         self.assertRegex(text('v3/musl/build-musl.sh'), r'(?m)^SHA=[0-9a-f]{64}$')
 
+    def test_kernel_base_is_a_stable_release(self):
+        # the series is applied on a 6.6.y stable tag (not the bare v6.6); the torvalds mirror has no stable tags,
+        # so a stable mirror must be among the sources, and no script may hardcode a base tag of its own
+        s = text('.github/ci-pins.sh')
+        self.assertRegex(s, r'(?m)^LINUX_TAG=v6\.6\.\d+$')
+        self.assertRegex(s, r'(?m)^LINUX_URLS=.*(stable/linux\.git|gregkh/linux\.git)')
+        local = text('tests/docker/local-ci.sh')
+        self.assertNotIn('/k/v6.6', local)
+        self.assertNotIn('--hard v6.6', local)
+
     def test_each_file_that_downloads_checks_a_hash(self):
         for f in WORKFLOWS + BUILD_SCRIPTS:
             lines = code_lines(f)

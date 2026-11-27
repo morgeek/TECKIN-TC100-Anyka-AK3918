@@ -1,8 +1,8 @@
-From 088a9b9c69d24e4e7cbe77bd0931248d617b9271 Mon Sep 17 00:00:00 2001
+From 16f70e9d5c2c2c2699d7f3fcb43eada674c6bc4c Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 22 Oct 2026 10:09:14 +0200
-Subject: [PATCH 1/9] ARM: anyka: add AK3918EV300 machine, interrupt
- controller, timer and UART
+Subject: [PATCH] ARM: anyka: add AK3918EV300 machine, interrupt controller,
+ timer and UART
 
 Platform support: ARCH_ANYKA, mach-anyka, the interrupt controller, the system timer and the UART. The core PLL is set to 480 MHz (SYSCTRL 0x08 = 0x010213f0, ASIC 120 MHz, the stock 3.4 setting) for the clocks to match.
 
@@ -13,7 +13,7 @@ Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
  arch/arm/Makefile                |   1 +
  arch/arm/mach-anyka/Kconfig      |  12 ++
  arch/arm/mach-anyka/Makefile     |   2 +
- arch/arm/mach-anyka/anyka.c      | 118 ++++++++++++
+ arch/arm/mach-anyka/anyka.c      | 161 ++++++++++++++++
  drivers/clocksource/Kconfig      |   5 +
  drivers/clocksource/Makefile     |   1 +
  drivers/clocksource/timer-ak39.c | 129 +++++++++++++
@@ -23,7 +23,7 @@ Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
  drivers/tty/serial/Kconfig       |   6 +
  drivers/tty/serial/Makefile      |   1 +
  drivers/tty/serial/ak39_uart.c   | 315 +++++++++++++++++++++++++++++++
- 14 files changed, 759 insertions(+)
+ 14 files changed, 802 insertions(+)
  create mode 100644 arch/arm/mach-anyka/Kconfig
  create mode 100644 arch/arm/mach-anyka/Makefile
  create mode 100644 arch/arm/mach-anyka/anyka.c
@@ -32,10 +32,10 @@ Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
  create mode 100644 drivers/tty/serial/ak39_uart.c
 
 diff --git a/arch/arm/Kconfig b/arch/arm/Kconfig
-index 9557808e8..c00bfb886 100644
+index 6028c93f0e41..2a81d833e750 100644
 --- a/arch/arm/Kconfig
 +++ b/arch/arm/Kconfig
-@@ -430,6 +430,8 @@ source "arch/arm/mach-artpec/Kconfig"
+@@ -431,6 +431,8 @@ source "arch/arm/mach-artpec/Kconfig"
  
  source "arch/arm/mach-asm9260/Kconfig"
  
@@ -45,7 +45,7 @@ index 9557808e8..c00bfb886 100644
  
  source "arch/arm/mach-at91/Kconfig"
 diff --git a/arch/arm/Makefile b/arch/arm/Makefile
-index 547e5856e..378ce3ee4 100644
+index 351d0b039b5c..2bb317d13fee 100644
 --- a/arch/arm/Makefile
 +++ b/arch/arm/Makefile
 @@ -170,6 +170,7 @@ machine-$(CONFIG_ARCH_ACTIONS)		+= actions
@@ -58,7 +58,7 @@ index 547e5856e..378ce3ee4 100644
  machine-$(CONFIG_ARCH_AXXIA)		+= axxia
 diff --git a/arch/arm/mach-anyka/Kconfig b/arch/arm/mach-anyka/Kconfig
 new file mode 100644
-index 000000000..14e9f5366
+index 000000000000..14e9f5366879
 --- /dev/null
 +++ b/arch/arm/mach-anyka/Kconfig
 @@ -0,0 +1,12 @@
@@ -76,7 +76,7 @@ index 000000000..14e9f5366
 +	  Support for Anyka AK3918EV300 IP camera SoCs (ARM926EJ-S).
 diff --git a/arch/arm/mach-anyka/Makefile b/arch/arm/mach-anyka/Makefile
 new file mode 100644
-index 000000000..d6b8fb0f3
+index 000000000000..d6b8fb0f360f
 --- /dev/null
 +++ b/arch/arm/mach-anyka/Makefile
 @@ -0,0 +1,2 @@
@@ -84,7 +84,7 @@ index 000000000..d6b8fb0f3
 +obj-y += anyka.o
 diff --git a/arch/arm/mach-anyka/anyka.c b/arch/arm/mach-anyka/anyka.c
 new file mode 100644
-index 000000000..de68cce9f
+index 000000000000..f3a909c1fe85
 --- /dev/null
 +++ b/arch/arm/mach-anyka/anyka.c
 @@ -0,0 +1,161 @@
@@ -250,7 +250,7 @@ index 000000000..de68cce9f
 +	.restart	= anyka_restart,
 +MACHINE_END
 diff --git a/drivers/clocksource/Kconfig b/drivers/clocksource/Kconfig
-index 0ba0dc4ec..3f4606ee9 100644
+index 5b526b74e5de..eca6cc5cb25c 100644
 --- a/drivers/clocksource/Kconfig
 +++ b/drivers/clocksource/Kconfig
 @@ -32,6 +32,11 @@ config CLKBLD_I8253
@@ -266,7 +266,7 @@ index 0ba0dc4ec..3f4606ee9 100644
  	bool "BCM2835 timer driver" if COMPILE_TEST
  	select CLKSRC_MMIO
 diff --git a/drivers/clocksource/Makefile b/drivers/clocksource/Makefile
-index 368c3461d..767df10a4 100644
+index 368c3461dab8..767df10a4a3f 100644
 --- a/drivers/clocksource/Makefile
 +++ b/drivers/clocksource/Makefile
 @@ -89,3 +89,4 @@ obj-$(CONFIG_MSC313E_TIMER)		+= timer-msc313e.o
@@ -276,7 +276,7 @@ index 368c3461d..767df10a4 100644
 +obj-$(CONFIG_AK39_TIMER)		+= timer-ak39.o
 diff --git a/drivers/clocksource/timer-ak39.c b/drivers/clocksource/timer-ak39.c
 new file mode 100644
-index 000000000..938325ead
+index 000000000000..938325eadbab
 --- /dev/null
 +++ b/drivers/clocksource/timer-ak39.c
 @@ -0,0 +1,129 @@
@@ -410,7 +410,7 @@ index 000000000..938325ead
 +}
 +TIMER_OF_DECLARE(ak39_timer, "anyka,ak3918ev300-timer", ak39_timer_init);
 diff --git a/drivers/irqchip/Kconfig b/drivers/irqchip/Kconfig
-index f7149d0f3..d481c1b8b 100644
+index 4ff91df76947..4dfd88543406 100644
 --- a/drivers/irqchip/Kconfig
 +++ b/drivers/irqchip/Kconfig
 @@ -5,6 +5,10 @@ config IRQCHIP
@@ -425,7 +425,7 @@ index f7149d0f3..d481c1b8b 100644
  	bool
  	depends on OF
 diff --git a/drivers/irqchip/Makefile b/drivers/irqchip/Makefile
-index ffd945fe7..bafa50f49 100644
+index ffd945fe71aa..bafa50f49c4f 100644
 --- a/drivers/irqchip/Makefile
 +++ b/drivers/irqchip/Makefile
 @@ -120,3 +120,4 @@ obj-$(CONFIG_IRQ_IDT3243X)		+= irq-idt3243x.o
@@ -435,7 +435,7 @@ index ffd945fe7..bafa50f49 100644
 +obj-$(CONFIG_AK39_INTC)			+= irq-ak39.o
 diff --git a/drivers/irqchip/irq-ak39.c b/drivers/irqchip/irq-ak39.c
 new file mode 100644
-index 000000000..076bff093
+index 000000000000..076bff093b2c
 --- /dev/null
 +++ b/drivers/irqchip/irq-ak39.c
 @@ -0,0 +1,162 @@
@@ -602,7 +602,7 @@ index 000000000..076bff093
 +}
 +IRQCHIP_DECLARE(ak39_sysintc, "anyka,ak3918ev300-sysintc", ak39_sysintc_init);
 diff --git a/drivers/tty/serial/Kconfig b/drivers/tty/serial/Kconfig
-index bdc568a4a..85c16698b 100644
+index 2b9b2235e29d..ad56b9ebf818 100644
 --- a/drivers/tty/serial/Kconfig
 +++ b/drivers/tty/serial/Kconfig
 @@ -1578,6 +1578,12 @@ config SERIAL_NUVOTON_MA35D1_CONSOLE
@@ -619,7 +619,7 @@ index bdc568a4a..85c16698b 100644
  
  config SERIAL_MCTRL_GPIO
 diff --git a/drivers/tty/serial/Makefile b/drivers/tty/serial/Makefile
-index 138abbc89..830437b8b 100644
+index 138abbc89738..830437b8bfa6 100644
 --- a/drivers/tty/serial/Makefile
 +++ b/drivers/tty/serial/Makefile
 @@ -95,3 +95,4 @@ obj-$(CONFIG_SERIAL_MCTRL_GPIO)	+= serial_mctrl_gpio.o
@@ -629,7 +629,7 @@ index 138abbc89..830437b8b 100644
 +obj-$(CONFIG_SERIAL_AK39)	+= ak39_uart.o
 diff --git a/drivers/tty/serial/ak39_uart.c b/drivers/tty/serial/ak39_uart.c
 new file mode 100644
-index 000000000..753f1b290
+index 000000000000..753f1b2907f6
 --- /dev/null
 +++ b/drivers/tty/serial/ak39_uart.c
 @@ -0,0 +1,315 @@
@@ -948,6 +948,3 @@ index 000000000..753f1b290
 +}
 +module_init(ak39_uart_init);
 +MODULE_LICENSE("GPL");
--- 
-2.43.0
-

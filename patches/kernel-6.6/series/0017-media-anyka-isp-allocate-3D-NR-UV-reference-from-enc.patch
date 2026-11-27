@@ -1,4 +1,4 @@
-From 71ab508f5b59a037b4277d821f52865061ddc0b8 Mon Sep 17 00:00:00 2001
+From cf92c8b55b17d03a7734e9a388060e3cb7f344f3 Mon Sep 17 00:00:00 2001
 From: morgeek <morgeek@morgeek.com>
 Date: Thu, 12 Nov 2026 22:17:29 +0100
 Subject: [PATCH] media: anyka-isp: allocate 3D-NR UV reference from encoder
@@ -13,7 +13,7 @@ Move the 2025 KiB 3D-NR UV reference plane out of the default 18 MiB CMA into th
  create mode 100644 include/linux/ak39_venc.h
 
 diff --git a/drivers/media/platform/anyka-isp/ak39_vi.c b/drivers/media/platform/anyka-isp/ak39_vi.c
-index 1e8c875..8218272 100644
+index 1e8c87571c1a..8218272b2583 100644
 --- a/drivers/media/platform/anyka-isp/ak39_vi.c
 +++ b/drivers/media/platform/anyka-isp/ak39_vi.c
 @@ -27,6 +27,7 @@
@@ -74,7 +74,7 @@ index 1e8c875..8218272 100644
  }
  
 diff --git a/drivers/misc/ak39_venc.c b/drivers/misc/ak39_venc.c
-index 4effd68..36a97eb 100644
+index 16457c263db5..82d66c5f57d7 100644
 --- a/drivers/misc/ak39_venc.c
 +++ b/drivers/misc/ak39_venc.c
 @@ -30,6 +30,7 @@
@@ -85,7 +85,7 @@ index 4effd68..36a97eb 100644
  #include <linux/soc/anyka/ak_l2.h>
  #include <uapi/linux/ak39_venc.h>
  
-@@ -303,6 +304,39 @@ static const struct file_operations ak39_venc_fops = {
+@@ -307,6 +308,39 @@ static const struct file_operations ak39_venc_fops = {
  	.llseek		= noop_llseek,
  };
  
@@ -125,7 +125,7 @@ index 4effd68..36a97eb 100644
  static void ak39_venc_pool_free(struct ak39_venc *v)
  {
  	if (v->pool_reserved)
-@@ -442,6 +476,11 @@ static int ak39_venc_probe(struct platform_device *pdev)
+@@ -446,6 +480,11 @@ static int ak39_venc_probe(struct platform_device *pdev)
  		return ret;
  	}
  	platform_set_drvdata(pdev, v);
@@ -137,7 +137,7 @@ index 4effd68..36a97eb 100644
  	dev_info(dev, "video encoder: regs %pa+%zx irq %d, pool %zu KiB at %pad%s\n",
  		 &v->regs_phys, v->regs_size, v->irq, v->pool_size >> 10,
  		 &v->pool_dma, v->pool_cma ? " (CMA)" : "");
-@@ -452,6 +491,10 @@ static void ak39_venc_remove(struct platform_device *pdev)
+@@ -456,6 +495,10 @@ static void ak39_venc_remove(struct platform_device *pdev)
  {
  	struct ak39_venc *v = platform_get_drvdata(pdev);
  
@@ -150,7 +150,7 @@ index 4effd68..36a97eb 100644
  	ak39_venc_pool_free(v);
 diff --git a/include/linux/ak39_venc.h b/include/linux/ak39_venc.h
 new file mode 100644
-index 0000000..1737570
+index 000000000000..17375709ce5c
 --- /dev/null
 +++ b/include/linux/ak39_venc.h
 @@ -0,0 +1,21 @@
@@ -175,6 +175,3 @@ index 0000000..1737570
 +#endif
 +
 +#endif
--- 
-2.54.0 (Apple Git-157)
-

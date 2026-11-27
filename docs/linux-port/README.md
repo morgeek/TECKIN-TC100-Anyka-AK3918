@@ -51,7 +51,7 @@ released. See [RELEASE-NOTES.md](../../v3/install/RELEASE-NOTES.md) and the late
 
 ## Building the 6.6 kernel
 
-The port is a series of 23 patches on the `v6.6` tag, in `patches/kernel-6.6/series/`:
+The port is a series of 25 patches on the stable tag `v6.6.163` (`LINUX_TAG` in `.github/ci-pins.sh`), in `patches/kernel-6.6/series/`:
 
 1. `ARM: anyka` — `ARCH_ANYKA`, machine, interrupt controller, system timer, UART
 2. `soc: anyka` — L2 buffer engine helper and the SD/MMC host (`akmci`)
@@ -78,7 +78,7 @@ The port is a series of 23 patches on the `v6.6` tag, in `patches/kernel-6.6/ser
 23. `wifi: rtl8xxxu` — runtime `ampdu_tx` parameter and BlockAck
 
 ```
-git clone --depth 1 -b v6.6 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+git clone --depth 1 -b v6.6.163 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
 cd linux && git am ../patches/kernel-6.6/series/*.patch
 cp ../patches/kernel-6.6/defconfig_cma .config && make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- olddefconfig
 make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j$(nproc) zImage dtbs

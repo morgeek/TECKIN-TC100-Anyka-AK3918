@@ -1,7 +1,8 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From c3e6e53839b56d251da29f8b7316892ea0a1385d Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 30 Oct 2026 12:10:00 +0100
-Subject: [PATCH] misc: ak39_venc: encoder pool from a reusable CMA area, size on the command line
+Subject: [PATCH] misc: ak39_venc: encoder pool from a reusable CMA area, size
+ on the command line
 
 The encoder pool was a 12 MiB no-map region: lost to the kernel whatever
 the encoders really use. With direct capture tc100_rtsp no longer copies
@@ -22,10 +23,10 @@ the old fixed pool. The TC100 device tree makes the region reusable.
  2 files changed, 43 insertions(+), 4 deletions(-)
 
 diff --git a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
-index ce6fa48..9c0c023 100644
+index 876559630f0b..39b169e7ddd8 100644
 --- a/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
 +++ b/arch/arm/boot/dts/anyka/ak3918ev300-tc100.dts
-@@ -42,7 +42,10 @@
+@@ -42,7 +42,10 @@ capture_pool: linux,cma {
  		venc_pool: venc@81800000 {
  			compatible = "shared-dma-pool";
  			reg = <0x81800000 0xc00000>;
@@ -38,7 +39,7 @@ index ce6fa48..9c0c023 100644
  	};
  
 diff --git a/drivers/misc/ak39_venc.c b/drivers/misc/ak39_venc.c
-index 9938178..143a09f 100644
+index 4daaeeed1949..16457c263db5 100644
 --- a/drivers/misc/ak39_venc.c
 +++ b/drivers/misc/ak39_venc.c
 @@ -18,12 +18,14 @@
@@ -75,7 +76,7 @@ index 9938178..143a09f 100644
  #define GUARD_PAT	0xA5
  #define GUARD_NEAR	SZ_64K
  
-@@ -350,7 +357,32 @@ static int ak39_venc_probe(struct platform_device *pdev)
+@@ -354,7 +361,32 @@ static int ak39_venc_probe(struct platform_device *pdev)
  	 * Without a memory-region the default DMA pool is used.
  	 */
  	np = of_parse_phandle(dev->of_node, "memory-region", 0);
@@ -109,7 +110,7 @@ index 9938178..143a09f 100644
  		struct resource rr;
  
  		ret = of_address_to_resource(np, 0, &rr);
-@@ -405,12 +437,14 @@ static int ak39_venc_probe(struct platform_device *pdev)
+@@ -409,12 +441,14 @@ static int ak39_venc_probe(struct platform_device *pdev)
  	ret = misc_register(&v->misc);
  	if (ret) {
  		ak39_venc_pool_free(v);
@@ -126,7 +127,7 @@ index 9938178..143a09f 100644
  	return 0;
  }
  
-@@ -421,6 +455,8 @@ static void ak39_venc_remove(struct platform_device *pdev)
+@@ -425,6 +459,8 @@ static void ak39_venc_remove(struct platform_device *pdev)
  	cancel_delayed_work_sync(&v->guard_work);
  	misc_deregister(&v->misc);
  	ak39_venc_pool_free(v);
@@ -135,6 +136,3 @@ index 9938178..143a09f 100644
  }
  
  static const struct of_device_id ak39_venc_of_match[] = {
--- 
-2.43.0
-

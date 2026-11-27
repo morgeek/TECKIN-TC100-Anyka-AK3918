@@ -1,4 +1,4 @@
-From 328341b8bc92ac870344012f1b42c7e916b7014c Mon Sep 17 00:00:00 2001
+From fa2bdb8bf93f03d412903c03f1e812a12d6861bc Mon Sep 17 00:00:00 2001
 From: test <test@localhost>
 Date: Mon, 16 Nov 2026 14:23:52 +0100
 Subject: [PATCH] usb: host: anyka: give an unlinked active URB back at once,
@@ -16,7 +16,7 @@ endpoint_disable: it followed hep->hcpriv, freed the ep and cleared the pointer 
  1 file changed, 106 insertions(+), 14 deletions(-)
 
 diff --git a/drivers/usb/host/anyka/usb-hc.c b/drivers/usb/host/anyka/usb-hc.c
-index 3ac115a..b1eafca 100644
+index 3ac115a965cc..b1eafcacdbf6 100644
 --- a/drivers/usb/host/anyka/usb-hc.c
 +++ b/drivers/usb/host/anyka/usb-hc.c
 @@ -135,6 +135,20 @@ MODULE_PARM_DESC(bulk_out_oldest_ms, "age in ms of the head pending bulk OUT tra
@@ -220,6 +220,3 @@ index 3ac115a..b1eafca 100644
  }
  
  int
--- 
-2.56.1.windows.1
-

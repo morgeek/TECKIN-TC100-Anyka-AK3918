@@ -1,7 +1,7 @@
-From e1a84bff1323bf7d1da5e1422a355fb9f5f9636b Mon Sep 17 00:00:00 2001
+From bd4d538285b7cd189a61502ec1a42f78e00063f7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 22 Oct 2026 10:09:16 +0200
-Subject: [PATCH 6/9] media: anyka-isp: add ISP, video input and sensor drivers
+Subject: [PATCH] media: anyka-isp: add ISP, video input and sensor drivers
 
 ISP2 driver, V4L2 capture, character device for tuning, GC/SC sensors (F22/F23/F28/F35/F37).
 
@@ -12,12 +12,12 @@ Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
  drivers/media/platform/Makefile               |    1 +
  drivers/media/platform/anyka-isp/Kconfig      |    7 +
  drivers/media/platform/anyka-isp/Makefile     |    4 +
- drivers/media/platform/anyka-isp/ak39_isp2.c  | 4936 +++++++++++++++++
- drivers/media/platform/anyka-isp/ak39_isp2.h  |  377 ++
- .../media/platform/anyka-isp/ak39_isp2_3a.c   | 3090 +++++++++++
+ drivers/media/platform/anyka-isp/ak39_isp2.c  | 4962 +++++++++++++++++
+ drivers/media/platform/anyka-isp/ak39_isp2.h  |  379 ++
+ .../media/platform/anyka-isp/ak39_isp2_3a.c   | 3114 +++++++++++
  .../media/platform/anyka-isp/ak39_isp2_3a.h   |   67 +
  .../media/platform/anyka-isp/ak39_isp2_reg.h  | 1393 +++++
- drivers/media/platform/anyka-isp/ak39_vi.c    |  818 +++
+ drivers/media/platform/anyka-isp/ak39_vi.c    | 1038 ++++
  .../media/platform/anyka-isp/ak_isp_char.c    | 3472 ++++++++++++
  .../media/platform/anyka-isp/ak_isp_char.h    |  286 +
  .../media/platform/anyka-isp/ak_isp_tuning.c  |  233 +
@@ -25,11 +25,11 @@ Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
  .../platform/anyka-isp/ak_sensor_common.c     |   71 +
  .../platform/anyka-isp/ak_sensor_common.h     |   52 +
  .../media/platform/anyka-isp/ak_sensor_i2c.c  |  294 +
- .../platform/anyka-isp/ispdrv_interface.c     |  184 +
+ .../platform/anyka-isp/ispdrv_interface.c     |  196 +
  .../anyka-isp/sensor_f22_f23_f28_f35_f37.c    |  683 +++
- include/mach-anyka/ispdrv_interface.h         |   84 +
+ include/mach-anyka/ispdrv_interface.h         |   86 +
  include/plat-anyka/ak_camera.h                |  108 +
- include/plat-anyka/ak_isp_drv.h               | 1506 +++++
+ include/plat-anyka/ak_isp_drv.h               | 1508 +++++
  include/plat-anyka/ak_isp_lifecycle.h         |   15 +
  include/plat-anyka/ak_sensor.h                |   22 +
  include/plat-anyka/ak_sensor_i2c.h            |   32 +
@@ -38,7 +38,7 @@ Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
  include/plat-anyka/cam_com_sensor.h           |  260 +
  include/plat-anyka/wrap_sensor.h              |  138 +
  include/uapi/linux/ak39_vi.h                  |   26 +
- 30 files changed, 18361 insertions(+)
+ 30 files changed, 18649 insertions(+)
  create mode 100644 drivers/media/platform/anyka-isp/Kconfig
  create mode 100644 drivers/media/platform/anyka-isp/Makefile
  create mode 100644 drivers/media/platform/anyka-isp/ak39_isp2.c
@@ -69,7 +69,7 @@ Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
  create mode 100644 include/uapi/linux/ak39_vi.h
 
 diff --git a/drivers/media/platform/Kconfig b/drivers/media/platform/Kconfig
-index ee579916f..c54271fe7 100644
+index ee579916f874..c54271fe77cf 100644
 --- a/drivers/media/platform/Kconfig
 +++ b/drivers/media/platform/Kconfig
 @@ -63,6 +63,7 @@ config VIDEO_MUX
@@ -81,7 +81,7 @@ index ee579916f..c54271fe7 100644
  source "drivers/media/platform/amphion/Kconfig"
  source "drivers/media/platform/aspeed/Kconfig"
 diff --git a/drivers/media/platform/Makefile b/drivers/media/platform/Makefile
-index 5453bb868..7795ab7c0 100644
+index 5453bb868e67..7795ab7c0968 100644
 --- a/drivers/media/platform/Makefile
 +++ b/drivers/media/platform/Makefile
 @@ -6,6 +6,7 @@
@@ -94,7 +94,7 @@ index 5453bb868..7795ab7c0 100644
  obj-y += aspeed/
 diff --git a/drivers/media/platform/anyka-isp/Kconfig b/drivers/media/platform/anyka-isp/Kconfig
 new file mode 100644
-index 000000000..21ae7a862
+index 000000000000..21ae7a862e26
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/Kconfig
 @@ -0,0 +1,7 @@
@@ -107,7 +107,7 @@ index 000000000..21ae7a862
 +	  JX-F23 sensor), with the vendor ISP core and 3A.
 diff --git a/drivers/media/platform/anyka-isp/Makefile b/drivers/media/platform/anyka-isp/Makefile
 new file mode 100644
-index 000000000..2558b26f0
+index 000000000000..2558b26f09b6
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/Makefile
 @@ -0,0 +1,4 @@
@@ -117,7 +117,7 @@ index 000000000..2558b26f0
 +obj-$(CONFIG_VIDEO_AK39_VI) += sensor_f22_f23_f28_f35_f37.o
 diff --git a/drivers/media/platform/anyka-isp/ak39_isp2.c b/drivers/media/platform/anyka-isp/ak39_isp2.c
 new file mode 100644
-index 000000000..97f00ee92
+index 000000000000..88a67b35c4b8
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_isp2.c
 @@ -0,0 +1,4962 @@
@@ -5085,7 +5085,7 @@ index 000000000..97f00ee92
 +}
 diff --git a/drivers/media/platform/anyka-isp/ak39_isp2.h b/drivers/media/platform/anyka-isp/ak39_isp2.h
 new file mode 100644
-index 000000000..ec66106c8
+index 000000000000..92bec773f9e1
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_isp2.h
 @@ -0,0 +1,379 @@
@@ -5470,7 +5470,7 @@ index 000000000..ec66106c8
 +#endif //#define _AK39_ISP2_H
 diff --git a/drivers/media/platform/anyka-isp/ak39_isp2_3a.c b/drivers/media/platform/anyka-isp/ak39_isp2_3a.c
 new file mode 100644
-index 000000000..e9de58ea7
+index 000000000000..ba0d2a82f0a5
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_isp2_3a.c
 @@ -0,0 +1,3114 @@
@@ -8590,7 +8590,7 @@ index 000000000..e9de58ea7
 +}
 diff --git a/drivers/media/platform/anyka-isp/ak39_isp2_3a.h b/drivers/media/platform/anyka-isp/ak39_isp2_3a.h
 new file mode 100644
-index 000000000..b106ebd72
+index 000000000000..b106ebd7214b
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_isp2_3a.h
 @@ -0,0 +1,67 @@
@@ -8663,7 +8663,7 @@ index 000000000..b106ebd72
 +#endif //#define _AK39_ISP2_3A_H
 diff --git a/drivers/media/platform/anyka-isp/ak39_isp2_reg.h b/drivers/media/platform/anyka-isp/ak39_isp2_reg.h
 new file mode 100644
-index 000000000..105e214dc
+index 000000000000..105e214dc4f4
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_isp2_reg.h
 @@ -0,0 +1,1393 @@
@@ -10062,7 +10062,7 @@ index 000000000..105e214dc
 +#endif
 diff --git a/drivers/media/platform/anyka-isp/ak39_vi.c b/drivers/media/platform/anyka-isp/ak39_vi.c
 new file mode 100644
-index 000000000..42f5fa12c
+index 000000000000..23909bc2b7ec
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak39_vi.c
 @@ -0,0 +1,1038 @@
@@ -11106,7 +11106,7 @@ index 000000000..42f5fa12c
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/media/platform/anyka-isp/ak_isp_char.c b/drivers/media/platform/anyka-isp/ak_isp_char.c
 new file mode 100644
-index 000000000..2e2360cb6
+index 000000000000..2e2360cb65ee
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak_isp_char.c
 @@ -0,0 +1,3472 @@
@@ -14584,7 +14584,7 @@ index 000000000..2e2360cb6
 +
 diff --git a/drivers/media/platform/anyka-isp/ak_isp_char.h b/drivers/media/platform/anyka-isp/ak_isp_char.h
 new file mode 100644
-index 000000000..545bcbf81
+index 000000000000..545bcbf811cf
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak_isp_char.h
 @@ -0,0 +1,286 @@
@@ -14876,7 +14876,7 @@ index 000000000..545bcbf81
 +#endif
 diff --git a/drivers/media/platform/anyka-isp/ak_isp_tuning.c b/drivers/media/platform/anyka-isp/ak_isp_tuning.c
 new file mode 100644
-index 000000000..9dc82a0e5
+index 000000000000..9dc82a0e50b2
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak_isp_tuning.c
 @@ -0,0 +1,233 @@
@@ -15115,7 +15115,7 @@ index 000000000..9dc82a0e5
 +}
 diff --git a/drivers/media/platform/anyka-isp/ak_isp_tuning.h b/drivers/media/platform/anyka-isp/ak_isp_tuning.h
 new file mode 100644
-index 000000000..35e8ff042
+index 000000000000..35e8ff0425b4
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak_isp_tuning.h
 @@ -0,0 +1,19 @@
@@ -15140,7 +15140,7 @@ index 000000000..35e8ff042
 +#endif
 diff --git a/drivers/media/platform/anyka-isp/ak_sensor_common.c b/drivers/media/platform/anyka-isp/ak_sensor_common.c
 new file mode 100644
-index 000000000..d754ffe4d
+index 000000000000..d754ffe4dac1
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak_sensor_common.c
 @@ -0,0 +1,71 @@
@@ -15217,7 +15217,7 @@ index 000000000..d754ffe4d
 +EXPORT_SYMBOL_GPL(ak_sensor_mdelay);
 diff --git a/drivers/media/platform/anyka-isp/ak_sensor_common.h b/drivers/media/platform/anyka-isp/ak_sensor_common.h
 new file mode 100644
-index 000000000..b6381d987
+index 000000000000..b6381d987e6c
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak_sensor_common.h
 @@ -0,0 +1,52 @@
@@ -15275,7 +15275,7 @@ index 000000000..b6381d987
 +#endif
 diff --git a/drivers/media/platform/anyka-isp/ak_sensor_i2c.c b/drivers/media/platform/anyka-isp/ak_sensor_i2c.c
 new file mode 100644
-index 000000000..e3856ffda
+index 000000000000..e3856ffda4c7
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ak_sensor_i2c.c
 @@ -0,0 +1,294 @@
@@ -15575,7 +15575,7 @@ index 000000000..e3856ffda
 +EXPORT_SYMBOL(sensor_write_register);
 diff --git a/drivers/media/platform/anyka-isp/ispdrv_interface.c b/drivers/media/platform/anyka-isp/ispdrv_interface.c
 new file mode 100644
-index 000000000..e81040baf
+index 000000000000..1a6bc6631a07
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/ispdrv_interface.c
 @@ -0,0 +1,196 @@
@@ -15777,7 +15777,7 @@ index 000000000..e81040baf
 +EXPORT_SYMBOL(ispdrv_vp_3d_nr_overflow);
 diff --git a/drivers/media/platform/anyka-isp/sensor_f22_f23_f28_f35_f37.c b/drivers/media/platform/anyka-isp/sensor_f22_f23_f28_f35_f37.c
 new file mode 100644
-index 000000000..4ea1c7584
+index 000000000000..4ea1c7584d11
 --- /dev/null
 +++ b/drivers/media/platform/anyka-isp/sensor_f22_f23_f28_f35_f37.c
 @@ -0,0 +1,683 @@
@@ -16466,7 +16466,7 @@ index 000000000..4ea1c7584
 +}
 diff --git a/include/mach-anyka/ispdrv_interface.h b/include/mach-anyka/ispdrv_interface.h
 new file mode 100644
-index 000000000..194c4f812
+index 000000000000..b2e0fc58fd77
 --- /dev/null
 +++ b/include/mach-anyka/ispdrv_interface.h
 @@ -0,0 +1,86 @@
@@ -16558,7 +16558,7 @@ index 000000000..194c4f812
 +#endif
 diff --git a/include/plat-anyka/ak_camera.h b/include/plat-anyka/ak_camera.h
 new file mode 100644
-index 000000000..002217518
+index 000000000000..002217518940
 --- /dev/null
 +++ b/include/plat-anyka/ak_camera.h
 @@ -0,0 +1,108 @@
@@ -16672,7 +16672,7 @@ index 000000000..002217518
 +
 diff --git a/include/plat-anyka/ak_isp_drv.h b/include/plat-anyka/ak_isp_drv.h
 new file mode 100644
-index 000000000..8b464cbcf
+index 000000000000..a89ca4af8271
 --- /dev/null
 +++ b/include/plat-anyka/ak_isp_drv.h
 @@ -0,0 +1,1508 @@
@@ -18186,7 +18186,7 @@ index 000000000..8b464cbcf
 +#endif
 diff --git a/include/plat-anyka/ak_isp_lifecycle.h b/include/plat-anyka/ak_isp_lifecycle.h
 new file mode 100644
-index 000000000..b8c984a4a
+index 000000000000..b8c984a4aa6d
 --- /dev/null
 +++ b/include/plat-anyka/ak_isp_lifecycle.h
 @@ -0,0 +1,15 @@
@@ -18207,7 +18207,7 @@ index 000000000..b8c984a4a
 +#endif
 diff --git a/include/plat-anyka/ak_sensor.h b/include/plat-anyka/ak_sensor.h
 new file mode 100644
-index 000000000..64c905b5d
+index 000000000000..64c905b5d8da
 --- /dev/null
 +++ b/include/plat-anyka/ak_sensor.h
 @@ -0,0 +1,22 @@
@@ -18235,7 +18235,7 @@ index 000000000..64c905b5d
 +#endif /* __AK_SENSOR_H__ */
 diff --git a/include/plat-anyka/ak_sensor_i2c.h b/include/plat-anyka/ak_sensor_i2c.h
 new file mode 100644
-index 000000000..68ec75d5b
+index 000000000000..68ec75d5ba3d
 --- /dev/null
 +++ b/include/plat-anyka/ak_sensor_i2c.h
 @@ -0,0 +1,32 @@
@@ -18273,7 +18273,7 @@ index 000000000..68ec75d5b
 +#endif /* __AK_SENSOR_I2C_H__ */
 diff --git a/include/plat-anyka/aksensor.h b/include/plat-anyka/aksensor.h
 new file mode 100644
-index 000000000..6c6cd9538
+index 000000000000..6c6cd9538e83
 --- /dev/null
 +++ b/include/plat-anyka/aksensor.h
 @@ -0,0 +1,111 @@
@@ -18390,7 +18390,7 @@ index 000000000..6c6cd9538
 +#endif /* END __AKSENSOR_H__ */
 diff --git a/include/plat-anyka/anyka_types.h b/include/plat-anyka/anyka_types.h
 new file mode 100644
-index 000000000..c5cea4bd0
+index 000000000000..c5cea4bd0adc
 --- /dev/null
 +++ b/include/plat-anyka/anyka_types.h
 @@ -0,0 +1,71 @@
@@ -18467,7 +18467,7 @@ index 000000000..c5cea4bd0
 +
 diff --git a/include/plat-anyka/cam_com_sensor.h b/include/plat-anyka/cam_com_sensor.h
 new file mode 100644
-index 000000000..fef8707a0
+index 000000000000..fef8707a00b9
 --- /dev/null
 +++ b/include/plat-anyka/cam_com_sensor.h
 @@ -0,0 +1,260 @@
@@ -18733,7 +18733,7 @@ index 000000000..fef8707a0
 +
 diff --git a/include/plat-anyka/wrap_sensor.h b/include/plat-anyka/wrap_sensor.h
 new file mode 100644
-index 000000000..8ddfc29b7
+index 000000000000..8ddfc29b7be7
 --- /dev/null
 +++ b/include/plat-anyka/wrap_sensor.h
 @@ -0,0 +1,138 @@
@@ -18877,7 +18877,7 @@ index 000000000..8ddfc29b7
 +#endif
 diff --git a/include/uapi/linux/ak39_vi.h b/include/uapi/linux/ak39_vi.h
 new file mode 100644
-index 000000000..325264cb3
+index 000000000000..325264cb312d
 --- /dev/null
 +++ b/include/uapi/linux/ak39_vi.h
 @@ -0,0 +1,26 @@
@@ -18907,6 +18907,3 @@ index 000000000..325264cb3
 +#define AK39_VI_G_PHYS	_IOWR('V', BASE_VIDIOC_PRIVATE + 0, struct ak39_vi_phys)
 +
 +#endif
--- 
-2.43.0
-

@@ -1,4 +1,4 @@
-From ad1c810304ce034de6fa9695df0799524086fcb0 Mon Sep 17 00:00:00 2001
+From 01c515b4fcd5b3ac5d676cdd8d41f7d9f68e98c8 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 22 Oct 2026 10:09:17 +0200
 Subject: [PATCH] misc: add ak39_venc encoder access driver
@@ -10,14 +10,14 @@ Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
 ---
  drivers/misc/Kconfig           |   8 +
  drivers/misc/Makefile          |   1 +
- drivers/misc/ak39_venc.c       | 367 +++++++++++++++++++++++++++++++++
- include/uapi/linux/ak39_venc.h |  37 ++++
- 4 files changed, 413 insertions(+)
+ drivers/misc/ak39_venc.c       | 447 +++++++++++++++++++++++++++++++++
+ include/uapi/linux/ak39_venc.h |  37 +++
+ 4 files changed, 493 insertions(+)
  create mode 100644 drivers/misc/ak39_venc.c
  create mode 100644 include/uapi/linux/ak39_venc.h
 
 diff --git a/drivers/misc/Kconfig b/drivers/misc/Kconfig
-index cadd4a820..9db429ab2 100644
+index cadd4a820c03..9db429ab2c9a 100644
 --- a/drivers/misc/Kconfig
 +++ b/drivers/misc/Kconfig
 @@ -579,4 +579,12 @@ source "drivers/misc/cardreader/Kconfig"
@@ -34,7 +34,7 @@ index cadd4a820..9db429ab2 100644
 +
  endmenu
 diff --git a/drivers/misc/Makefile b/drivers/misc/Makefile
-index f2a4d1ff6..0567055c7 100644
+index f2a4d1ff65d4..0567055c7be9 100644
 --- a/drivers/misc/Makefile
 +++ b/drivers/misc/Makefile
 @@ -67,3 +67,4 @@ obj-$(CONFIG_TMR_MANAGER)      += xilinx_tmr_manager.o
@@ -44,7 +44,7 @@ index f2a4d1ff6..0567055c7 100644
 +obj-$(CONFIG_AK39_VENC)	+= ak39_venc.o
 diff --git a/drivers/misc/ak39_venc.c b/drivers/misc/ak39_venc.c
 new file mode 100644
-index 000000000..4078d4db5
+index 000000000000..4daaeeed1949
 --- /dev/null
 +++ b/drivers/misc/ak39_venc.c
 @@ -0,0 +1,447 @@
@@ -497,7 +497,7 @@ index 000000000..4078d4db5
 +MODULE_LICENSE("GPL");
 diff --git a/include/uapi/linux/ak39_venc.h b/include/uapi/linux/ak39_venc.h
 new file mode 100644
-index 000000000..4d2e00a6e
+index 000000000000..4d2e00a6e5d4
 --- /dev/null
 +++ b/include/uapi/linux/ak39_venc.h
 @@ -0,0 +1,37 @@

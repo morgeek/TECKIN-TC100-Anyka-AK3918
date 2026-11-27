@@ -1,7 +1,7 @@
-From fdb0af0ae11780174988c001b09cc8c331b5a96c Mon Sep 17 00:00:00 2001
+From 7d827f476418f1146b51fab701f2bc3387ed9e8f Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 22 Oct 2026 10:09:15 +0200
-Subject: [PATCH 3/9] usb: host: anyka: add the USB OTG host controller driver
+Subject: [PATCH] usb: host: anyka: add the USB OTG host controller driver
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
@@ -24,7 +24,7 @@ Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
  create mode 100644 drivers/usb/host/anyka/usb-reg-define.h
 
 diff --git a/drivers/usb/Makefile b/drivers/usb/Makefile
-index 3a9a0dd4b..17d34a6c5 100644
+index 949eca0adebe..4dbc39aecfaa 100644
 --- a/drivers/usb/Makefile
 +++ b/drivers/usb/Makefile
 @@ -22,6 +22,7 @@ obj-$(CONFIG_USB_FOTG210)	+= fotg210/
@@ -36,7 +36,7 @@ index 3a9a0dd4b..17d34a6c5 100644
  obj-$(CONFIG_USB_EHCI_HCD)	+= host/
  obj-$(CONFIG_USB_ISP116X_HCD)	+= host/
 diff --git a/drivers/usb/host/Kconfig b/drivers/usb/host/Kconfig
-index 4448d0ab0..c1ef7907f 100644
+index 844377f0688e..13b7a9ba2f14 100644
 --- a/drivers/usb/host/Kconfig
 +++ b/drivers/usb/host/Kconfig
 @@ -729,3 +729,10 @@ config USB_XEN_HCD
@@ -51,7 +51,7 @@ index 4448d0ab0..c1ef7907f 100644
 +	  Host mode of the Anyka AK3918EV300 OTG controller (TECKIN TC100
 +	  Wi-Fi), ported from the 4.4 tree. No isochronous transfers.
 diff --git a/drivers/usb/host/Makefile b/drivers/usb/host/Makefile
-index be4e5245c..37d1d5fe4 100644
+index be4e5245c52f..37d1d5fe4fd2 100644
 --- a/drivers/usb/host/Makefile
 +++ b/drivers/usb/host/Makefile
 @@ -85,3 +85,4 @@ obj-$(CONFIG_USB_HCD_BCMA)	+= bcma-hcd.o
@@ -61,7 +61,7 @@ index be4e5245c..37d1d5fe4 100644
 +obj-$(CONFIG_USB_AKOTG_HS_HCD)	+= anyka/
 diff --git a/drivers/usb/host/anyka/Makefile b/drivers/usb/host/anyka/Makefile
 new file mode 100644
-index 000000000..2e2be2837
+index 000000000000..2e2be2837a38
 --- /dev/null
 +++ b/drivers/usb/host/anyka/Makefile
 @@ -0,0 +1,2 @@
@@ -69,7 +69,7 @@ index 000000000..2e2be2837
 +otg-hs-y := otg-hshcd.o usb-hc.o
 diff --git a/drivers/usb/host/anyka/otg-hshcd.c b/drivers/usb/host/anyka/otg-hshcd.c
 new file mode 100644
-index 000000000..ab9bf1dac
+index 000000000000..ab9bf1dac1a3
 --- /dev/null
 +++ b/drivers/usb/host/anyka/otg-hshcd.c
 @@ -0,0 +1,344 @@
@@ -419,7 +419,7 @@ index 000000000..ab9bf1dac
 +MODULE_ALIAS("platform:ak_hcd");
 diff --git a/drivers/usb/host/anyka/otg-hshcd.h b/drivers/usb/host/anyka/otg-hshcd.h
 new file mode 100644
-index 000000000..a2c16bbd6
+index 000000000000..a2c16bbd673c
 --- /dev/null
 +++ b/drivers/usb/host/anyka/otg-hshcd.h
 @@ -0,0 +1,21 @@
@@ -446,7 +446,7 @@ index 000000000..a2c16bbd6
 +#endif /* __ANYKA_OTG_HS_H_ */
 diff --git a/drivers/usb/host/anyka/usb-hc.c b/drivers/usb/host/anyka/usb-hc.c
 new file mode 100644
-index 000000000..99afbf987
+index 000000000000..99afbf987b1e
 --- /dev/null
 +++ b/drivers/usb/host/anyka/usb-hc.c
 @@ -0,0 +1,1812 @@
@@ -2264,7 +2264,7 @@ index 000000000..99afbf987
 +
 diff --git a/drivers/usb/host/anyka/usb-hc.h b/drivers/usb/host/anyka/usb-hc.h
 new file mode 100644
-index 000000000..d89abc211
+index 000000000000..d89abc2111dd
 --- /dev/null
 +++ b/drivers/usb/host/anyka/usb-hc.h
 @@ -0,0 +1,910 @@
@@ -3180,7 +3180,7 @@ index 000000000..d89abc211
 +#endif
 diff --git a/drivers/usb/host/anyka/usb-reg-define.h b/drivers/usb/host/anyka/usb-reg-define.h
 new file mode 100644
-index 000000000..3b8779ad3
+index 000000000000..3b8779ad354a
 --- /dev/null
 +++ b/drivers/usb/host/anyka/usb-reg-define.h
 @@ -0,0 +1,262 @@
@@ -3446,6 +3446,3 @@ index 000000000..3b8779ad3
 +
 +#endif	/* _ANYKA_USB_REG_DEFINE_H_ */
 +
--- 
-2.43.0
-

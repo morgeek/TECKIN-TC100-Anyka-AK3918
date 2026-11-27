@@ -408,7 +408,7 @@ Notes, hardware facts, status and how to build: [README.md](README.md).
 
 ## How it works
 
-- **Kernel**: Linux 6.6 as a series of patches on the `v6.6` tag: CPU, interrupts, timer, console, SD card, USB host,
+- **Kernel**: Linux 6.6 as a series of patches on the stable tag `v6.6.163` (pinned in `.github/ci-pins.sh`): CPU, interrupts, timer, console, SD card, USB host,
   Wi-Fi (mainline `rtl8xxxu`, access point included), GPIO, I2C, watchdog, audio, **video** (V4L2 driver for the
   JX-F23 sensor and the ISP), the hardware video encoder (`ak39_venc`) and a SPI NOR driver that can write. CI builds
   it on every push.

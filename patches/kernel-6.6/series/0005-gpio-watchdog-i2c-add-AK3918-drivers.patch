@@ -1,7 +1,7 @@
-From 63e7d29d9c1224d9b4e7b077b753ea812cfd6d97 Mon Sep 17 00:00:00 2001
+From 515e682cb6baa59c4aae0b5035778a176523ae25 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 22 Oct 2026 10:09:15 +0200
-Subject: [PATCH 5/9] gpio, watchdog, i2c: add AK3918 drivers
+Subject: [PATCH] gpio, watchdog, i2c: add AK3918 drivers
 
 gpio-mmio fix, watchdog and I2C bus.
 
@@ -11,19 +11,19 @@ Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
  drivers/gpio/gpio-mmio.c      |   1 +
  drivers/i2c/busses/Kconfig    |   6 +
  drivers/i2c/busses/Makefile   |   1 +
- drivers/i2c/busses/i2c-ak39.c | 915 ++++++++++++++++++++++++++++++++++
+ drivers/i2c/busses/i2c-ak39.c | 925 ++++++++++++++++++++++++++++++++++
  drivers/watchdog/Kconfig      |   7 +
  drivers/watchdog/Makefile     |   1 +
  drivers/watchdog/ak39_wdt.c   | 102 ++++
- 7 files changed, 1033 insertions(+)
+ 7 files changed, 1043 insertions(+)
  create mode 100644 drivers/i2c/busses/i2c-ak39.c
  create mode 100644 drivers/watchdog/ak39_wdt.c
 
 diff --git a/drivers/gpio/gpio-mmio.c b/drivers/gpio/gpio-mmio.c
-index 74fdf0d87..12a83512c 100644
+index c9f9f4e36c89..e76d71b2e890 100644
 --- a/drivers/gpio/gpio-mmio.c
 +++ b/drivers/gpio/gpio-mmio.c
-@@ -691,6 +691,7 @@ static void __iomem *bgpio_map(struct platform_device *pdev,
+@@ -689,6 +689,7 @@ static void __iomem *bgpio_map(struct platform_device *pdev,
  #ifdef CONFIG_OF
  static const struct of_device_id bgpio_of_match[] = {
  	{ .compatible = "brcm,bcm6345-gpio" },
@@ -32,10 +32,10 @@ index 74fdf0d87..12a83512c 100644
  	{ .compatible = "ni,169445-nand-gpio" },
  	{ }
 diff --git a/drivers/i2c/busses/Kconfig b/drivers/i2c/busses/Kconfig
-index 6644eebed..53b548672 100644
+index 79ab924a4b2b..284e17d8e68f 100644
 --- a/drivers/i2c/busses/Kconfig
 +++ b/drivers/i2c/busses/Kconfig
-@@ -378,6 +378,12 @@ config I2C_POWERMAC
+@@ -381,6 +381,12 @@ config I2C_POWERMAC
  
  comment "I2C system bus drivers (mostly embedded / system-on-chip)"
  
@@ -49,17 +49,17 @@ index 6644eebed..53b548672 100644
  	tristate "Altera Soft IP I2C"
  	depends on ARCH_INTEL_SOCFPGA || NIOS2 || COMPILE_TEST
 diff --git a/drivers/i2c/busses/Makefile b/drivers/i2c/busses/Makefile
-index af56fe2c7..a7a1ce9d7 100644
+index 9be9fdb07f3d..dfbe8ad3e781 100644
 --- a/drivers/i2c/busses/Makefile
 +++ b/drivers/i2c/busses/Makefile
-@@ -159,3 +159,4 @@ obj-$(CONFIG_I2C_FSI)		+= i2c-fsi.o
+@@ -157,3 +157,4 @@ obj-$(CONFIG_I2C_FSI)		+= i2c-fsi.o
  obj-$(CONFIG_I2C_VIRTIO)	+= i2c-virtio.o
  
  ccflags-$(CONFIG_I2C_DEBUG_BUS) := -DDEBUG
 +obj-$(CONFIG_I2C_AK39)	+= i2c-ak39.o
 diff --git a/drivers/i2c/busses/i2c-ak39.c b/drivers/i2c/busses/i2c-ak39.c
 new file mode 100644
-index 000000000..f25dc4508
+index 000000000000..a5ec798a1876
 --- /dev/null
 +++ b/drivers/i2c/busses/i2c-ak39.c
 @@ -0,0 +1,925 @@
@@ -989,7 +989,7 @@ index 000000000..f25dc4508
 +MODULE_LICENSE("GPL");
 +
 diff --git a/drivers/watchdog/Kconfig b/drivers/watchdog/Kconfig
-index 751458959..01547692e 100644
+index 751458959411..01547692e343 100644
 --- a/drivers/watchdog/Kconfig
 +++ b/drivers/watchdog/Kconfig
 @@ -149,6 +149,13 @@ comment "Watchdog Device Drivers"
@@ -1007,7 +1007,7 @@ index 751458959..01547692e 100644
  	tristate "Software watchdog"
  	select WATCHDOG_CORE
 diff --git a/drivers/watchdog/Makefile b/drivers/watchdog/Makefile
-index 7eab9de31..bb9c256cc 100644
+index 7eab9de311cb..bb9c256cc83b 100644
 --- a/drivers/watchdog/Makefile
 +++ b/drivers/watchdog/Makefile
 @@ -235,3 +235,4 @@ obj-$(CONFIG_MENZ069_WATCHDOG) += menz69_wdt.o
@@ -1017,7 +1017,7 @@ index 7eab9de31..bb9c256cc 100644
 +obj-$(CONFIG_AK39_WATCHDOG) += ak39_wdt.o
 diff --git a/drivers/watchdog/ak39_wdt.c b/drivers/watchdog/ak39_wdt.c
 new file mode 100644
-index 000000000..d2df770eb
+index 000000000000..d2df770ebf12
 --- /dev/null
 +++ b/drivers/watchdog/ak39_wdt.c
 @@ -0,0 +1,102 @@
@@ -1123,6 +1123,3 @@ index 000000000..d2df770eb
 +module_platform_driver(ak39_wdt_driver);
 +MODULE_DESCRIPTION("Anyka AK39 top watchdog");
 +MODULE_LICENSE("GPL");
--- 
-2.43.0
-

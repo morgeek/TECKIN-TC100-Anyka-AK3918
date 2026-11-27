@@ -1,7 +1,7 @@
-From f56a6385b511d8c80b49f917d1cc72b40d6a9d57 Mon Sep 17 00:00:00 2001
+From 6f25a5f54a4140ff50285d5fbdd427e7cb273bb3 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 22 Oct 2026 10:09:14 +0200
-Subject: [PATCH 2/9] soc: anyka: add L2 buffer engine helper and SD/MMC host
+Subject: [PATCH] soc: anyka: add L2 buffer engine helper and SD/MMC host
 
 The L2 buffer engine is shared between MMC, USB and the camera interface.
 
@@ -28,10 +28,10 @@ Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
  create mode 100644 include/linux/soc/anyka/ak_l2.h
 
 diff --git a/drivers/mmc/host/Kconfig b/drivers/mmc/host/Kconfig
-index 554e67103..6343bed7b 100644
+index 9dea5111d48c..94010d5729e0 100644
 --- a/drivers/mmc/host/Kconfig
 +++ b/drivers/mmc/host/Kconfig
-@@ -1069,3 +1069,10 @@ config MMC_LITEX
+@@ -1071,3 +1071,10 @@ config MMC_LITEX
  	  module will be called litex_mmc.
  
  	  If unsure, say N.
@@ -43,7 +43,7 @@ index 554e67103..6343bed7b 100644
 +	  SD/MMC host of the Anyka AK3918EV300 (TECKIN TC100), through the
 +	  on-chip L2 buffer engine.
 diff --git a/drivers/mmc/host/Makefile b/drivers/mmc/host/Makefile
-index a693fa3d3..cdc97c477 100644
+index a693fa3d3f1c..cdc97c477449 100644
 --- a/drivers/mmc/host/Makefile
 +++ b/drivers/mmc/host/Makefile
 @@ -108,3 +108,5 @@ endif
@@ -54,7 +54,7 @@ index a693fa3d3..cdc97c477 100644
 +akmci-y := akmci-core.o akmci-of.o
 diff --git a/drivers/mmc/host/akmci-compat.h b/drivers/mmc/host/akmci-compat.h
 new file mode 100644
-index 000000000..55795f31f
+index 000000000000..55795f31ff20
 --- /dev/null
 +++ b/drivers/mmc/host/akmci-compat.h
 @@ -0,0 +1,81 @@
@@ -141,7 +141,7 @@ index 000000000..55795f31f
 +#endif /* __DRIVERS_MMC_HOST_AKMCI_COMPAT_H__ */
 diff --git a/drivers/mmc/host/akmci-core.c b/drivers/mmc/host/akmci-core.c
 new file mode 100644
-index 000000000..85485f8b9
+index 000000000000..85485f8b909b
 --- /dev/null
 +++ b/drivers/mmc/host/akmci-core.c
 @@ -0,0 +1,926 @@
@@ -1073,7 +1073,7 @@ index 000000000..85485f8b9
 +}
 diff --git a/drivers/mmc/host/akmci-of.c b/drivers/mmc/host/akmci-of.c
 new file mode 100644
-index 000000000..4cd0f4285
+index 000000000000..4cd0f428534c
 --- /dev/null
 +++ b/drivers/mmc/host/akmci-of.c
 @@ -0,0 +1,412 @@
@@ -1491,7 +1491,7 @@ index 000000000..4cd0f4285
 +MODULE_AUTHOR("Anyka");
 diff --git a/drivers/mmc/host/akmci.h b/drivers/mmc/host/akmci.h
 new file mode 100644
-index 000000000..912fd487a
+index 000000000000..912fd487a1e1
 --- /dev/null
 +++ b/drivers/mmc/host/akmci.h
 @@ -0,0 +1,284 @@
@@ -1780,7 +1780,7 @@ index 000000000..912fd487a
 +
 +#endif /* __DRIVERS_MMC_HOST_AKMCI_H__ */
 diff --git a/drivers/soc/Makefile b/drivers/soc/Makefile
-index 0706a27d1..87bc9009f 100644
+index 0706a27d13be..87bc9009fd78 100644
 --- a/drivers/soc/Makefile
 +++ b/drivers/soc/Makefile
 @@ -35,3 +35,4 @@ obj-y				+= ti/
@@ -1790,14 +1790,14 @@ index 0706a27d1..87bc9009f 100644
 +obj-$(CONFIG_ARCH_ANYKA)	+= anyka/
 diff --git a/drivers/soc/anyka/Makefile b/drivers/soc/anyka/Makefile
 new file mode 100644
-index 000000000..484a08ae0
+index 000000000000..484a08ae018c
 --- /dev/null
 +++ b/drivers/soc/anyka/Makefile
 @@ -0,0 +1 @@
 +obj-y	+= ak_l2.o
 diff --git a/drivers/soc/anyka/ak_l2.c b/drivers/soc/anyka/ak_l2.c
 new file mode 100644
-index 000000000..ab692d7c7
+index 000000000000..f9844c1887bb
 --- /dev/null
 +++ b/drivers/soc/anyka/ak_l2.c
 @@ -0,0 +1,1334 @@
@@ -3137,7 +3137,7 @@ index 000000000..ab692d7c7
 +arch_initcall(ak_l2_setup);
 diff --git a/include/linux/soc/anyka/ak_l2.h b/include/linux/soc/anyka/ak_l2.h
 new file mode 100644
-index 000000000..2112c6dd4
+index 000000000000..2112c6dd414d
 --- /dev/null
 +++ b/include/linux/soc/anyka/ak_l2.h
 @@ -0,0 +1,357 @@
@@ -3498,6 +3498,3 @@ index 000000000..2112c6dd4
 +#endif	/* __ASM_ARCH_L2_INNER_H__ */
 +
 + /* CONFIG_MACH_AK3918AV130 */
--- 
-2.43.0
-

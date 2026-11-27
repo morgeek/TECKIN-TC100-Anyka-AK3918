@@ -1,21 +1,20 @@
-From 4d997fbdc4ee2f2c34f5dcc972d4aae6e134fe2e Mon Sep 17 00:00:00 2001
+From bc553afb66d22083022965175f9bc5b1cdd4df1c Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Thu, 22 Oct 2026 10:09:15 +0200
-Subject: [PATCH 4/9] wifi: rtl8xxxu: AK3918 fixes for RTL8188FU (64-byte
- writes)
+Subject: [PATCH] wifi: rtl8xxxu: AK3918 fixes for RTL8188FU (64-byte writes)
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_014gtE1qwzw7JFQVcpbdix3V
 ---
  .../realtek/rtl8xxxu/rtl8xxxu_8188f.c         |  2 +-
- .../wireless/realtek/rtl8xxxu/rtl8xxxu_core.c | 21 +++++++++++++------
- 2 files changed, 16 insertions(+), 7 deletions(-)
+ .../wireless/realtek/rtl8xxxu/rtl8xxxu_core.c | 24 ++++++++++++-------
+ 2 files changed, 17 insertions(+), 9 deletions(-)
 
 diff --git a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_8188f.c b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_8188f.c
-index 1e1c8fa19..66db531e1 100644
+index 0466b8be5df0..7098777892ad 100644
 --- a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_8188f.c
 +++ b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_8188f.c
-@@ -1736,7 +1736,7 @@ struct rtl8xxxu_fileops rtl8188fu_fops = {
+@@ -1751,7 +1751,7 @@ struct rtl8xxxu_fileops rtl8188fu_fops = {
  	.fill_txdesc = rtl8xxxu_fill_txdesc_v2,
  	.set_crystal_cap = rtl8188f_set_crystal_cap,
  	.cck_rssi = rtl8188f_cck_rssi,
@@ -25,7 +24,7 @@ index 1e1c8fa19..66db531e1 100644
  	.tx_desc_size = sizeof(struct rtl8xxxu_txdesc40),
  	.has_s0s1 = 1,
 diff --git a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
-index 5d102a124..a1af92238 100644
+index b625de928ebd..52c4087abcc7 100644
 --- a/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
 +++ b/drivers/net/wireless/realtek/rtl8xxxu/rtl8xxxu_core.c
 @@ -877,10 +877,19 @@ rtl8xxxu_writeN(struct rtl8xxxu_priv *priv, u16 addr, u8 *buf, u16 len)
@@ -52,17 +51,17 @@ index 5d102a124..a1af92238 100644
  		if (ret != blocksize)
  			goto write_error;
  
-@@ -901,8 +910,8 @@ rtl8xxxu_writeN(struct rtl8xxxu_priv *priv, u16 addr, u8 *buf, u16 len)
+@@ -900,10 +909,9 @@ rtl8xxxu_writeN(struct rtl8xxxu_priv *priv, u16 addr, u8 *buf, u16 len)
+ 	return len;
  
  write_error:
- 	dev_info(&udev->dev,
--		 "%s: Failed to write block at addr: %04x size: %04x\n",
--		 __func__, addr, blocksize);
+-	if (rtl8xxxu_debug & RTL8XXXU_DEBUG_REG_WRITE)
+-		dev_info(&udev->dev,
+-			 "%s: Failed to write block at addr: %04x size: %04x\n",
+-			 __func__, addr, blocksize);
++	dev_info(&udev->dev,
 +		 "%s: Failed to write block at addr: %04x size: %04x (ret %d)\n",
 +		 __func__, addr, blocksize, ret);
  	return -EAGAIN;
  }
  
--- 
-2.43.0
-
