@@ -264,32 +264,35 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
   and `tc100-logfwd` as `tc100net` (1002, no secret); `httpfront`, `tc100-mqttd`, `tc100_rtsp` keep root (CGIs, admin
   commands, devices). Two review rounds: owner/group/mode kept by every writer (rwconf, rewrite_config, import,
   all_password), onvifd keeps its last good config, `auth_closed` refuses every authenticated ONVIF call while
-  `user.pwd` cannot be read. Audit of 2026-11-27 (`[audit 3.2]`): with PRIVDROP on, autorun step 0c turns on the
-  kernel's `/tmp` protection (`fs.protected_symlinks=1`, `protected_hardlinks=1`, `protected_fifos=1`,
-  `protected_regular=2`), so a daemon that no longer runs as root cannot redirect a root write (`/tmp/update66.sig`,
-  `/tmp/upd66`) through a link it planted.
-- **Switch:** `PRIVDROP=0` in `boot.conf` (every daemon as root, secret files back to 600, `/tmp` protection left off),
-  then a reboot.
+  `user.pwd` cannot be read. Audits of 2026-11-27 (`[audit 3.2]`): with PRIVDROP on, `privdrop_harden`
+  (scripts/secret-modes.sh; autorun step 0c at boot, and every daemon start on the camera) makes `/tmp` and `/dev/shm`
+  root-only (0755) and turns on the kernel's link protection (`fs.protected_symlinks=1`, `protected_hardlinks=1`,
+  `protected_fifos=1`, `protected_regular=2`): a daemon that no longer runs as root can neither pre-create
+  `/tmp/upd66` / `/tmp/update66` (and swap what the web update runs or writes) nor plant `/tmp/update66.failed`,
+  `.staged`, `.sig` or `cfg-persist.lock`.
+- **Switch:** `PRIVDROP=0` in `boot.conf` (every daemon as root, secret files back to 600, `/tmp` left 1777 and the
+  link protection off), then a reboot.
 - **Test:** privdrop.md section 5: `ps -o user,comm` shows the four daemons under 1001/1002 (names only after an
   initramfs with the users), and every function works: web UI incl. a settings save, backup and restore, live view
   WebRTC, RTSP in Frigate, ONVIF discovery / stream / events, MQTT state and commands, mDNS name, log forwarding;
   a volume or motion change from the web UI keeps ONVIF's profiles right (the rwconf owner fix); `PRIVDROP=0` brings root
-  back for all. `cat /proc/sys/fs/protected_symlinks /proc/sys/fs/protected_regular` gives `1` and `2` (`0 0` with
-  `PRIVDROP=0`); a web update of the same package still goes through (it uses `/tmp`), and `grep step_0c /tmp/boot-trace.txt`
-  finds the step.
+  back for all. `stat -c %a /tmp /dev/shm` gives `755 755` and `cat /proc/sys/fs/protected_symlinks
+  /proc/sys/fs/protected_regular` gives `1` and `2` (`1777`, `0 0` after a reboot with `PRIVDROP=0`); every service
+  starts and runs (nothing else needs to write `/tmp` as another user); a web update of the same package still goes
+  through (it uses `/tmp`); `grep step_0c /tmp/boot-trace.txt` finds the step.
 - **Pass:** all of the above.
 
-### UP32-FLASH 3.2.0-rc2 written to the flash of ONE camera (owner's decision of 2026-11-27) — `to test` (after the SD gate)
-- **What:** the web update `tc100-3.2.0-rc2-update.tar` of the CI artifact `tc100-3-release` of the rc2 run on
+### UP32-FLASH 3.2.0-rc3 written to the flash of ONE camera (owner's decision of 2026-11-27) — `to test` (after the SD gate)
+- **What:** the web update `tc100-3.2.0-rc3-update.tar` of the CI artifact `tc100-3-release` of the rc3 run on
   `upgrade-3.2` (same build as the SD test files). It writes `stack`, the kernel and the initramfs through `flashw`
   (read back, md5); U-Boot, `boot`, `mac` and the U-Boot environment are not touched.
 - **Gate before flashing (a flashed kernel that does not boot never reaches the rescue initramfs, AGENTS.md):** the
-  same rc2 booted from the SD card in RAM on that camera first, at least: UP32-KERNEL boot checks (`/proc/cmdline`
+  same rc3 booted from the SD card in RAM on that camera first, at least: UP32-KERNEL boot checks (`/proc/cmdline`
   complete, `uname -r` 6.6.163, video 1080p and 720p, audio, Wi-Fi signal close to the flash kernel's, clean `dmesg`)
   and one hour of streaming, and UP32-BASE steps Wi-Fi join, ssh and web UI. Owner near the camera; the SD card in it
   (the update saves each partition to the card first, `flashw -b`; no card = only with "install without a backup").
 - **Install:** web UI, Settings -> Update & backup, upload the tar. The 3.0.2-rc8 updater of the camera installs it
-  (it ignores the new `SHA256SUMS`). Expected: version 3.2.0-rc2 after the reboot, settings kept.
+  (it ignores the new `SHA256SUMS`). Expected: version 3.2.0-rc3 after the reboot, settings kept.
 - **Switch:** none: the way back is a write of the previous package (below). Each partition is written only after the
   owner confirms it at the time of the update (AGENTS.md: explicit agreement per partition write).
 - **Ways back:** (1) web update with `tc100-3.0.2-rc8-update.tar` (the 3.2 updater accepts an unsigned package at

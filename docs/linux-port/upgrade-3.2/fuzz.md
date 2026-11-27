@@ -55,7 +55,9 @@ sh tests/fuzz/run.sh -b                     # build only (does a harness still c
 sh tests/fuzz/run.sh -t 600 -k -o tests/fuzz/out     # go on from the inputs an earlier run found
 ```
 
-`run.sh` copies the seeds of `tests/fuzz/corpus/<target>/` to its work directory first, so a run never changes what is in
+`run.sh` runs each target with `-seed=1` (`FUZZ_SEED` overrides it, `FUZZ_SEED=0` = a random seed for a long local
+run): the CI explores the same inputs for the same binary, so a red fuzz job is a real, reproducible finding, not
+chance [audit 3.2]. It copies the seeds of `tests/fuzz/corpus/<target>/` to its work directory first, so a run never changes what is in
 git. A crash leaves `crash-<hash>` (also `timeout-`, `oom-`, `leak-`) next to the log in `OUTDIR/<target>/`, and the script
 ends with status 1. To replay or minimise one:
 

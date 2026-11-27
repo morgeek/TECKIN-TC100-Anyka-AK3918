@@ -11,12 +11,13 @@ permissions:
 
 jobs:
   shell-syntax:
+    timeout-minutes: 10
     name: Shell syntax (busybox ash)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: Install busybox
-        run: sudo apt-get update && sudo apt-get install -y busybox-static
+        run: sudo apt-get update -o Acquire::Retries=3 && sudo apt-get install -y -o Acquire::Retries=3 busybox-static
       - name: Parse every camera-side shell script with busybox ash
         run: |
           fail=0
@@ -48,13 +49,13 @@ jobs:
           node-version: '22'
       - name: Freestanding ARM programs with this runner's compiler (no libgcc helper may be pulled in)
         run: |
-          sudo apt-get install -y -qq gcc-arm-linux-gnueabi
+          sudo apt-get update -qq -o Acquire::Retries=3 && sudo apt-get install -y -qq -o Acquire::Retries=3 gcc-arm-linux-gnueabi
           for f in src/httpfront/httpfront.c src/mdnsd/mdnsd.c src/ispflip/isp_flip.c; do
             arm-linux-gnueabi-gcc -Os -Wall -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie \
               -Wl,--build-id=none -s "$f" -o /tmp/fs.bin || exit 1
           done
       - name: Busybox (the scripts run under busybox ash on the camera; the tests use it when present, else dash)
-        run: sudo apt-get install -y -qq busybox-static
+        run: sudo apt-get install -y -qq -o Acquire::Retries=3 busybox-static
       - name: Python regressions
         run: |
           set -o pipefail
@@ -82,7 +83,7 @@ jobs:
           key: musl-1.2.6-${{ hashFiles('v3/musl/build-musl.sh') }}
       - name: musl programs under qemu-arm
         run: |
-          sudo apt-get install -y -qq qemu-user
+          sudo apt-get install -y -qq -o Acquire::Retries=3 qemu-user
           sh v3/musl/build-musl.sh
           python3 -m unittest -v tests.test_musl_programs_qemu tests.test_uclibc_standin_qemu 2>&1 | tee /tmp/musl.log
           grep -q '^OK' /tmp/musl.log && ! grep -q 'skipped' /tmp/musl.log
@@ -97,6 +98,7 @@ jobs:
         run: node --test tests/frontend.test.js tests/settings-save.test.js tests/live-video.test.js tests/whep-live.test.js tests/records-timeline.test.js
 
   whep-interop:
+    timeout-minutes: 30
     name: WebRTC gateway against aiortc (item 35)
     runs-on: ubuntu-latest
     steps:
@@ -123,7 +125,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: Install clang (libFuzzer, AddressSanitizer)
-        run: sudo apt-get update && sudo apt-get install -y -qq clang
+        run: sudo apt-get update -o Acquire::Retries=3 && sudo apt-get install -y -qq -o Acquire::Retries=3 clang
       - name: Build every harness and run it for 60 s
         run: sh tests/fuzz/run.sh -t 60 -j 4 -o fuzz-out
       - name: Crash inputs and logs

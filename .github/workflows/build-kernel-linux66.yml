@@ -34,7 +34,8 @@ on:
       - 'src/jpegenc/**'
       - 'VERSION'
       - '.github/ci-pins.sh'
-      - 'src/webui/package-lock.json'
+      - 'src/webui/**'
+      - '.github/workflows/build-base-rootfs.yml'
       - 'tests/ci-vendor-budget.sh'
       - '.github/workflows/build-kernel-linux66.yml'
   workflow_dispatch:
@@ -60,6 +61,8 @@ jobs:
     uses: ./.github/workflows/build-base-rootfs.yml
 
   build-kernel:
+    # [audit 3.2] bounded (GitHub default 360 min): kernel ~15 min, CVE step at most 25, release and uploads
+    timeout-minutes: 120
     name: Compile Linux 6.6 + Anyka AK3918 + CMA 16MB
     needs: base
     runs-on: ubuntu-latest
@@ -86,8 +89,8 @@ jobs:
 
       - name: Install Build Dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential bc libncurses5-dev libssl-dev libelf-dev u-boot-tools gcc-arm-linux-gnueabi flex bison device-tree-compiler squashfs-tools zip
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y -o Acquire::Retries=3 build-essential bc libncurses5-dev libssl-dev libelf-dev u-boot-tools gcc-arm-linux-gnueabi flex bison device-tree-compiler squashfs-tools zip
 
       - name: Clone Linux 6.6 Stable Tree (tag pinned in .github/ci-pins.sh)
         run: |
@@ -246,7 +249,7 @@ jobs:
           gcc -O2 -Wall -o /tmp/envtool-host v3/install/envtool.c
           # audit 2026-11-06 S5: the web JavaScript and inline scripts/styles of the image are minified (esbuild, pinned)
           # src/webui/package-lock.json pins esbuild 0.25.12 and the integrity hash of every package (npm ci checks it)
-          npm ci --prefix src/webui --no-audit --no-fund >/dev/null
+          npm ci --prefix src/webui --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=5000 --fetch-timeout=120000 >/dev/null
           MINIFY_WWW=1 READELF=arm-linux-gnueabi-readelf sh v3/build-stack.sh output/tc100test base-rootfs/rootfs.cpio.gz output/stack
           sh v3/build-release.sh output/stack output/oipc.img output/tc100test/oipcrd66.gz output/envtool output/release
 
@@ -310,7 +313,7 @@ jobs:
           # to 30 minutes
           r=
           for i in $(seq 1 60); do
-            r=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&per_page=1" \
+            r=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&event=push&per_page=1" \
                 --jq '.workflow_runs[0] | "\(.status) \(.conclusion)"' 2>/dev/null || true)
             case "$r" in "completed success") break ;; completed*) echo "CI of $GITHUB_SHA: $r"; exit 1 ;; esac
             sleep 30

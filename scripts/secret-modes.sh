@@ -32,12 +32,35 @@ privdrop_enabled() {
   return 0
 }
 
+# privdrop_harden: what root shares with the dropped daemons, made safe before any of them runs [audit 3.2]. Called by
+# autorun (step 0c, every boot with PRIVDROP on) and by privdrop_opt (a daemon started after PRIVDROP was set to 1 without
+# a reboot). Root alone runs scripts here; the dropped daemons only read in /tmp (rec_control, wifi-signal.avg) and
+# never create a file there. So /tmp and /dev/shm become root-only (0755): a daemon taken over cannot pre-create
+# /tmp/upd66 or /tmp/update66 (and swap what the web update runs or writes), nor plant /tmp/update66.failed, .staged,
+# .sig or cfg-persist.lock. The kernel's link protections are turned on as well (defence in depth). Always succeeds;
+# PRIVDROP=0 does not undo it (root only needs nothing more).
+privdrop_harden() {
+  # the real folders only on the camera (it always has /mnt/config): a build host running the tests is never touched
+  [ -n "${TC100_PRIVDROP_FS:-}${TC100_PRIVDROP_DIRS:-}" ] || [ -d /mnt/config ] || return 0
+  _ph_fs=${TC100_PRIVDROP_FS:-/proc/sys/fs}
+  echo 1 > "$_ph_fs/protected_symlinks" 2>/dev/null
+  echo 1 > "$_ph_fs/protected_hardlinks" 2>/dev/null
+  echo 1 > "$_ph_fs/protected_fifos" 2>/dev/null
+  echo 2 > "$_ph_fs/protected_regular" 2>/dev/null
+  for _ph_d in ${TC100_PRIVDROP_DIRS:-/tmp /dev/shm}; do
+    [ -d "$_ph_d" ] && [ ! -L "$_ph_d" ] && chown 0:0 "$_ph_d" 2>/dev/null && chmod 0755 "$_ph_d" 2>/dev/null
+  done
+  return 0
+}
+
 # privdrop_opt [svc|net]: "-D uid:gid" of the service user the daemon runs as (default svc), nothing when PRIVDROP=0.
 # Always succeeds. It first sets the modes of /mnt/config (TC100_CONFIG_DIR moves it, for the tests), so that a service
 # restarted after PRIVDROP was changed (no reboot) finds its files readable.
 privdrop_opt() {
   secret_modes_fix "${TC100_CONFIG_DIR:-/mnt/config}"
   privdrop_enabled "${TC100_CONFIG_DIR:-/mnt/config}" || return 0
+  # the camera itself only: a test (TC100_CONFIG_DIR set) must never make the /tmp of the build host root-only
+  [ -n "${TC100_CONFIG_DIR:-}" ] || privdrop_harden
   case "$1" in
     net) printf '%s' "-D $TC100_NET_UID:$TC100_NET_GID" ;;
     *) printf '%s' "-D $TC100_SVC_UID:$TC100_SVC_GID" ;;

@@ -2,7 +2,7 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
-## What is new in 3.2.0-rc2 (test build, branch upgrade-3.2: try it from the SD card only)
+## What is new in 3.2.0-rc3 (test build, branch upgrade-3.2: try it from the SD card only)
 Everything of 3.0.2-rc8, plus the major upgrade:
 - **Up-to-date kernel:** Linux 6.6.163 (three years of stable fixes).
 - **Up-to-date base system:** BusyBox, Dropbear (ssh), wpa_supplicant / hostapd (Wi-Fi), curl, and the TLS library of
@@ -12,8 +12,8 @@ Everything of 3.0.2-rc8, plus the major upgrade:
 - **Less root:** the ONVIF, WebRTC, mDNS and log-forwarding services run without administrator rights
   (`PRIVDROP=0` in `boot.conf` turns it off).
 - **Fix:** an ONVIF subscription with a very long duration got 5 s instead of one hour.
-- **rc2 (audit of the branch):** `/tmp` is protected while those services run without administrator rights, and a
-  settings backup holding an empty `boot.conf` no longer empties the camera's.
+- **rc2 and rc3 (two audits of the branch):** `/tmp` is reserved to root while those services run without
+  administrator rights, and a settings backup with an empty `boot.conf` no longer empties the camera's.
 - **To test (SD card, nothing written to the flash):** `UP32-KERNEL`, `UP32-BASE`, `UP32-SIGN`, `UP32-PRIVDROP`,
   `UP32-FUZZ` in `docs/linux-port/test-queue.md` of the branch.
 

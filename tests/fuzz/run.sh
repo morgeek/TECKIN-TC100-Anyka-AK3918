@@ -72,7 +72,7 @@ run_one() {
 	[ -d "tests/fuzz/corpus/$t" ] && cp tests/fuzz/corpus/"$t"/* "$d/corpus/" 2>/dev/null
 	D=""; [ -n "$dict" ] && D="-dict=tests/fuzz/$dict.dict"
 	# -rss_limit_mb: the daemons keep a few MB of statics; -timeout: a hang is a finding (the daemons have a 2 to 5 s read timeout)
-	"$OUT/bin/$t" -max_total_time="$SECS" -timeout=10 -rss_limit_mb=2048 -max_len=16384 -print_final_stats=1 $D \
+	"$OUT/bin/$t" -seed="${FUZZ_SEED:-1}" -max_total_time="$SECS" -timeout=10 -rss_limit_mb=2048 -max_len=16384 -print_final_stats=1 $D \
 		-artifact_prefix="$d/" "$d/corpus" >"$d/log" 2>&1
 	rc=$?
 	if [ $rc -ne 0 ] || ls "$d"/crash-* "$d"/timeout-* "$d"/oom-* "$d"/leak-* >/dev/null 2>&1; then

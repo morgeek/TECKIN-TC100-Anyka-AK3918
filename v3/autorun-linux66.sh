@@ -68,15 +68,10 @@ case "$(sed -n 's/^VM_TUNE="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /mnt/config/boot.con
 esac
 
 bt step_0c
-# 0c. [audit 3.2] links and files in /tmp (mode 1777): with PRIVDROP=1 the network daemons no longer run as root, so a
-#     symlink or a file they plant in /tmp must not redirect a later write of root (update state, temporary copies) to
-#     another file. The kernel's own protection, off by default without systemd. PRIVDROP=0: unchanged, as before 3.2.
-if sh -c '. /mnt/scripts/secret-modes.sh && privdrop_enabled /mnt/config' </dev/null 2>/dev/null; then
-  echo 1 > /proc/sys/fs/protected_symlinks 2>/dev/null
-  echo 1 > /proc/sys/fs/protected_hardlinks 2>/dev/null
-  echo 1 > /proc/sys/fs/protected_fifos 2>/dev/null
-  echo 2 > /proc/sys/fs/protected_regular 2>/dev/null
-fi
+# 0c. [audit 3.2] with PRIVDROP=1 the network daemons no longer run as root: /tmp and /dev/shm become root-only and the
+#     kernel's link protections are turned on, before any service starts (privdrop_harden, scripts/secret-modes.sh; the
+#     daemon start does it again when PRIVDROP is set to 1 without a reboot). PRIVDROP=0: unchanged, as before 3.2.
+sh -c '. /mnt/scripts/secret-modes.sh && privdrop_enabled /mnt/config && privdrop_harden' </dev/null >/dev/null 2>&1 || :
 
 bt step_0
 # 0. Start Hardware Watchdog keeper (feed every 15s, 60s timeout)

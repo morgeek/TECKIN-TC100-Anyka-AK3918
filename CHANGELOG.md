@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [3.2.0-rc3] - 2026-11-27 (branch `upgrade-3.2`; rc2 plus the fixes of the second audit)
+
+### Security
+- **Second audit** (`[audit 3.2]`): with `PRIVDROP` on, `/tmp` and `/dev/shm` become root-only (a daemon without root
+  could pre-create `/tmp/upd66` and swap what the web update runs or writes, which the link protection of rc2 did not
+  cover); the protection is also applied when a daemon starts after `PRIVDROP` was set to 1 without a reboot; a settings
+  archive whose `boot.conf` holds only the signature policy line no longer empties the camera's; the build reports the
+  unpacked size of the initramfs (warning above 7 MiB).
+
 ## [3.2.0-rc2] - 2026-11-27 (branch `upgrade-3.2`; rc1 plus the fixes of the audit of the branch)
 
 ### Security

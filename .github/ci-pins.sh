@@ -27,7 +27,8 @@ MBEDTLS_URL="https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-$MBED
 fetch_sha256() {
 	_sha=$1; _out=$2; shift 2
 	for _u in "$@"; do
-		curl -sfL --retry 3 "$_u" -o "$_out" || continue
+		# [audit 3.2] bounded and retried: a stalled or refused connection must not hang or fail the build at once
+		curl -sfL --connect-timeout 30 --max-time 900 --retry 5 --retry-delay 15 --retry-all-errors "$_u" -o "$_out" || continue
 		if echo "$_sha  $_out" | sha256sum -c - >/dev/null 2>&1; then return 0; fi
 		echo "fetch_sha256: SHA-256 mismatch for $_u" >&2
 		rm -f "$_out"
@@ -39,8 +40,15 @@ fetch_sha256() {
 git_clone_pinned() {
 	_tag=$1; _commit=$2; _dir=$3; shift 3
 	for _u in "$@"; do
-		rm -rf "$_dir"
-		git clone -q --depth 1 -b "$_tag" "$_u" "$_dir" || continue
+		# [audit 3.2] three tries per source, each bounded (a transient failure of the host must not turn the build red)
+		_ok=0
+		for _try in 1 2 3; do
+			rm -rf "$_dir"
+			if timeout 900 git clone -q --depth 1 -b "$_tag" "$_u" "$_dir"; then _ok=1; break; fi
+			echo "git_clone_pinned: $_u try $_try failed" >&2
+			sleep 20
+		done
+		[ "$_ok" = 1 ] || continue
 		_head=$(git -C "$_dir" rev-parse HEAD)
 		if [ "$_head" = "$_commit" ]; then return 0; fi
 		echo "git_clone_pinned: $_u $_tag is $_head, expected $_commit" >&2

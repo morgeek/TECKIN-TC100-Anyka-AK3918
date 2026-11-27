@@ -470,43 +470,80 @@ class StartScripts(unittest.TestCase):
 
 
 class TmpLinkProtection(unittest.TestCase):
-    """[audit 3.2] with PRIVDROP on, autorun turns on the kernel's protection of /tmp links and files (a daemon that no
-    longer runs as root must not be able to redirect a write of root through /tmp); PRIVDROP=0 leaves it as before"""
+    """[audit 3.2] with PRIVDROP on, /tmp and /dev/shm become root-only and the kernel's link protections are turned on
+    (privdrop_harden): at boot (autorun step 0c) and at a daemon start on the camera. A daemon that no longer runs as root
+    cannot pre-create /tmp/upd66 (the web update) or plant files there. PRIVDROP=0 leaves everything as before."""
+
+    WANT = {'protected_symlinks': '1', 'protected_hardlinks': '1', 'protected_fifos': '1', 'protected_regular': '2'}
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        (self.d / 'config').mkdir()
+        self.fs = self.d / 'fs'
+        self.fs.mkdir()
+        self.shared = [self.d / 'tmp', self.d / 'shm']
+        for p in self.shared:
+            p.mkdir()
+            os.chmod(p, 0o1777)
+        self.env = dict(os.environ, TC100_PRIVDROP_FS=str(self.fs), TC100_PRIVDROP_DIRS=' '.join(map(str, self.shared)))
+        self.env.pop('TC100_CONFIG_DIR', None)
+
+    def tearDown(self):
+        shutil.rmtree(self.d, ignore_errors=True)
 
     def block(self):
         s = text('v3/autorun-linux66.sh')
         return s[s.index('bt step_0c'):s.index('\nbt step_0\n')]
 
     def run_block(self, boot):
-        d = Path(tempfile.mkdtemp())
-        try:
-            (d / 'config').mkdir()
-            (d / 'config' / 'boot.conf').write_text(boot)
-            sysd = d / 'sys'
-            sysd.mkdir()
-            code = 'bt() { :; }\n' + self.block().replace('/mnt/config', str(d / 'config')).replace('/proc/sys/fs', str(sysd)).replace(
-                '/mnt/scripts/secret-modes.sh', str(ROOT / 'scripts' / 'secret-modes.sh'))
-            r = subprocess.run(SH + ['-c', code], capture_output=True, text=True, timeout=20)
-            self.assertEqual(r.returncode, 0, r.stderr)
-            return {p.name: p.read_text().strip() for p in sysd.iterdir()}
-        finally:
-            shutil.rmtree(d, ignore_errors=True)
+        (self.d / 'config' / 'boot.conf').write_text(boot)
+        code = 'bt() { :; }\n' + self.block().replace('/mnt/config', str(self.d / 'config')).replace(
+            '/mnt/scripts/secret-modes.sh', str(ROOT / 'scripts' / 'secret-modes.sh'))
+        r = subprocess.run(SH + ['-c', code], capture_output=True, text=True, timeout=20, env=self.env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return {p.name: p.read_text().strip() for p in self.fs.iterdir()}
+
+    def modes(self):
+        return [p.stat().st_mode & 0o7777 for p in self.shared]
 
     def test_on_by_default_and_with_privdrop(self):
-        want = {'protected_symlinks': '1', 'protected_hardlinks': '1', 'protected_fifos': '1', 'protected_regular': '2'}
         for boot in ('', 'PRIVDROP=1\n', 'PRIVDROP="1" # on\n'):
             with self.subTest(boot=boot):
-                self.assertEqual(self.run_block(boot), want)
+                for p in self.shared:
+                    os.chmod(p, 0o1777)
+                self.assertEqual(self.run_block(boot), self.WANT)
+                if os.geteuid() == 0:
+                    self.assertEqual(self.modes(), [0o755, 0o755], 'root-only shared folders')
+                else:
+                    self.assertEqual(self.modes(), [0o1777, 0o1777], 'not root: chown fails, nothing changed')
 
     def test_off_with_privdrop_0(self):
         for boot in ('PRIVDROP=0\n', "PRIVDROP='off'\n", 'PRIVDROP=0 # why\n'):
             with self.subTest(boot=boot):
                 self.assertEqual(self.run_block(boot), {})
+                self.assertEqual(self.modes(), [0o1777, 0o1777])
 
-    def test_before_any_service(self):
+    def test_daemon_start_hardens_on_the_camera_only(self):
+        code = '. "$1"; privdrop_opt svc'
+        lib = str(ROOT / 'scripts' / 'secret-modes.sh')
+        # TC100_CONFIG_DIR unset (the camera): hardened; the config folder is the real /mnt/config there, absent here
+        r = subprocess.run(SH + ['-c', code, 'sh', lib], capture_output=True, text=True, timeout=20, env=self.env)
+        self.assertEqual(r.stdout, '-D 1001:1001', r.stderr)
+        self.assertEqual({p.name for p in self.fs.iterdir()}, set(self.WANT))
+        # a test configuration folder: never touches the host
+        for p in self.fs.iterdir():
+            p.unlink()
+        env = dict(self.env, TC100_CONFIG_DIR=str(self.d / 'config'))
+        r = subprocess.run(SH + ['-c', code, 'sh', lib], capture_output=True, text=True, timeout=20, env=env)
+        self.assertEqual(r.stdout, '-D 1001:1001', r.stderr)
+        self.assertEqual(list(self.fs.iterdir()), [])
+
+    def test_before_any_service_and_one_place(self):
         s = text('v3/autorun-linux66.sh')
         self.assertLess(s.index('bt step_0c'), s.index('\nbt step_0\n'))
         self.assertLess(s.index('bt step_0c'), s.index('/mnt/controlscripts/'))
+        self.assertIn('privdrop_harden', self.block())
+        self.assertNotIn('/proc/sys/fs', self.block())
 
 
 class TheImage(unittest.TestCase):

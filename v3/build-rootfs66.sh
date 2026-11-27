@@ -65,6 +65,11 @@ fi
 # each NEEDED library in /lib or /usr/lib of this image after the prune above (what the prune list moved to ext/ is not
 # there before the user space is mounted); a prune entry or a base image change that breaks it fails the build here
 sh "$HERE/check-needed.sh" "$PWD" "$PWD/lib:$PWD/usr/lib"
+# [audit 3.2] the unpacked size stays in RAM for good (ramfs): reported, and a warning above the ~7 MB budget of
+# initramfs-prune.txt (compare MemAvailable with 3.0.2 on the SD boot)
+u=$(du -sk . | cut -f1)
+echo "initramfs: $u KiB unpacked"
+[ "$u" -le 7168 ] || echo "::warning title=initramfs::$u KiB unpacked, more than the 7 MiB budget of v3/initramfs-prune.txt"
 INITRD_SIZE=${INITRD_SIZE:-2012654}
 # reproducible image (item CI-PIN): with SOURCE_DATE_EPOCH (the CI sets it to the commit time) every file gets that time,
 # the list is sorted and GNU cpio renumbers the inodes (--reproducible, cpio 2.14 or later: without it

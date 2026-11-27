@@ -705,6 +705,8 @@ _ce_restore() {
     _rs_cur=$(grep -E '^[[:space:]]*UPDATE_REQUIRE_SIG=' "$CONFIG_ROOT/boot.conf" 2>/dev/null | tail -n 1)
     { grep -vE '^[[:space:]]*UPDATE_REQUIRE_SIG=' "$_rs/x/config/boot.conf"; [ -z "$_rs_cur" ] || echo "$_rs_cur"; } > "$_rs/bc.new" &&
       cat "$_rs/bc.new" > "$_rs/x/config/boot.conf"
+    # an archive boot.conf that held only the policy line is empty now: left out, never a marker [audit 3.2]
+    [ -s "$_rs/x/config/boot.conf" ] || rm -f "$_rs/x/config/boot.conf"
   fi
   _rs_files=""; _rs_marks=""
   for _rs_f in $(cd "$_rs/x/config" && find . -type f | sed 's|^\./||' | sort); do

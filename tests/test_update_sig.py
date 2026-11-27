@@ -659,6 +659,13 @@ class RestoreKeepsThePolicy(unittest.TestCase):
         self.assertEqual((self.cfg / 'boot.conf').read_text(), 'BOOT_GUARD=1\nUPDATE_REQUIRE_SIG=1\n')
         self.assertEqual((self.cfg / 'notes.txt').read_text(), 'kept\n')
 
+    @unittest.skipUnless(shutil.which('bash'), 'needs bash')
+    def test_an_archive_boot_conf_with_only_the_policy_line_never_empties_the_camera_one(self):
+        (self.cfg / 'boot.conf').write_text('BOOT_GUARD=1' + chr(10))          # a 3.0.x boot.conf: no policy line
+        res = self.restore([('config/boot.conf', b'UPDATE_REQUIRE_SIG=0' + bytes([10])), ('config/notes.txt', b'kept' + bytes([10]))])
+        self.assertTrue(res.get('ok'), res)
+        self.assertEqual((self.cfg / 'boot.conf').read_text(), 'BOOT_GUARD=1' + chr(10))
+
     def test_cfg_persist_keeps_update_keys_and_never_deletes_them(self):
         s = (ROOT / 'v3/linux66-sd/cfg-persist').read_text()
         self.assertIn('*/update-keys/*) continue', s)               # apply_deleted skips them
