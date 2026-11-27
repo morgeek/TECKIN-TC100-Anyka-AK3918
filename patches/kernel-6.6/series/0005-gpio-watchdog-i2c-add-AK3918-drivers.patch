@@ -1123,3 +1123,6 @@ index 000000000000..d2df770ebf12
 +module_platform_driver(ak39_wdt_driver);
 +MODULE_DESCRIPTION("Anyka AK39 top watchdog");
 +MODULE_LICENSE("GPL");
+-- 
+2.43.0
+

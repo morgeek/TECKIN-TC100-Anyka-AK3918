@@ -948,3 +948,6 @@ index 000000000000..753f1b2907f6
 +}
 +module_init(ak39_uart_init);
 +MODULE_LICENSE("GPL");
+-- 
+2.43.0
+

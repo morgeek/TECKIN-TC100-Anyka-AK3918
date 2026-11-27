@@ -25,3 +25,6 @@ index 6a34cf41e175..ed0b6e6b8119 100644
  	vi->q.timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
  	vi->q.lock = &vi->lock;
  	vi->q.dev = dev;
+-- 
+2.43.0
+

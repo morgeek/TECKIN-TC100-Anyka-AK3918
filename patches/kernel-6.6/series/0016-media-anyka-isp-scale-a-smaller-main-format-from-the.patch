@@ -85,3 +85,6 @@ index ed0b6e6b8119..1e8c87571c1a 100644
  	}
  	ispdrv_vo_set_main_channel_scale(vi->width, vi->height);
  	if (sub_channel)
+-- 
+2.43.0
+

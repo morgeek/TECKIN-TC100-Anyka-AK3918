@@ -89,3 +89,6 @@ index 82d66c5f57d7..abe55178e89f 100644
  	ret = devm_request_irq(dev, v->irq, ak39_venc_irq, 0, "ak39-venc", v);
  	if (ret)
  		return ret;
+-- 
+2.43.0
+

@@ -351,3 +351,6 @@ index 000000000000..5d6e8f26e4aa
 +
 +MODULE_DESCRIPTION("Anyka AK3918EV300 SPI controller (polled PIO)");
 +MODULE_LICENSE("GPL");
+-- 
+2.43.0
+

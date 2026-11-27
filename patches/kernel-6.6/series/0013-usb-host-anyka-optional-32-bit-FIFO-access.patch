@@ -107,3 +107,6 @@ index 99afbf987b1e..94af00d063f9 100644
  
  			if (ep->epnum == 0) {
  				u8 regval = hc_index_readb(epfifo, USB_REG_TXCSR1);
+-- 
+2.43.0
+

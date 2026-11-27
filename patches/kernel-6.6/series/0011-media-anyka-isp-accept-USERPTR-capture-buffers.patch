@@ -25,3 +25,6 @@ index 23909bc2b7ec..6a34cf41e175 100644
  	vi->q.drv_priv = vi;
  	vi->q.buf_struct_size = sizeof(struct ak39_vi_buf);
  	vi->q.ops = &vi_qops;
+-- 
+2.43.0
+

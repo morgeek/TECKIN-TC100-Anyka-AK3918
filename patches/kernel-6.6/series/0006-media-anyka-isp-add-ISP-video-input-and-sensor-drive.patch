@@ -18907,3 +18907,6 @@ index 000000000000..325264cb312d
 +#define AK39_VI_G_PHYS	_IOWR('V', BASE_VIDIOC_PRIVATE + 0, struct ak39_vi_phys)
 +
 +#endif
+-- 
+2.43.0
+

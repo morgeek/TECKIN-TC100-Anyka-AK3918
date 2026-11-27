@@ -136,3 +136,6 @@ index 4daaeeed1949..16457c263db5 100644
  }
  
  static const struct of_device_id ak39_venc_of_match[] = {
+-- 
+2.43.0
+

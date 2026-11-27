@@ -64,3 +64,6 @@ index 7098777892ad..1af64c5a6f47 100644
  	mcs = mcsbase | mcsbase << 8 | mcsbase << 16 | mcsbase << 24;
  
  	rtl8xxxu_write32(priv, REG_TX_AGC_A_MCS03_MCS00, mcs);
+-- 
+2.43.0
+

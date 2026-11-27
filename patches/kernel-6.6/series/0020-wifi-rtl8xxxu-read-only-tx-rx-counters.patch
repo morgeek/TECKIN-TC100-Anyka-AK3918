@@ -175,3 +175,6 @@ index ad085b8acbf3..a0e5ed6abc2b 100644
  
  		ret = rtl8xxxu_submit_rx_urb(priv, rx_urb);
  		if (ret)
+-- 
+2.43.0
+
