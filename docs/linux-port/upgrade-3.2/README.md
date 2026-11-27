@@ -33,7 +33,8 @@ Rules for every stream (on top of `AGENTS.md`):
 
 **3.2.0-rc1** (`df8fb95`, `VERSION` 3.2.0-rc1) has all six streams merged, each reviewed by the reviewer agent (the
 kernel, the signature, the base system / DTLS port and the privilege drop twice), local CI green (tests, cross, kernel,
-fuzz, whep). The GitHub runs of rc1 give the SD files and the update tar (`tc100-3-release`). Nothing has run on a
+fuzz, whep). GitHub: build run 46024956529 (`df8fb95`) green, it gives the SD files and the update tar
+(`tc100-3-release`); CI run 46051058827 (`1ef1b20`, test and CI fixes only, no firmware change) green. Nothing has run on a
 camera yet. Entries: `test-queue.md` section "3.2 on branch `upgrade-3.2`" (UP32-KERNEL, UP32-BASE, UP32-SIGN,
 UP32-PRIVDROP, UP32-FUZZ, UP32-FLASH, UP32-SBOM). Owner's decision of 2026-11-27: after the SD gate, the rc1 may be
 written to ONE camera (UP32-FLASH, ways back written there).
@@ -55,4 +56,8 @@ Traps met on this branch:
 - The base image cache key hashes `build-base-rootfs.yml`, `v3/buildroot/**`, `src/whep/**` and `ci-pins.sh`: touching
   any of them rebuilds Buildroot (about 18 minutes on GitHub).
 - The CVE step downloads the NVD data (about 20 minutes) once per ISO week (cached); it never fails the build.
+- The GitHub runner is an ordinary user with passwordless sudo, local CI runs as root: a test that starts a daemon
+  through `sudo` must kill the daemon itself (SIGKILL to sudo leaves it running) and must not let it inherit stdout,
+  or the `unittest | tee` step never ends (run 46024956559 hung 6 h; fixed in `1ef1b20`, host tests now limited to
+  45 min). Reproduce with a `useradd` + NOPASSWD sudo user in a `python:3.12` container.
 - The stream worktrees were local to the main session (scratchpad); the branches `up-*` were merged and are not pushed.
