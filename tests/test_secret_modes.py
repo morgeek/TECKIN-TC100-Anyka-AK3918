@@ -32,6 +32,10 @@ def mode(p):
 class SecretModes(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix='secmode-'))
+        # PRIVDROP=0: every secret is 600 here; with the privilege drop on, two of them are 640 for the service group
+        # (tests/test_privdrop.py)
+        (self.tmp / 'boot.conf').write_text('PRIVDROP=0\n')
+        os.chmod(self.tmp / 'boot.conf', 0o644)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -46,7 +50,6 @@ class SecretModes(unittest.TestCase):
         made = {}
         for i, name in enumerate(SECRETS):
             made[name] = self.make(name, 0o755 if i % 2 else 0o644)
-        self.make('boot.conf', 0o644)                       # not a secret: left alone
         r = run_fix(self.tmp)
         self.assertEqual(r.returncode, 0, r.stderr)
         for name, p in made.items():

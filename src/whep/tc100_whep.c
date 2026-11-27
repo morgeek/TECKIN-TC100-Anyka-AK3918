@@ -12,12 +12,13 @@
  * GET /status. A viewer that stops sending authenticated ICE consent checks is dropped after 30 s (RFC 7675).
  *
  *   tc100-whep [-i wlan0[,eth0]] [-p 8889] [-u 8189] [-s sub|main] [-m 2] [-a 1] [-r 554] [-U user] [-w pwfile]
- *              [-c /mnt/config] [-d]
+ *              [-c /mnt/config] [-I idle_s] [-D uid:gid] [-d]
  * Build: Buildroot package v3/buildroot/package/tc100-whep (musl, system Mbed TLS 3.6 with MBEDTLS_SSL_DTLS_SRTP);
  * on a host: see tests/docker/whep-interop.sh. */
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
+#include <grp.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -818,8 +819,11 @@ static void read_pw(void)
 	static const char *b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 	size_t n, i, o = 0;
 
+	if (!f) {
+		if (errno == ENOENT) G.auth[0] = 0;	/* no file: no password. A file that cannot be read (mode) keeps the last one */
+		return;
+	}
 	G.auth[0] = 0;
-	if (!f) return;
 	if (fgets(pw, sizeof pw, f)) pw[strcspn(pw, "\r\n")] = 0;
 	fclose(f);
 	if (!pw[0]) return;			/* no password: tc100_rtsp is open */
@@ -834,14 +838,36 @@ static void read_pw(void)
 	memset(pw, 0, sizeof pw); memset(plain, 0, sizeof plain);
 }
 
+/* [up-privdrop] -D UID:GID (PRIVDROP=1 in boot.conf, the start script passes it): after the sockets are bound and the
+ * files that only root may read are open, give up root for good: setgroups(0), setgid, setuid, every call checked, and
+ * root must not come back. Any failure aborts the daemon (a half-dropped process would be worse than none). The same
+ * function, word for word, is in src/onvifd, src/whep and src/logfwd (tests/test_privdrop.py compares them). */
+static int priv_drop(const char *spec)
+{
+	unsigned long v[2] = { 0, 0 };
+	int k, n;
+
+	if (!spec) return 0;
+	for (k = 0; k < 2; k++) {
+		for (n = 0; *spec >= '0' && *spec <= '9' && n < 6; n++) v[k] = v[k] * 10 + (unsigned long)(*spec++ - '0');
+		if (!n || (k == 0 && *spec++ != ':')) return -1;
+	}
+	if (*spec || !v[0] || !v[1] || v[0] > 65534 || v[1] > 65534) return -1;	/* never "drop" to root */
+	if (setgroups(0, NULL) || setgid((gid_t)v[1]) || setuid((uid_t)v[0])) return -1;
+	if (getuid() != (uid_t)v[0] || geteuid() != (uid_t)v[0] || getgid() != (gid_t)v[1] || getegid() != (gid_t)v[1]) return -1;
+	if (setuid(0) == 0) return -1;	/* root must be gone for good */
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
 	int o, i;
+	const char *drop = NULL;
 
 	G.http_port = 8889; G.udp_port = 8189; G.max = 2; G.audio = 1; G.rtsp_port = 554;
 	snprintf(G.iface, sizeof G.iface, "wlan0,eth0"); snprintf(G.cdir, sizeof G.cdir, "/mnt/config");
 	snprintf(G.pwfile, sizeof G.pwfile, "/mnt/config/user.pwd"); snprintf(G.ruser, sizeof G.ruser, "root");
-	while ((o = getopt(argc, argv, "i:p:u:s:m:a:r:U:w:c:I:d")) != -1) {
+	while ((o = getopt(argc, argv, "i:p:u:s:m:a:r:U:w:c:I:D:d")) != -1) {
 		switch (o) {
 		case 'i': snprintf(G.iface, sizeof G.iface, "%s", optarg); break;
 		case 'p': G.http_port = (unsigned)atoi(optarg); break;
@@ -854,8 +880,9 @@ int main(int argc, char **argv)
 		case 'w': snprintf(G.pwfile, sizeof G.pwfile, "%s", optarg); break;
 		case 'c': snprintf(G.cdir, sizeof G.cdir, "%s", optarg); break;
 		case 'I': G.idle_s = atoi(optarg); break;
+		case 'D': drop = optarg; break;
 		case 'd': G.debug = 1; break;
-		default: fprintf(stderr, "usage: tc100-whep [-i if[,if]] [-p http] [-u udp] [-s sub|main] [-m max] [-a 0|1] [-r rtsp] [-U user] [-w pwfile] [-c dir] [-I idle_s] [-d]\n"); return 2;
+		default: fprintf(stderr, "usage: tc100-whep [-i if[,if]] [-p http] [-u udp] [-s sub|main] [-m max] [-a 0|1] [-r rtsp] [-U user] [-w pwfile] [-c dir] [-I idle_s] [-D uid:gid] [-d]\n"); return 2;
 		}
 	}
 	if (G.max < 1) G.max = 1;
@@ -881,6 +908,9 @@ int main(int argc, char **argv)
 	if (G.http < 0 || G.udp < 0) { LOG("cannot listen (http %u on loopback, udp %u): %s", G.http_port, G.udp_port, strerror(errno)); return 1; }
 	read_pw();
 	wh_nets_parse(&nets, getenv("TC100_NET_ALLOW"));
+	/* [up-privdrop] the certificate is made or read and both sockets are bound: no root needed from here on (user.pwd is
+	 * read again at every request: scripts/secret-modes.sh keeps it readable by the service group) */
+	if (priv_drop(drop)) { LOG("cannot drop root (-D %s): stopping", drop); return 1; }
 	LOG("udp %u: %s", G.udp_port, nets.n ? "datagrams from the allowed networks only (NET_LAN_ONLY)" : "no network filter");
 	LOG("ready: WHEP on 127.0.0.1:%u, ICE-lite on udp %u (%s), %s stream, up to %d viewers, certificate %.23s...", G.http_port, G.udp_port, G.iface,
 	    G.main_stream ? "main" : "sub", G.max, G.fp);

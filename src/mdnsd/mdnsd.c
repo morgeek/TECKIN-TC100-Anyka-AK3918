@@ -13,7 +13,7 @@
  * three system calls and two ioctls for every query of the subnet); the TXT strings of -v are read only when a
  * DNS-SD answer is due.
  *
- * usage: tc100-mdnsd [-i IFACE] [-s] [-v]     (default wlan0)
+ * usage: tc100-mdnsd [-i IFACE] [-s] [-v] [-D UID:GID]   (default wlan0)
  *
  * Freestanding like src/httpfront (raw ARM EABI system calls, no C library): a few KB. Build:
  *   arm-linux-gnueabi-gcc -Os -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie
@@ -39,6 +39,13 @@ static long sc(long n, long a, long b, long c, long d, long e, long f)
 #define SYS_open 5
 #define SYS_close 6
 #define SYS_ioctl 54
+#define SYS_getuid32 199
+#define SYS_getgid32 200
+#define SYS_geteuid32 201
+#define SYS_getegid32 202
+#define SYS_setgroups32 206
+#define SYS_setuid32 213
+#define SYS_setgid32 214
 #define SYS_nanosleep 162
 #define SYS_clock_gettime 263
 #define SYS_socket 281
@@ -171,9 +178,31 @@ static void join(int s)
 	sc(SYS_setsockopt, s, IPPROTO_IP, IP_ADD_MEMBERSHIP, (long)&m, sizeof m, 0);	/* EADDRINUSE: already in */
 }
 
+/* [up-privdrop] -D UID:GID (PRIVDROP=1 in boot.conf, controlscripts/mdns passes it): once the socket is bound and has joined
+ * the group, give up root for good: setgroups(0), setgid, setuid, each checked, and root must not come back. A failure
+ * stops the daemon. Same rules as priv_drop() of src/onvifd (tests/test_privdrop.py), with raw system calls. */
+static int priv_drop(const char *spec)
+{
+	unsigned long v[2] = { 0, 0 };
+	int k, n;
+
+	if (!spec) return 0;
+	for (k = 0; k < 2; k++) {
+		for (n = 0; *spec >= '0' && *spec <= '9' && n < 6; n++) v[k] = v[k] * 10 + (unsigned long)(*spec++ - '0');
+		if (!n || (k == 0 && *spec++ != ':')) return -1;
+	}
+	if (*spec || !v[0] || !v[1] || v[0] > 65534 || v[1] > 65534) return -1;	/* never "drop" to root */
+	if (sc(SYS_setgroups32, 0, 0, 0, 0, 0, 0) || sc(SYS_setgid32, (long)v[1], 0, 0, 0, 0, 0) ||
+	    sc(SYS_setuid32, (long)v[0], 0, 0, 0, 0, 0)) return -1;
+	if (sc(SYS_getuid32, 0, 0, 0, 0, 0, 0) != (long)v[0] || sc(SYS_geteuid32, 0, 0, 0, 0, 0, 0) != (long)v[0] ||
+	    sc(SYS_getgid32, 0, 0, 0, 0, 0, 0) != (long)v[1] || sc(SYS_getegid32, 0, 0, 0, 0, 0, 0) != (long)v[1]) return -1;
+	if (sc(SYS_setuid32, 0, 0, 0, 0, 0, 0) == 0) return -1;	/* root must be gone for good */
+	return 0;
+}
+
 int run(int argc, char **argv)
 {
-	const char *ifn = "wlan0";
+	const char *ifn = "wlan0", *drop = 0;
 	struct sockaddr_in a = { AF_INET, MDNS_PORT_BE, 0, { 0 } }, src, dst = { AF_INET, MDNS_PORT_BE, MDNS_GROUP_BE, { 0 } };
 	struct timeval tv = { 60, 0 };
 	unsigned char q[1500], out[1500];
@@ -188,9 +217,10 @@ int run(int argc, char **argv)
 
 	for (int i = 1; i < argc; i++) {
 		if (argv[i][0] == '-' && argv[i][1] == 'i' && !argv[i][2] && i + 1 < argc) ifn = argv[++i];
+		else if (argv[i][0] == '-' && argv[i][1] == 'D' && !argv[i][2] && i + 1 < argc) drop = argv[++i];
 		else if (argv[i][0] == '-' && argv[i][1] == 's' && !argv[i][2]) svcs = MDNS_SD_HTTP | MDNS_SD_RTSP;
 		else if (argv[i][0] == '-' && argv[i][1] == 'v' && !argv[i][2]) info = 1;
-		else { say("usage: tc100-mdnsd [-i IFACE] [-s] [-v]\n"); return 2; }
+		else { say("usage: tc100-mdnsd [-i IFACE] [-s] [-v] [-D UID:GID]\n"); return 2; }
 	}
 	s = (int)sc(SYS_socket, AF_INET, SOCK_DGRAM, 0, 0, 0, 0);
 	if (s < 0) return 1;
@@ -200,6 +230,9 @@ int run(int argc, char **argv)
 	sc(SYS_setsockopt, s, IPPROTO_IP, IP_MULTICAST_LOOP, (long)&loop, sizeof loop, 0);
 	if (sc(SYS_bind, s, (long)&a, sizeof a, 0, 0, 0)) { say("tc100-mdnsd: cannot bind UDP port 5353\n"); return 1; }
 	join(s);
+	/* [up-privdrop] port 5353 is bound (it is not privileged, but nothing after needs root): the group is joined again
+	 * every quiet minute, which any user may do */
+	if (priv_drop(drop)) { say("tc100-mdnsd: cannot drop root (-D): stopping\n"); return 1; }
 	for (;;) {
 		int sl = sizeof src, n, r;
 		long now;

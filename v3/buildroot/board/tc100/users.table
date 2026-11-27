@@ -1,0 +1,6 @@
+# Buildroot users table (BR2_ROOTFS_USERS_TABLES): the service user of the daemons that give up root (PRIVDROP=1 in
+# config/boot.conf.dist, docs/linux-port/upgrade-3.2/privdrop.md). Fixed numbers: scripts/secret-modes.sh passes them to the
+# daemons (-D 1001:1001) and sets the group of the settings they read, so keep the three in step (tests/test_privdrop.py).
+# No password ('*': no login), no home, no shell.
+# username uid group gid password home shell groups comment
+tc100svc 1001 tc100svc 1001 * - /bin/false - TC100 network daemons without root

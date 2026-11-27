@@ -27,6 +27,9 @@ run_tests() {
 		# a git worktree has a .git file pointing outside the copy: give the tests a repository of their own
 		if [ -f .git ]; then rm -f .git; git init -q && git add -A >/dev/null 2>&1; fi
 		node --test tests/frontend.test.js tests/settings-save.test.js tests/records-timeline.test.js $(ls tests/live-video.test.js tests/whep-live.test.js 2>/dev/null) >/tmp/node.log 2>&1 && echo "node: ok" || { echo "node: FAILED"; tail -30 /tmp/node.log; exit 1; }
+		# [up-privdrop] the drop itself needs root: this module runs once as root here (the run below, as an ordinary user,
+		# skips those tests and keeps the failing-setuid ones)
+		python3 -m unittest tests.test_privdrop >/tmp/privdrop-root.log 2>&1 && echo "privdrop (as root): ok" || { echo "privdrop (as root): FAILED"; tail -30 /tmp/privdrop-root.log; exit 1; }
 		# as an ordinary user, like the GitHub runner: root reads through missing permission bits (a restore test
 		# passed here and failed there for a week)
 		chown -R node /w

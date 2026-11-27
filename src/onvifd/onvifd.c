@@ -32,6 +32,7 @@
  */
 #define _GNU_SOURCE
 #include <errno.h>
+#include <grp.h>
 #include <fcntl.h>
 #include <net/if.h>
 #include <netinet/in.h>
@@ -430,7 +431,10 @@ static void load_config(void)
 			cbuf[strcspn(cbuf, "\r\n")] = 0;
 			scpy(np, sizeof np, cbuf);
 		}
-		if (!np[0] && G.pass[0] && cfg_loaded && stat(path, &st) == 0 && (long long)time(NULL) - (long long)st.st_mtime <= 2)
+		/* [up-privdrop] a file that exists but cannot be read (mode, owner) is never "no password": the old one stays and the
+		 * file is looked at again; only a missing or an empty file, read without error, means open */
+		if (!np[0] && G.pass[0] && cfg_loaded && stat(path, &st) == 0 &&
+		    (n < 0 || (long long)time(NULL) - (long long)st.st_mtime <= 2))
 			cfg_sig[0].ok = -1;
 		else
 			scpy(G.pass, sizeof G.pass, np);
@@ -1928,9 +1932,31 @@ static void set_str(const char *o, const char *v, char *d, size_t n, const char 
 	if (!strcmp(o, flag)) scpy(d, n, v);
 }
 
+/* [up-privdrop] -D UID:GID (PRIVDROP=1 in boot.conf, the start script passes it): after the sockets are bound and the
+ * files that only root may read are open, give up root for good: setgroups(0), setgid, setuid, every call checked, and
+ * root must not come back. Any failure aborts the daemon (a half-dropped process would be worse than none). The same
+ * function, word for word, is in src/onvifd, src/whep and src/logfwd (tests/test_privdrop.py compares them). */
+static int priv_drop(const char *spec)
+{
+	unsigned long v[2] = { 0, 0 };
+	int k, n;
+
+	if (!spec) return 0;
+	for (k = 0; k < 2; k++) {
+		for (n = 0; *spec >= '0' && *spec <= '9' && n < 6; n++) v[k] = v[k] * 10 + (unsigned long)(*spec++ - '0');
+		if (!n || (k == 0 && *spec++ != ':')) return -1;
+	}
+	if (*spec || !v[0] || !v[1] || v[0] > 65534 || v[1] > 65534) return -1;	/* never "drop" to root */
+	if (setgroups(0, NULL) || setgid((gid_t)v[1]) || setuid((uid_t)v[0])) return -1;
+	if (getuid() != (uid_t)v[0] || geteuid() != (uid_t)v[0] || getgid() != (gid_t)v[1] || getegid() != (gid_t)v[1]) return -1;
+	if (setuid(0) == 0) return -1;	/* root must be gone for good */
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
 	int on = 1, i;
+	const char *drop = NULL;
 	struct sockaddr_in a;
 	long long next_disc = 0, next_motion = 0, next_cfg = 0;
 	char buf[96];
@@ -1955,7 +1981,8 @@ int main(int argc, char **argv)
 		struct stream *s = NULL;
 		int slot = 0;
 
-		if (!strcmp(o, "-p")) G.port = num_at(v, 8081);
+		if (!strcmp(o, "-D")) drop = v;
+		else if (!strcmp(o, "-p")) G.port = num_at(v, 8081);
 		else if (!strcmp(o, "-w")) G.web_port = num_at(v, 80);
 		else if (!strcmp(o, "-r")) rtsp_cli = G.rtsp_port = num_at(v, 554);
 		else if (!strcmp(o, "-wp")) scpy(G.web_proto, sizeof G.web_proto, !strcmp(v, "https") ? "https" : "http");
@@ -2031,6 +2058,12 @@ int main(int argc, char **argv)
 			close(g_ufd);
 			g_ufd = -1;
 		}
+	}
+	/* [up-privdrop] both sockets are bound and the settings are read once: from here on the daemon needs no root (the
+	 * 2 s reload of the settings files and the motion file are group / world readable, see scripts/secret-modes.sh) */
+	if (priv_drop(drop)) {
+		dprintf(2, "tc100-onvifd: cannot drop root (-D %s): stopping\n", drop);
+		return 1;
 	}
 	dprintf(2, "tc100-onvifd: ONVIF on port %d, %d stream(s), %s\n", G.port, G.nst, G.pass[0] ? "authentication on" : "no password set: open");
 

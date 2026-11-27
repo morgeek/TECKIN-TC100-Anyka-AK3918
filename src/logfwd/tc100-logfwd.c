@@ -25,7 +25,7 @@
  * start.
  *
  * Usage: tc100-logfwd -r HOST[:PORT] [-f /var/log/messages] [-l 5] [-w 60]
- *                     [-m 60] [-b]      (-b: start at the beginning of the file)
+ *                     [-m 60] [-b] [-D uid:gid]   (-b: start at the beginning of the file; -D: drop root, see priv_drop)
  *
  * Messages go out as RFC 3164: "<PRI>Mmm dd hh:mm:ss host tag: text", with
  * the timestamp and host of the local line.
@@ -33,6 +33,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <grp.h>
 #include <netdb.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -290,7 +291,28 @@ static void errmsg(const char *a, const char *b)
 
 static void usage(const char *a)
 {
-    errmsg(a, ": usage: -r HOST[:PORT] [-f file] [-l 5] [-w 60] [-m 60] [-b]\n");
+    errmsg(a, ": usage: -r HOST[:PORT] [-f file] [-l 5] [-w 60] [-m 60] [-b] [-D uid:gid]\n");
+}
+
+/* [up-privdrop] -D UID:GID (PRIVDROP=1 in boot.conf, the start script passes it): after the sockets are bound and the
+ * files that only root may read are open, give up root for good: setgroups(0), setgid, setuid, every call checked, and
+ * root must not come back. Any failure aborts the daemon (a half-dropped process would be worse than none). The same
+ * function, word for word, is in src/onvifd, src/whep and src/logfwd (tests/test_privdrop.py compares them). */
+static int priv_drop(const char *spec)
+{
+	unsigned long v[2] = { 0, 0 };
+	int k, n;
+
+	if (!spec) return 0;
+	for (k = 0; k < 2; k++) {
+		for (n = 0; *spec >= '0' && *spec <= '9' && n < 6; n++) v[k] = v[k] * 10 + (unsigned long)(*spec++ - '0');
+		if (!n || (k == 0 && *spec++ != ':')) return -1;
+	}
+	if (*spec || !v[0] || !v[1] || v[0] > 65534 || v[1] > 65534) return -1;	/* never "drop" to root */
+	if (setgroups(0, NULL) || setgid((gid_t)v[1]) || setuid((uid_t)v[0])) return -1;
+	if (getuid() != (uid_t)v[0] || geteuid() != (uid_t)v[0] || getgid() != (gid_t)v[1] || getegid() != (gid_t)v[1]) return -1;
+	if (setuid(0) == 0) return -1;	/* root must be gone for good */
+	return 0;
 }
 
 int main(int argc, char **argv)
@@ -299,13 +321,14 @@ int main(int argc, char **argv)
     struct stat st;
     ino_t cur_ino = 0;
     char *colon;
+    const char *drop = NULL;
 
     /* Own option loop, and write(2) for errors: no libc variable may be imported (see src/logfwd/Makefile). */
     for (i = 1; i < argc; i++) {
         const char *a = argv[i], *val = NULL;
         if (a[0] != '-' || !a[1] || a[2]) { usage(argv[0]); return 2; }
         opt = a[1];
-        if (strchr("rflwm", opt)) {
+        if (strchr("rflwmD", opt)) {
             if (++i >= argc) { usage(argv[0]); return 2; }
             val = argv[i];
         }
@@ -319,6 +342,7 @@ int main(int argc, char **argv)
         case 'w': g_window = atoi(val); break;
         case 'm': g_rate = atoi(val); break;
         case 'b': from_start = 1; break;
+        case 'D': drop = val; break;
         default: usage(argv[0]); return 2;
         }
     }
@@ -327,6 +351,8 @@ int main(int argc, char **argv)
     if (g_rate < 1) g_rate = 1;
     signal(SIGTERM, on_term); signal(SIGINT, on_term); signal(SIGPIPE, SIG_IGN);
     g_rate_start = now_s();
+    /* [up-privdrop] nothing here needs root: the log file is world readable and the datagrams go out from a high port */
+    if (priv_drop(drop)) { errmsg(argv[0], ": cannot drop root (-D): stopping\n"); return 1; }
 
     ino = inotify_init();
     if (ino >= 0) fcntl(ino, F_SETFD, FD_CLOEXEC);
