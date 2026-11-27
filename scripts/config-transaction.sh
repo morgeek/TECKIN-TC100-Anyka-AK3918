@@ -722,6 +722,7 @@ _tc_sync_config_target()
 tc_commit_config_files()
 {
   _tc_stage="$1"; _tc_target="$2"; _tc_backup="$3"; _tc_files="$4"
+  if ! command -v secret_file_attrs >/dev/null 2>&1 && [ -r /mnt/scripts/secret-modes.sh ]; then . /mnt/scripts/secret-modes.sh; fi
   rm -rf "$_tc_backup"
   mkdir -p "$_tc_backup/files" || return 1
   : > "$_tc_backup/manifest" || return 1
@@ -751,6 +752,8 @@ tc_commit_config_files()
       for _tc_cleanup_rel in $_tc_files; do rm -f "$_tc_target/${_tc_cleanup_rel}.tc100-new.$$"; done
       return 1
     fi
+    # owner, group and mode of a secret file before the rename (scripts/secret-modes.sh), never after
+    command -v secret_file_attrs >/dev/null 2>&1 && secret_file_attrs "${_tc_dest}.tc100-new.$$" "$_tc_dest"
     TC_COMMIT_COUNT=$((TC_COMMIT_COUNT + 1))
   done
   if [ "$TC_COMMIT_COUNT" -gt 0 ]; then _tc_sync_config_target "$_tc_target"; fi

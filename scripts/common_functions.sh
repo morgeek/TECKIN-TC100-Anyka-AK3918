@@ -3,6 +3,12 @@
 # This file is supposed to bundle some frequently used functions
 # so they can be easily improved in one place and be reused all over the place
 
+# [up-privdrop] the service user of the daemons that give up root (privdrop_opt gives their "-D uid:gid" option, nothing when
+# PRIVDROP=0 in boot.conf) and the modes of the secret files (secret_modes_fix): one file for both, scripts/secret-modes.sh.
+# Without the file (a partial copy) privdrop_opt is not defined and the callers (they say privdrop_opt 2>/dev/null) start
+# the daemon as root, as before.
+if [ -r /mnt/scripts/secret-modes.sh ]; then . /mnt/scripts/secret-modes.sh; fi
+
 # tr(1) shim — same as func.cgi's. The camera's busybox carries the tr applet
 # but ships no symlink for it, so a bare `tr` exits 127 and yields "" inside
 # $(...): silent data corruption, not an error. Daemons sourcing this file get
@@ -147,6 +153,8 @@ rewrite_config(){
     # a truncated config behind (FAT32 has no journal to recover from that).
     _rc_tmp="${cfg_path}.tmp.$$"
     if sed -e "/^[[:space:]]*#/! s|^[[:space:]]*${cfg_key}=.*|${cfg_key}=${esc_value}|" "$cfg_path" > "$_rc_tmp"; then
+      # same owner, group and mode as the file it replaces (rtspserver.conf is read by dropped daemons)
+      command -v secret_file_attrs >/dev/null 2>&1 && secret_file_attrs "$_rc_tmp" "$cfg_path"
       mv "$_rc_tmp" "$cfg_path"
     else
       rm -f "$_rc_tmp" 2>/dev/null
@@ -703,7 +711,10 @@ all_password()
     # see it truncated (an empty file means "no password: open"). No in-place fallback: on a full file system it would
     # leave the file empty; the old password then stays in force and the failure is reported.
     if ( umask 077; printf '%s\n' "$1" > /mnt/config/user.pwd.$$.tmp ) && [ -s /mnt/config/user.pwd.$$.tmp ] \
+        && { command -v secret_file_attrs >/dev/null 2>&1 && secret_file_attrs /mnt/config/user.pwd.$$.tmp /mnt/config/user.pwd; true; } \
         && mv -f /mnt/config/user.pwd.$$.tmp /mnt/config/user.pwd; then
+        # the group and the mode (640 with the service group: tc100-onvifd and tc100-whep, dropped to tc100svc, read the
+        # file again) were set on the temporary file BEFORE the rename: no moment with a file they cannot read
         return 0
     fi
     rm -f /mnt/config/user.pwd.$$.tmp
@@ -923,7 +934,7 @@ syslogd_start() {
     # remote host (the file is new at each boot: tmpfs). Later restarts
     # would resend it: only when the log is young (first 10 min).
     _fwd_b=""; [ "$(cut -d. -f1 /proc/uptime 2>/dev/null)" -lt 600 ] 2>/dev/null && _fwd_b=-b
-    ( trap '' HUP; exec "$_sl_fwd" -r "$_sl_remote" -f /var/log/messages $_fwd_b ) </dev/null >/dev/null 2>&1 &
+    ( trap '' HUP; exec "$_sl_fwd" -r "$_sl_remote" -f /var/log/messages $_fwd_b $(privdrop_opt net 2>/dev/null) ) </dev/null >/dev/null 2>&1 &
     _sl_pid=$!
   fi
   # klogd stamps the kernel lines itself: the vendor one starts before the

@@ -149,7 +149,16 @@ static void save(const char *path)
 	snprintf(tmp, pl + 16, "%s.%d.tmp", path, (int)getpid());
 	FILE *f = fopen(tmp, "wb");
 	if (!f) { free(tmp); free(real); return; }
-	if (!stat(path, &st)) fchmod(fileno(f), st.st_mode & 07777);
+	if (!stat(path, &st)) {
+		/* [up-privdrop] the new file keeps the owner and the group of the one it replaces: rtspserver.conf and user.pwd are
+		 * root:tc100svc 640, read by daemons that no longer run as root. Only asked when they differ from ours (a FAT card
+		 * has no owners and shows the mount's). A refused change (a card mounted with uid= / gid=, a caller that is not root)
+		 * only warns and the write goes on, as before: tc100-onvifd keeps its last good settings and secret_modes_fix puts
+		 * the group back at the next boot or restore */
+		if ((st.st_uid != geteuid() || st.st_gid != getegid()) && fchown(fileno(f), st.st_uid, st.st_gid))
+			say_err("rwconf: warning: cannot keep the owner of the file\n");
+		fchmod(fileno(f), st.st_mode & 07777);
+	}
 	qsort(E, nE, sizeof *E, cmp);
 	const char *cur = "";
 	for (size_t i = 0; i < nE; i++) {

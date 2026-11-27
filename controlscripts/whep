@@ -80,7 +80,7 @@ _start_locked()
   mkdir -p /tmp/logs
   # NET_LAN_ONLY covers the UDP port too: the gateway reads the same list as httpfront and drops other datagrams
   TC100_NET_ALLOW="$(netacl_allow_list 2>/dev/null)" "$BIN" -i wlan0,eth0 -s "$_stream" -m "$_max" -a "$_aud" -r "${_port:-554}" -U "${_ruser:-root}" \
-    -w /mnt/config/user.pwd -c /mnt/config -I 300 </dev/null >>"$LOG" 2>&1 &
+    -w /mnt/config/user.pwd -c /mnt/config -I 300 $(privdrop_opt 2>/dev/null) </dev/null >>"$LOG" 2>&1 &
   _dpid=$!
   sleep 2	# the first start makes the certificate (about a second); a daemon that cannot bind is gone by then
   # the pid file only names a daemon that is up (a dead pid must never overwrite the one of the live daemon)

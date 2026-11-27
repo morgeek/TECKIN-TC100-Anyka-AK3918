@@ -1,0 +1,9 @@
+# Buildroot users table (BR2_ROOTFS_USERS_TABLES): the service users of the daemons that give up root (PRIVDROP=1 in
+# config/boot.conf.dist, docs/linux-port/upgrade-3.2/privdrop.md). Fixed numbers: scripts/secret-modes.sh passes them to the
+# daemons (-D 1001:1001, -D 1002:1002) and sets the group of the settings the first pair reads, so keep the two in step
+# (tests/test_privdrop.py). No password ('*': no login), no home, no shell.
+#   tc100svc: tc100-onvifd and tc100-whep. Reads the camera password and the RTSP settings (group of user.pwd, rtspserver.conf).
+#   tc100net: tc100-mdnsd and tc100-logfwd. Reads no secret: no group on any settings file.
+# username uid group gid password home shell groups comment
+tc100svc 1001 tc100svc 1001 * - /bin/false - TC100 daemons that read the camera password (onvif, whep)
+tc100net 1002 tc100net 1002 * - /bin/false - TC100 daemons that read no secret (mdns, log forwarding)

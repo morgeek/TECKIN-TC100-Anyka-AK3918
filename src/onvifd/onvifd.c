@@ -32,6 +32,7 @@
  */
 #define _GNU_SOURCE
 #include <errno.h>
+#include <grp.h>
 #include <fcntl.h>
 #include <net/if.h>
 #include <netinet/in.h>
@@ -333,26 +334,36 @@ static void cfg_cut(const char *path, int n)
  * when its existence, inode, size or modification time (with nanoseconds) differ from the last look. */
 static const char *const cfg_files[] = { "user.pwd", "rtspserver.conf", "boot.conf", "rtsp.env", "timezone.conf" };
 #define NCFG ((int)(sizeof cfg_files / sizeof cfg_files[0]))
-static struct { long long mt, mtn, sz, ino; int ok; } cfg_sig[NCFG];
+/* [up-privdrop] ct / ctn: the status-change time too (a chgrp or chmod that makes the file readable changes only that).
+ * retry: the last load could not read the file (a mode the daemon does not have): looked at again at every poll of the
+ * loop (cfg_poll(n, 1)), never at every request, and the unreadable state is not what the signature records. */
+static struct { long long mt, mtn, sz, ino, ct, ctn; int ok, retry; } cfg_sig[NCFG];
 static int cfg_loaded;
+/* the last rtspserver.conf that was read without error: a re-read that fails (errno other than ENOENT) uses it, so a
+ * moment with the file unreadable never turns the streams, the port and the user into defaults */
+static int auth_closed;	/* user.pwd could not be read (not: missing): every authenticated call is refused */
+static char rtsp_good[16384];
+static int rtsp_good_n = -1;
 
 /* 1: one of the first nf files changed since the last look; the new state is kept */
-static int cfg_poll(int nf)
+static int cfg_poll(int nf, int retry)
 {
 	int i, ch = 0;
 
 	for (i = 0; i < nf; i++) {
 		char path[200];
 		struct stat st;
-		long long mt = 0, mtn = 0, sz = -1, ino = 0;
+		long long mt = 0, mtn = 0, sz = -1, ino = 0, ct = 0, ctn = 0;
 		int ok;
 
 		snprintf(path, sizeof path, "%s/%s", p_conf, cfg_files[i]);
 		ok = stat(path, &st) == 0;
-		if (ok) { mt = st.st_mtime; mtn = st.st_mtim.tv_nsec; sz = st.st_size; ino = (long long)st.st_ino; }
-		if (ok != cfg_sig[i].ok || mt != cfg_sig[i].mt || mtn != cfg_sig[i].mtn || sz != cfg_sig[i].sz || ino != cfg_sig[i].ino)
+		if (ok) { mt = st.st_mtime; mtn = st.st_mtim.tv_nsec; sz = st.st_size; ino = (long long)st.st_ino; ct = st.st_ctime; ctn = st.st_ctim.tv_nsec; }
+		if (ok != cfg_sig[i].ok || mt != cfg_sig[i].mt || mtn != cfg_sig[i].mtn || sz != cfg_sig[i].sz || ino != cfg_sig[i].ino ||
+		    ct != cfg_sig[i].ct || ctn != cfg_sig[i].ctn || (retry && cfg_sig[i].retry))
 			ch = 1;
 		cfg_sig[i].ok = ok; cfg_sig[i].mt = mt; cfg_sig[i].mtn = mtn; cfg_sig[i].sz = sz; cfg_sig[i].ino = ino;
+		cfg_sig[i].ct = ct; cfg_sig[i].ctn = ctn;
 	}
 	return ch;
 }
@@ -367,6 +378,17 @@ static void load_config(void)
 	/* rtspserver.conf: port, user, the two streams */
 	snprintf(path, sizeof path, "%s/rtspserver.conf", p_conf);
 	n = slurp(path, cbuf, sizeof cbuf);
+	cfg_sig[1].retry = 0;
+	if (n < 0 && errno != ENOENT && rtsp_good_n >= 0) {	/* unreadable (not missing): the last good settings stay, tried again */
+		memcpy(cbuf, rtsp_good, (size_t)rtsp_good_n + 1);
+		n = rtsp_good_n;
+		cfg_sig[1].retry = 1;
+	} else if (n < 0 && errno != ENOENT) {
+		cfg_sig[1].retry = 1;
+	} else if (n >= 0 && n < (int)sizeof rtsp_good) {
+		memcpy(rtsp_good, cbuf, (size_t)n + 1);
+		rtsp_good_n = n;
+	}
 	cfg_cut(path, n);
 	if (n < 0) cbuf[0] = 0;
 	G.rtsp_port = ini_get(cbuf, "", "PORT", v, sizeof v) ? num_at(v, 554) : 554;
@@ -422,18 +444,33 @@ static void load_config(void)
 	{
 		char np[sizeof G.pass];
 		struct stat st;
+		int rd_err;
 
 		np[0] = 0;
 		snprintf(path, sizeof path, "%s/user.pwd", p_conf);
 		n = slurp(path, cbuf, 256);
+		rd_err = n < 0 ? errno : 0;
+		cfg_sig[0].retry = 0;
 		if (n > 0) {
 			cbuf[strcspn(cbuf, "\r\n")] = 0;
 			scpy(np, sizeof np, cbuf);
 		}
-		if (!np[0] && G.pass[0] && cfg_loaded && stat(path, &st) == 0 && (long long)time(NULL) - (long long)st.st_mtime <= 2)
-			cfg_sig[0].ok = -1;
-		else
+		/* [up-privdrop] "no password" (open) comes only from a missing file (ENOENT) or an empty one read without error. A
+		 * read error of any other kind (a mode or an owner the daemon does not have: a file that arrives as root 600 before
+		 * its group is set) CLOSES the authenticated calls: auth_closed, checked first in check_auth, refuses every request
+		 * whatever the credentials (no sentinel password: any password the daemon holds is one a client can compute). It is
+		 * cleared by the next read that works (a password, an empty file) or by ENOENT, and the file is looked at again at
+		 * the next poll (retry), the signature of the file being no proof of anything */
+		auth_closed = 0;
+		if (rd_err && rd_err != ENOENT) {
+			cfg_sig[0].retry = 1;
+			auth_closed = 1;
+		} else if (!np[0] && G.pass[0] && cfg_loaded && stat(path, &st) == 0 &&
+		    (long long)time(NULL) - (long long)st.st_mtime <= 2) {
+			cfg_sig[0].ok = -1;		/* emptied 2 s ago or less (a writer between truncating and writing): looked at again, also by a request, for at most 2 s */
+		} else {
 			scpy(G.pass, sizeof G.pass, np);
+		}
 	}
 
 	/* time zone (first line that is not a comment) */
@@ -846,7 +883,8 @@ static int check_auth(const char *b, int n)
 	int al = 0, cl = 0;
 	long long t = now_ms();
 
-	if (cfg_poll(1)) load_config();	/* B1: a changed password counts before this request is judged */
+	if (cfg_poll(1, 0)) load_config();	/* B1: a changed password counts before this request is judged */
+	if (auth_closed) return 0;	/* [up-privdrop] the password file cannot be read: nobody gets in, whatever they send */
 	if (!G.pass[0]) return 1;
 	if (fail_locked(g_peer, t)) return 0;	/* guessing from this address: refused for the rest of its minute */
 	if (!find_elem(b, end, "UsernameToken", NULL, NULL, &cl)) return 0;
@@ -1928,9 +1966,31 @@ static void set_str(const char *o, const char *v, char *d, size_t n, const char 
 	if (!strcmp(o, flag)) scpy(d, n, v);
 }
 
+/* [up-privdrop] -D UID:GID (PRIVDROP=1 in boot.conf, the start script passes it): after the sockets are bound and the
+ * files that only root may read are open, give up root for good: setgroups(0), setgid, setuid, every call checked, and
+ * root must not come back. Any failure aborts the daemon (a half-dropped process would be worse than none). The same
+ * function, word for word, is in src/onvifd, src/whep and src/logfwd (tests/test_privdrop.py compares them). */
+static int priv_drop(const char *spec)
+{
+	unsigned long v[2] = { 0, 0 };
+	int k, n;
+
+	if (!spec) return 0;
+	for (k = 0; k < 2; k++) {
+		for (n = 0; *spec >= '0' && *spec <= '9' && n < 6; n++) v[k] = v[k] * 10 + (unsigned long)(*spec++ - '0');
+		if (!n || (k == 0 && *spec++ != ':')) return -1;
+	}
+	if (*spec || !v[0] || !v[1] || v[0] > 65534 || v[1] > 65534) return -1;	/* never "drop" to root */
+	if (setgroups(0, NULL) || setgid((gid_t)v[1]) || setuid((uid_t)v[0])) return -1;
+	if (getuid() != (uid_t)v[0] || geteuid() != (uid_t)v[0] || getgid() != (gid_t)v[1] || getegid() != (gid_t)v[1]) return -1;
+	if (setuid(0) == 0) return -1;	/* root must be gone for good */
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
 	int on = 1, i;
+	const char *drop = NULL;
 	struct sockaddr_in a;
 	long long next_disc = 0, next_motion = 0, next_cfg = 0;
 	char buf[96];
@@ -1955,7 +2015,8 @@ int main(int argc, char **argv)
 		struct stream *s = NULL;
 		int slot = 0;
 
-		if (!strcmp(o, "-p")) G.port = num_at(v, 8081);
+		if (!strcmp(o, "-D")) drop = v;
+		else if (!strcmp(o, "-p")) G.port = num_at(v, 8081);
 		else if (!strcmp(o, "-w")) G.web_port = num_at(v, 80);
 		else if (!strcmp(o, "-r")) rtsp_cli = G.rtsp_port = num_at(v, 554);
 		else if (!strcmp(o, "-wp")) scpy(G.web_proto, sizeof G.web_proto, !strcmp(v, "https") ? "https" : "http");
@@ -1997,7 +2058,7 @@ int main(int argc, char **argv)
 	if (slurp(p_mac, buf, 40) >= 17) { buf[17] = 0; scpy(G.mac, sizeof G.mac, buf); }
 	device_uuid();
 	g_instance = (unsigned)time(NULL);
-	cfg_poll(NCFG);	/* the state of the settings files first, then what they say (a change in between is seen next time) */
+	cfg_poll(NCFG, 0);	/* the state of the settings files first, then what they say (a change in between is seen next time) */
 	load_config();
 	cfg_loaded = 1;
 	parse_allow(getenv("TC100_NET_ALLOW"));
@@ -2032,6 +2093,12 @@ int main(int argc, char **argv)
 			g_ufd = -1;
 		}
 	}
+	/* [up-privdrop] both sockets are bound and the settings are read once: from here on the daemon needs no root (the
+	 * 2 s reload of the settings files and the motion file are group / world readable, see scripts/secret-modes.sh) */
+	if (priv_drop(drop)) {
+		dprintf(2, "tc100-onvifd: cannot drop root (-D %s): stopping\n", drop);
+		return 1;
+	}
 	dprintf(2, "tc100-onvifd: ONVIF on port %d, %d stream(s), %s\n", G.port, G.nst, G.pass[0] ? "authentication on" : "no password set: open");
 
 	while (!g_term) {
@@ -2040,14 +2107,14 @@ int main(int argc, char **argv)
 		struct timeval tv = { 0, 500000 };
 		long long t;
 
-		if (g_hup) { g_hup = 0; cfg_poll(NCFG); load_config(); }
+		if (g_hup) { g_hup = 0; cfg_poll(NCFG, 0); load_config(); }
 		FD_ZERO(&rf);
 		FD_SET(g_lfd, &rf);
 		if (g_ufd >= 0) { FD_SET(g_ufd, &rf); if (g_ufd > mx) mx = g_ufd; }
 		for (i = 0; i < MAXCONN; i++) if (cn[i].fd >= 0) { FD_SET(cn[i].fd, &rf); if (cn[i].fd > mx) mx = cn[i].fd; }
 		r = select(mx + 1, &rf, NULL, NULL, &tv);
 		t = now_ms();
-		if (t >= next_cfg) { if (cfg_poll(NCFG)) load_config(); next_cfg = t + 2000; }	/* B1: the settings files, every 2 s */
+		if (t >= next_cfg) { if (cfg_poll(NCFG, 1)) load_config(); next_cfg = t + 2000; }	/* B1: the settings files, every 2 s */
 		if (r > 0) {
 			if (FD_ISSET(g_lfd, &rf)) conn_accept();
 			if (g_ufd >= 0 && FD_ISSET(g_ufd, &rf)) udp_in();
