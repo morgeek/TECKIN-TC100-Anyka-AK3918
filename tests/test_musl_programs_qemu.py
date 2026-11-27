@@ -31,7 +31,7 @@ WHY = 'needs arm-linux-gnueabi-gcc/readelf, make, qemu-arm and the musl sysroot 
 HARDENED = os.environ.get('HARDEN') != '0'     # [harden] src/musl.mk HARDEN: the default build has the canary and full RELRO
 
 PROGRAMS = {'mqttd': 'tc100-mqttd', 'onvifd': 'tc100-onvifd', 'supervisord': 'tc100-supervisord',
-            'logfwd': 'tc100-logfwd', 'rwconf': 'rwconf'}
+            'logfwd': 'tc100-logfwd', 'rwconf': 'rwconf', 'sigcheck': 'tc100-sigcheck'}
 
 SERVER = r'''
 #include <arpa/inet.h>
@@ -158,6 +158,24 @@ class MuslPrograms(unittest.TestCase):
                 self.assertNotIn('Error relocating', err)
                 self.assertNotIn('symbol not found', err)
                 self.assertNotEqual(pr.returncode, 127, err)
+
+    def test_sigcheck_arm_verifies_a_host_signature(self):
+        """[up-sign] the ARM build (musl, under qemu) accepts what the host tool signed and refuses a changed file"""
+        host = self.tmp / 'sigcheck-host'
+        srcs = [str(ROOT / 'src/sigcheck' / n) for n in ('sigcheck.c', 'monocypher.c', 'monocypher-ed25519.c')]
+        subprocess.run(['gcc', '-O1', '-DSIGCHECK_HOST', '-o', str(host)] + srcs, check=True)
+        kp = self.tmp / 'sk'
+        subprocess.run([str(host), 'keygen', str(kp)], check=True, capture_output=True)
+        f = self.tmp / 'SHA256SUMS'
+        f.write_bytes(b'0' * 64 + b'  VERSION')
+        sig = self.tmp / 'SHA256SUMS.sig'
+        sig.write_bytes(subprocess.run([str(host), 'sign', str(kp) + '.key', str(f)], check=True, capture_output=True).stdout)
+        pub = str(kp) + '.pub'
+        r = subprocess.run(self.qemu(self.bins['tc100-sigcheck'], 'verify', str(f), str(sig), pub), capture_output=True, text=True, timeout=30)
+        self.assertEqual((r.returncode, r.stdout.split()[0]), (0, 'signed'), r.stdout + r.stderr)
+        f.write_bytes(b'1' * 64 + b'  VERSION')
+        r = subprocess.run(self.qemu(self.bins['tc100-sigcheck'], 'verify', str(f), str(sig), pub), capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 1, r.stdout)
 
     def test_rwconf_same_as_the_host_build(self):
         host = self.tmp / 'rwconf-host'

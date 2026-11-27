@@ -58,5 +58,9 @@ rm -f "$OUT/tc100-$VER-inventory.zip"; mkzip "$N" "$OUT/tc100-$VER-inventory.zip
 # web update: what the flash partitions stack, kernel and initrd receive
 U=$OUT/update; rm -rf "$U"; mkdir -p "$U"
 cp "$S/stack.sqfs" "$U/"; cp "$K" "$U/c66.img"; cp "$I" "$U/c66rd.gz"; cp "$S/tree/VERSION" "$U/"
-( cd "$U" && md5sum stack.sqfs c66.img c66rd.gz VERSION > MD5SUMS && mktar "$OUT/tc100-$VER-update.tar" VERSION stack.sqfs c66.img c66rd.gz MD5SUMS )
+# MD5SUMS stays for flashw (it compares the file with the md5 of the package). SHA256SUMS lists every file of the package,
+# MD5SUMS included: it is the file the owner signs (docs/linux-port/upgrade-3.2/sign.md). The CI never holds a private key:
+# SHA256SUMS.sig is NOT made here, an unsigned package is the normal CI output (scripts/sign_update.py adds the signature).
+sha256_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
+( cd "$U" && md5sum stack.sqfs c66.img c66rd.gz VERSION > MD5SUMS && sha256_of VERSION stack.sqfs c66.img c66rd.gz MD5SUMS > SHA256SUMS && mktar "$OUT/tc100-$VER-update.tar" VERSION stack.sqfs c66.img c66rd.gz MD5SUMS SHA256SUMS )
 ls -l "$OUT"/*.zip "$OUT"/*.tar

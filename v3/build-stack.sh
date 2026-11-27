@@ -42,8 +42,8 @@ rm -f "$T/config/autostart/ftp-server"
 # free programs of the repo that the 6.6 system uses: rwconf and tc100-logfwd are musl programs since 2026-11-07 (the
 # camera's own libc, src/musl.mk); busybox (bin/) is the stock firmware's uClibc helper of the SD hook
 mkdir -p "$T/bin" "$T/lib" "$T/tc100test"
-for b in busybox isp_flip rwconf setconf tc100-logfwd telegram; do
-	[ -f "bin/$b" ] || { echo "build-stack: bin/$b missing (rwconf and isp_flip are built from src/ by the release build: make -C src/rwconf, see build-kernel-linux66.yml)"; exit 1; }
+for b in busybox isp_flip rwconf setconf tc100-logfwd tc100-sigcheck telegram; do
+	[ -f "bin/$b" ] || { echo "build-stack: bin/$b missing (rwconf, tc100-sigcheck and isp_flip are built from src/ by the release build: make -C src/rwconf, see build-kernel-linux66.yml)"; exit 1; }
 	cp "bin/$b" "$T/bin/"
 done
 cp lib/libnetacl-musl.so "$T/lib/"	# the filter for the musl programs (busybox telnetd/ftpd; netacl_exec preloads it)
