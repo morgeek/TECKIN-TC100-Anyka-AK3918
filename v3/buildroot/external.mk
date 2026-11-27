@@ -1,11 +1,13 @@
 # Slim hostapd / wpa_supplicant (2026-10-30 audit).  Buildroot's own lists (package/*/*.mk) are extended here.
 # The camera uses WPA2-PSK (client: wifi-txt.sh, key_mgmt WPA-PSK or NONE; rescue AP: wifi-rescue.sh, wpa=2, CCMP),
-# so no Hotspot 2.0 / Interworking, 802.11ax, pre-authentication, ERP, fast BSS transition or TDLS.
-HOSTAPD_CONFIG_DISABLE += CONFIG_INTERWORKING CONFIG_HS20 CONFIG_IEEE80211AX CONFIG_RSN_PREAUTH CONFIG_ERP CONFIG_IEEE80211R
-WPA_SUPPLICANT_CONFIG_DISABLE += CONFIG_TDLS CONFIG_IEEE80211R
-# hostapd.mk enables HS20/AX/INTERWORKING/11R again for every build with a Wi-Fi driver (and appends them to .config
+# so no Hotspot 2.0 / Interworking, 802.11ax / 802.11be, pre-authentication, ERP, fast BSS transition or TDLS (the radio is
+# an 802.11n 1T1R RTL8188FU). 2025.02 (wpa_supplicant / hostapd 2.12) turned 802.11be on in hostapd and 802.11ax, 802.11be
+# and IPv6 on in wpa_supplicant (+330 KB together): switched off again (the kernel has no IPv6).
+HOSTAPD_CONFIG_DISABLE += CONFIG_INTERWORKING CONFIG_HS20 CONFIG_IEEE80211AX CONFIG_IEEE80211BE CONFIG_RSN_PREAUTH CONFIG_ERP CONFIG_IEEE80211R
+WPA_SUPPLICANT_CONFIG_DISABLE += CONFIG_TDLS CONFIG_IEEE80211R CONFIG_IEEE80211AX CONFIG_IEEE80211BE CONFIG_IPV6
+# hostapd.mk enables HS20/AX/BE/INTERWORKING/11R again for every build with a Wi-Fi driver (and appends them to .config
 # when the DISABLE sed has commented them out): take them out of the enable list too.
-HOSTAPD_CONFIG_ENABLE := $(filter-out CONFIG_HS20 CONFIG_IEEE80211AX CONFIG_INTERWORKING CONFIG_IEEE80211R,$(HOSTAPD_CONFIG_ENABLE))
+HOSTAPD_CONFIG_ENABLE := $(filter-out CONFIG_HS20 CONFIG_IEEE80211AX CONFIG_IEEE80211BE CONFIG_INTERWORKING CONFIG_IEEE80211R,$(HOSTAPD_CONFIG_ENABLE))
 
 # Item 35 (WHEP / WebRTC): tc100-whep needs DTLS-SRTP (use_srtp, RFC 5764). Mbed TLS 3.6 has it off by default; since
 # Buildroot 2025.02 the package switches it on itself (BR2_PACKAGE_MBEDTLS_DTLS_SRTP=y in tc100_defconfig), which
