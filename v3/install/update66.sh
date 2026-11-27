@@ -1,8 +1,11 @@
 #!/bin/sh
 # update66.sh check DIR | apply DIR   update the 3.0 firmware in the flash from an update package.
 #
-# Package (tc100-<version>-update.tar, made by v3/build-release.sh): VERSION, stack.sqfs, c66.img, c66rd.gz and
-# MD5SUMS. "check" verifies it (md5, sizes, partitions). "apply" runs from a copy in RAM (the user space it replaces
+# Package (tc100-<version>-update.tar, made by v3/build-release.sh): VERSION, stack.sqfs, c66.img, c66rd.gz, MD5SUMS
+# and SHA256SUMS; the owner adds SHA256SUMS.sig (Ed25519, scripts/sign_update.py; docs/linux-port/upgrade-3.2/sign.md).
+# "check" verifies it: the signature (policy UPDATE_REQUIRE_SIG of /mnt/config/boot.conf), then SHA256SUMS, then md5, sizes,
+# partitions. The result of the signature check is the line of /tmp/update66.sig ("signed ID", "unsigned WHY", "refused WHY").
+# "apply" runs from a copy in RAM (the user space it replaces
 # is the squashfs being rewritten): it stops the services, writes stack, kernel and initrd with flashw (md5 checked
 # before and after each write), and restarts. The settings (cfga/cfgb) and the vendor libraries (vendor) are kept.
 # If something goes wrong half way, the flash system may not start: an SD card with the 3.0 package
@@ -16,7 +19,84 @@ part_size() { for d in /sys/class/mtd/mtd[0-9]*; do case $d in *ro) continue;; e
 say() { echo "$*" > $ST; echo "update66: $*" > /dev/console; [ -n "$LOG" ] && echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
 # the md5 published in the package for a file (B3: flashw compares the file with THIS sum, not with itself)
 sum_of() { awk -v f="$2" '$2 == f || $2 == "*" f { print $1; exit }' "$1/MD5SUMS" | grep -E '^[0-9a-fA-F]{32}$'; }
+# signature check (test hooks: the UPDATE66_* variables). Keys: the public keys of the running image, then the owner's own folder.
+SIGCHECK=${UPDATE66_SIGCHECK:-/mnt/bin/tc100-sigcheck}
+KEYDIRS=${UPDATE66_KEYDIRS:-/mnt/v3/install/update-keys /mnt/config/update-keys}
+SIGST=${UPDATE66_SIGST:-/tmp/update66.sig}
+SHA256SUM=${UPDATE66_SHA256SUM:-sha256sum}
+BOOTCONF=${UPDATE66_BOOTCONF:-/mnt/config/boot.conf}
 LOG=; grep -q ' /mnt/sd vfat ' /proc/mounts && mkdir -p /mnt/sd/tc100-3 2>/dev/null && LOG=/mnt/sd/tc100-3/update66.log
+
+# UPDATE_REQUIRE_SIG (boot.conf, single source; the environment wins, for tests): 0 or unset = 0, anything else = 1
+require_sig() {
+	v=${UPDATE_REQUIRE_SIG:-}
+	[ -z "$v" ] && [ -f "$BOOTCONF" ] && v=$(grep -E '^[[:space:]]*UPDATE_REQUIRE_SIG=' "$BOOTCONF" | tail -n 1 | sed -e 's/^[^=]*=//' -e 's/[[:space:]#].*$//' -e "s/[\"']//g")
+	case "$v" in ''|0) echo 0 ;; *) echo 1 ;; esac
+}
+sig_set() { echo "$*" > "$SIGST"; [ -n "$LOG" ] && echo "$(date '+%Y-%m-%d %H:%M:%S') update signature: $*" >> "$LOG"; return 0; }
+# verify_sig DIR: 0 = go on, 1 = refuse (the reason on stdout). Reads only. A signature that is present and BAD is always
+# refused; unsigned or unknown-key packages are accepted with a warning unless UPDATE_REQUIRE_SIG=1 and a key is installed
+# (with no key installed the switch cannot lock the owner out: warning, behaves as 0).
+# key_count: the usable public keys, as the verifier itself counts them (a .pub that does not parse is no key); the number
+# of .pub files when the verifier cannot run (then a present signature cannot be checked either, see below)
+key_count() {
+	nk=$("$SIGCHECK" keys $KEYDIRS 2>/dev/null)
+	case "$nk" in ''|*[!0-9]*) nk=0; for kd in $KEYDIRS; do for kf in "$kd"/*.pub; do [ -f "$kf" ] && nk=$((nk + 1)); done; done ;; esac
+	echo "$nk"
+}
+verify_sig() {
+	verify_sig_core "$1" || return 1
+	# no sha256sum applet: the files cannot be checked against SHA256SUMS. Policy 0 falls back to the md5 checks with a warning
+	# (it must not block every package); policy 1 with a key installed refuses
+	if ! command -v "$SHA256SUM" >/dev/null 2>&1 && [ -f "$1/SHA256SUMS" ]; then
+		if [ "$(require_sig)" = 1 ] && [ "$(key_count)" != 0 ]; then
+			sig_set "refused sha256sum is not available"; echo "sha256sum is not available: the package cannot be checked (UPDATE_REQUIRE_SIG=1)"; return 1
+		fi
+		sig_set "unsigned sha256sum is not available on this camera: SHA256SUMS not checked, md5 only"
+	fi
+	return 0
+}
+verify_sig_core() {
+	d=$1; req=$(require_sig); rm -f "$SIGST"; note=; nk=$(key_count)
+	if [ "$req" = 1 ] && [ "$nk" = 0 ]; then req=0; note=" (UPDATE_REQUIRE_SIG=1 but no public key is installed on this camera: treated as 0)"; fi
+	if [ ! -f "$d/SHA256SUMS.sig" ]; then
+		if [ "$req" = 1 ]; then sig_set "refused the package is not signed and UPDATE_REQUIRE_SIG=1"; echo "the package is not signed and this camera accepts only signed packages (UPDATE_REQUIRE_SIG=1)"; return 1; fi
+		sig_set "unsigned no signature (SHA256SUMS.sig) in the package$note"; return 0
+	fi
+	[ -f "$d/SHA256SUMS" ] || { sig_set "refused the package has a signature but no SHA256SUMS"; echo "the package has a signature but no SHA256SUMS"; return 1; }
+	r=$("$SIGCHECK" verify "$d/SHA256SUMS" "$d/SHA256SUMS.sig" $KEYDIRS 2>/dev/null); rc=$?
+	case $rc in
+	0) sig_set "signed ${r#signed }"; return 0 ;;
+	1) sig_set "refused the signature of the package is not valid"; echo "the signature of the package is not valid (changed or damaged after signing): refused"; return 1 ;;
+	3) if [ "$req" = 1 ]; then sig_set "refused signed by a key not installed on this camera (${r#unknown })"; echo "the package is signed by key ${r#unknown }, which is not installed on this camera (UPDATE_REQUIRE_SIG=1)"; return 1; fi
+	   sig_set "unsigned signed by an unknown key (${r#unknown }), accepted because UPDATE_REQUIRE_SIG=0"; return 0 ;;
+	4) sig_set "unsigned no usable public key on this camera$note"; return 0 ;;
+	*) if [ "$req" = 1 ]; then sig_set "refused the signature could not be checked"; echo "the signature could not be checked (tc100-sigcheck missing or failing): refused (UPDATE_REQUIRE_SIG=1)"; return 1; fi
+	   sig_set "unsigned the signature could not be checked (tc100-sigcheck missing or failing)"; return 0 ;;
+	esac
+}
+
+# pkg_auth DIR: the read-only authenticity checks of "check" (links, signature, SHA256SUMS); also "update66.sh sigcheck DIR"
+# for a test on a camera started from the SD card (no flash mode needed): prints ok or the reason
+pkg_auth() {
+	D=$1
+	for f in VERSION stack.sqfs c66.img c66rd.gz MD5SUMS SHA256SUMS SHA256SUMS.sig; do [ -L "$D/$f" ] && { echo "$f is a link: not a 3.0 update package"; return 1; }; done
+	# authenticity first, then the sums it covers, then the md5 of flashw; nothing is written to the flash by any of them
+	r=$(verify_sig "$D") || { echo "$r"; return 1; }
+	if [ -f "$D/SHA256SUMS" ]; then
+		# whole lines as sha256sum writes them, each package file exactly once, MD5SUMS included (it must not be swappable)
+		awk 'BEGIN { nf = split("VERSION stack.sqfs c66.img c66rd.gz MD5SUMS", f, " ") } NF == 0 { next }
+			{ ok = 0; for (i = 1; i <= 5; i++) if ($0 == $1 "  " f[i] || $0 == $1 " *" f[i]) { ok = 1; n[f[i]]++ }
+			  if (!ok || length($1) != 64 || $1 !~ /^[0-9a-fA-F]+$/) bad = 1 }
+			END { for (i = 1; i <= 5; i++) if (n[f[i]] != 1) bad = 1; exit bad }' "$D/SHA256SUMS" ||
+			{ sig_set "refused SHA256SUMS does not list the files of the package"; echo "SHA256SUMS does not list exactly the files of a 3.0 update package"; return 1; }
+		# (without the applet verify_sig has already decided: warning at policy 0, refused at policy 1)
+		if command -v "$SHA256SUM" >/dev/null 2>&1; then
+		( cd "$D" && "$SHA256SUM" -c SHA256SUMS >/dev/null 2>&1 ) || { sig_set "refused the package is damaged or changed (sha256)"; echo "the package is damaged or changed (sha256)"; return 1; }
+		fi
+	fi
+	echo ok
+}
 
 check() {
 	D=$1
@@ -27,7 +107,7 @@ check() {
 	for f in VERSION stack.sqfs c66.img c66rd.gz MD5SUMS; do [ -f "$D/$f" ] || { echo "$f is missing from the package"; return 1; }; done
 	# plain files only, and MD5SUMS names only these files: a link (VERSION -> any file, shown by the web page) or an
 	# entry such as /dev/zero (md5sum -c would never end) is refused (review 2026-11-12)
-	for f in VERSION stack.sqfs c66.img c66rd.gz MD5SUMS; do [ -L "$D/$f" ] && { echo "$f is a link: not a 3.0 update package"; return 1; }; done
+	r=$(pkg_auth "$D") || { echo "$r"; return 1; }
 	# whole lines as md5sum writes them ("md5  name" or "md5 *name"): awk's own field split would let "x<TAB>VERSION  /dev/zero" by
 	awk 'BEGIN { split("VERSION stack.sqfs c66.img c66rd.gz", f, " ") } NF == 0 { next }
 		{ ok = 0; for (i = 1; i <= 4; i++) if ($0 == $1 "  " f[i] || $0 == $1 " *" f[i]) ok = 1 }
@@ -47,13 +127,15 @@ check() {
 
 case "$1" in
 check) check "$2"; exit $? ;;
+sigcheck) pkg_auth "$2"; exit $? ;;
 apply) ;;
 apply-ram) ;;
-*) echo "usage: update66.sh check|apply DIR"; exit 2 ;;
+*) echo "usage: update66.sh check|sigcheck|apply DIR"; exit 2 ;;
 esac
 D=$2
 if [ "$1" = apply ]; then
 	r=$(check "$D") || { say "FAILED: $r"; exit 1; }
+	case "$(cat "$SIGST" 2>/dev/null)" in unsigned*) [ -n "$LOG" ] && echo "$(date '+%Y-%m-%d %H:%M:%S') WARNING: installing a package that is not authenticated: $(cat "$SIGST")" >> "$LOG" ;; esac
 	# no SD card = no backup of what the flash holds now (flashw -b): only with an explicit confirmation (the web page
 	# asks for it, update.cgi then sets UPDATE66_NOBACKUP=1), checked before anything is stopped (review 2026-11-06)
 	if [ -z "$LOG" ] && [ "${UPDATE66_NOBACKUP:-0}" != 1 ]; then

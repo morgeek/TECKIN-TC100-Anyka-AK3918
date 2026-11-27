@@ -690,6 +690,19 @@ _ce_restore() {
   fi
   # the modes come from the archive: a directory without its x bit would hide its files from everyone but root
   chmod -R u+rwX "$_rs/x" 2>/dev/null
+  # [up-sign] a restore never installs (or removes) update keys and never changes the update signature policy: the keys
+  # of config/update-keys/ are skipped and UPDATE_REQUIRE_SIG keeps the value this camera has now (an archive can only be
+  # a way to loosen the policy otherwise). Changing it on purpose: the configuration editor (audit-logged) or boot.conf.
+  _rs_skipped=0
+  if [ -d "$_rs/x/config/update-keys" ]; then
+    _rs_skipped=$(find "$_rs/x/config/update-keys" -type f | wc -l)
+    rm -rf "$_rs/x/config/update-keys"
+  fi
+  if [ -s "$_rs/x/config/boot.conf" ]; then
+    _rs_cur=$(grep -E '^[[:space:]]*UPDATE_REQUIRE_SIG=' "$CONFIG_ROOT/boot.conf" 2>/dev/null | tail -n 1)
+    { grep -vE '^[[:space:]]*UPDATE_REQUIRE_SIG=' "$_rs/x/config/boot.conf"; [ -z "$_rs_cur" ] || echo "$_rs_cur"; } > "$_rs/bc.new" &&
+      cat "$_rs/bc.new" > "$_rs/x/config/boot.conf"
+  fi
   _rs_files=""; _rs_marks=""
   for _rs_f in $(cd "$_rs/x/config" && find . -type f | sed 's|^\./||' | sort); do
     if [ -s "$_rs/x/config/$_rs_f" ]; then _rs_files="$_rs_files $_rs_f"; else _rs_marks="$_rs_marks $_rs_f"; fi
@@ -722,8 +735,8 @@ _ce_restore() {
   fi
   [ "$(_ce_wc)" = "$_rs_wc_old" ] || ( sh /mnt/scripts/wifi-country.sh apply </dev/null >/dev/null 2>&1 & )
   set -f; set -- $_rs_files $_rs_marks; set +f
-  printf '{"ok":true,"files":%d,"changed_files":%d,"note":"ssh keys and the host name take effect at the next restart"}\n' \
-    "$#" "$_rs_changed"
+  printf '{"ok":true,"files":%d,"changed_files":%d,"skipped_update_keys":%d,"note":"ssh keys and the host name take effect at the next restart; update keys and the update signature policy are never restored"}\n' \
+    "$#" "$_rs_changed" "$_rs_skipped"
 }
 
 case "$F_cmd" in

@@ -501,6 +501,9 @@ window.tc100I18nFr = {
     "Firmware": "Firmware",
     "Firmware:": "Firmware :",
     "Firmware update": "Mise à jour du firmware",
+    "Unsigned: accepted (warning)": "Non signé : accepté (avertissement)",
+    "Refused: the package is damaged or changed (sha256)": "Refusé : le paquet est endommagé ou modifié (sha256)",
+    "Refused: SHA256SUMS does not list the files of the package": "Refusé : SHA256SUMS ne liste pas les fichiers du paquet",
     "Firmware version": "Version du firmware",
     "Flash": "Flash",
     "Flip": "Retourner",
@@ -1424,6 +1427,30 @@ window.tc100I18nFr = {
     "(watching)": "(surveillance)"
   },
   "rules": [
+    [
+      "^Signed \\(key (\\S+)\\)$",
+      "Signé (clé $1)"
+    ],
+    [
+      "^Refused: the signature of the package is not valid .+$",
+      "Refusé : la signature du paquet n'est pas valide (paquet modifié ou endommagé après la signature)."
+    ],
+    [
+      "^Refused: the package is not signed and .+$",
+      "Refusé : le paquet n'est pas signé et cette caméra n'accepte que des paquets signés (UPDATE_REQUIRE_SIG=1)."
+    ],
+    [
+      "^Refused: signed by a key not installed on this camera \\((\\S+)\\)$",
+      "Refusé : signé par une clé qui n'est pas installée sur cette caméra ($1)"
+    ],
+    [
+      "^Refused: the package has a signature but no SHA256SUMS$",
+      "Refusé : le paquet a une signature mais pas de SHA256SUMS"
+    ],
+    [
+      "^Refused: the signature could not be checked$",
+      "Refusé : la signature n'a pas pu être vérifiée"
+    ],
     [
       "^Local recording is active \\((.+), stream: (.+)\\)\\.$",
       "Enregistrement local actif ($1, flux : $2)."

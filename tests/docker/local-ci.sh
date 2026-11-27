@@ -22,7 +22,7 @@ run_tests() {
 		cp -r /src /w && cd /w && rm -rf /w/.claude && git config --global --add safe.directory /w
 		# host test programs left in the working tree (ignored by git) look newer than their sources after the copy:
 		# make would run them instead of building the current code
-		rm -f src/tc100rtsp/test_rec src/tc100rtsp/test_rtsp src/tc100rtsp/test_util src/tc100rtsp/test_livemp4 src/tc100rtsp/test_adsp src/tc100rtsp/test_aec src/tc100rtsp/test_aacenc src/tc100rtsp/test_sndq src/mqttd/tc100-mqttd-host src/rwconf/rwconf-host src/supervisord/tc100-supervisord-host
+		rm -f src/tc100rtsp/test_rec src/tc100rtsp/test_rtsp src/tc100rtsp/test_util src/tc100rtsp/test_livemp4 src/tc100rtsp/test_adsp src/tc100rtsp/test_aec src/tc100rtsp/test_aacenc src/tc100rtsp/test_sndq src/mqttd/tc100-mqttd-host src/rwconf/rwconf-host src/sigcheck/tc100-sigcheck-host src/supervisord/tc100-supervisord-host
 		# a git worktree has a .git file pointing outside the copy: give the tests a repository of their own
 		if [ -f .git ]; then rm -f .git; git init -q && git add -A >/dev/null 2>&1; fi
 		node --test tests/frontend.test.js tests/settings-save.test.js tests/records-timeline.test.js $(ls tests/live-video.test.js tests/whep-live.test.js 2>/dev/null) >/tmp/node.log 2>&1 && echo "node: ok" || { echo "node: FAILED"; tail -30 /tmp/node.log; exit 1; }
@@ -44,7 +44,7 @@ run_cross() {
 		apt-get update -qq >/dev/null && apt-get install -y -qq gcc-arm-linux-gnueabi make gcc libc6-dev qemu-user python3 busybox-static curl ca-certificates >/dev/null 2>&1
 		cp -r /src /w && cd /w && rm -rf /w/.claude && set -e
 		# versioned binaries that nothing ships (audit D2): a failed make must not pass on them
-		rm -f src/libakuio/libakuio.so src/tc100rtsp/tc100_rtsp src/mqttd/tc100-mqttd src/supervisord/tc100-supervisord src/onvifd/tc100-onvifd src/rwconf/rwconf src/logfwd/tc100-logfwd src/netacl/libnetacl.so
+		rm -f src/libakuio/libakuio.so src/tc100rtsp/tc100_rtsp src/mqttd/tc100-mqttd src/supervisord/tc100-supervisord src/onvifd/tc100-onvifd src/rwconf/rwconf src/sigcheck/tc100-sigcheck src/logfwd/tc100-logfwd src/netacl/libnetacl.so
 		case "$HARDEN" in 0) FSSP=-fno-stack-protector ;; *) FSSP=-fstack-protector-strong ;; esac
 		arm-linux-gnueabi-gcc -Os -Wall $FSSP -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/httpfront/httpfront.c -o /tmp/httpfront
 		arm-linux-gnueabi-gcc -Os -Wall $FSSP -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/mdnsd/mdnsd.c -o /tmp/tc100-mdnsd
@@ -71,6 +71,7 @@ run_cross() {
 		make -C src/supervisord CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/onvifd CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/rwconf CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
+		make -C src/sigcheck CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/logfwd CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/netacl CROSS=arm-linux-gnueabi- >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }; grep -iE "warning" /tmp/make.log || true
 		make -C src/netacl CROSS=arm-linux-gnueabi- musl >/tmp/make.log 2>&1 || { tail -30 /tmp/make.log; exit 1; }
@@ -78,7 +79,7 @@ run_cross() {
 		python3 -m unittest tests.test_musl_programs_qemu	# the musl programs under qemu with the real musl loader
 		# [harden] the canary and full RELRO in the ARM builds (and a smashed stack caught under qemu); HARDEN=0: absent
 		python3 -m unittest tests.test_harden
-		for b in src/mqttd/tc100-mqttd src/supervisord/tc100-supervisord src/onvifd/tc100-onvifd src/rwconf/rwconf src/logfwd/tc100-logfwd src/netacl/libnetacl-musl.so; do
+		for b in src/mqttd/tc100-mqttd src/supervisord/tc100-supervisord src/onvifd/tc100-onvifd src/rwconf/rwconf src/sigcheck/tc100-sigcheck src/logfwd/tc100-logfwd src/netacl/libnetacl-musl.so; do
 			n=$(arm-linux-gnueabi-readelf --dyn-syms -W $b | grep -c " __stack_chk_fail$" || true)
 			if [ "$HARDEN" != 0 ] && [ "$n" = 0 ]; then echo "$b: no stack protector"; exit 1; fi
 			if [ "$HARDEN" = 0 ] && [ "$n" != 0 ]; then echo "$b: stack protector with HARDEN=0"; exit 1; fi
@@ -87,8 +88,9 @@ run_cross() {
 			if [ "$HARDEN" != 0 ]; then grep -q "stack smashing detected" $b || { echo "$b: no stack protector"; exit 1; }; fi
 		done
 		echo "harden (HARDEN=$HARDEN): ok"
-		test -s src/tc100rtsp/tc100_rtsp && test -s src/libakuio/libakuio.so && test -s src/mqttd/tc100-mqttd && test -s src/supervisord/tc100-supervisord && test -s src/onvifd/tc100-onvifd && test -s src/rwconf/rwconf && test -s src/logfwd/tc100-logfwd && test -s src/netacl/libnetacl.so
+		test -s src/tc100rtsp/tc100_rtsp && test -s src/libakuio/libakuio.so && test -s src/mqttd/tc100-mqttd && test -s src/supervisord/tc100-supervisord && test -s src/onvifd/tc100-onvifd && test -s src/rwconf/rwconf && test -s src/sigcheck/tc100-sigcheck && test -s src/logfwd/tc100-logfwd && test -s src/netacl/libnetacl.so
 		echo "rwconf (stripped, bytes): $(wc -c < src/rwconf/rwconf)"
+		echo "tc100-sigcheck (stripped, bytes): $(wc -c < src/sigcheck/tc100-sigcheck)"
 		echo "httpfront (stripped, bytes): $(wc -c < /tmp/httpfront)"
 		echo "tc100-mqttd (stripped, bytes): $(wc -c < src/mqttd/tc100-mqttd)"
 		echo "tc100-supervisord (stripped, bytes): $(wc -c < src/supervisord/tc100-supervisord)"

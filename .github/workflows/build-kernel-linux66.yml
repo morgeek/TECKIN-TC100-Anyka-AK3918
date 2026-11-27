@@ -23,6 +23,7 @@ on:
       - 'src/mdnsd/**'
       - 'src/ispflip/**'
       - 'src/rwconf/**'
+      - 'src/sigcheck/**'
       - 'src/logfwd/**'
       - 'src/netacl/**'
       - 'src/musl.mk'
@@ -233,6 +234,9 @@ jobs:
           sh v3/musl/build-musl.sh
           make -C src/rwconf CROSS=arm-linux-gnueabi- >/dev/null
           cp src/rwconf/rwconf bin/rwconf
+          # tc100-sigcheck: Ed25519 verifier of the update packages (Monocypher; docs/linux-port/upgrade-3.2/sign.md)
+          make -C src/sigcheck CROSS=arm-linux-gnueabi- >/dev/null
+          cp src/sigcheck/tc100-sigcheck bin/tc100-sigcheck
           make -C src/logfwd CROSS=arm-linux-gnueabi- >/dev/null
           cp src/logfwd/tc100-logfwd bin/tc100-logfwd
           # libnetacl-musl: the accept/bind filter for the base system's musl busybox telnetd/ftpd

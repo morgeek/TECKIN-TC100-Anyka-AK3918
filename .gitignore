@@ -100,3 +100,10 @@ dist/
 
 # musl sysroot made by v3/musl/build-musl.sh
 /build/
+
+# tc100-sigcheck build products (the release build copies it to bin/, not versioned)
+/src/sigcheck/*.o
+/src/sigcheck/*.dbg
+/src/sigcheck/tc100-sigcheck
+/src/sigcheck/tc100-sigcheck-host
+/bin/tc100-sigcheck

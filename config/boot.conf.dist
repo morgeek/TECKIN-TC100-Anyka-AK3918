@@ -367,6 +367,18 @@ RED_LED=0
 # internet access; updates are installed from Settings → Firmware update.
 UPDATE_CHECK=0
 
+# UPDATE_REQUIRE_SIG: policy of the web update (Settings -> Firmware update) for the authenticity of the package.
+# The package carries SHA256SUMS; the owner signs it (SHA256SUMS.sig, Ed25519, docs/linux-port/upgrade-3.2/sign.md).
+#   0 (default on the 3.2 branch): a package without signature, or signed by a key this camera does not know, is
+#     accepted with a clear warning (web page and tc100-3/update66.log).
+#   1: only a package with a valid signature of a key installed on the camera (v3/install/update-keys/*.pub of the image,
+#     /mnt/config/update-keys/*.pub of the owner) is accepted. With no public key installed this cannot lock you out:
+#     warning, behaves as 0.
+# Whatever the value, a package whose signature is present but NOT valid is always refused, and nothing is written to
+# the flash before the check passes. The SD card install (install66.sh) trusts whoever holds the card and is not checked.
+# Read at each check (no restart needed).
+UPDATE_REQUIRE_SIG=0
+
 # NR3D=1|auto|0: temporal (3D) noise reduction of the ISP, cleaner night/low-light picture (25-34 % less noise measured).
 # It keeps a 4050 KiB Y frame in default CMA + 2025 KiB UV in the encoder pool tail (patch 0017), allocated at boot before
 # the video starts.

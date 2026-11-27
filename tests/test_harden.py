@@ -34,7 +34,7 @@ FS = ['-Os', '-Wall', '-Werror', '-marm', '-march=armv5te', '-nostdlib', '-stati
       '-Wl,--build-id=none', '-s']
 FREESTANDING = {'src/httpfront/httpfront.c': '$P/httpfront', 'src/mdnsd/mdnsd.c': '$P/tc100-mdnsd',
                 'src/ispflip/isp_flip.c': 'bin/isp_flip'}
-MUSL_MAKEFILES = ('mqttd', 'onvifd', 'supervisord', 'rwconf', 'logfwd')
+MUSL_MAKEFILES = ('mqttd', 'onvifd', 'supervisord', 'rwconf', 'logfwd', 'sigcheck')
 
 
 def text(p):

@@ -10,6 +10,7 @@
 U=/mnt/v3/install/update66.sh
 if grep -q ' /mnt/sd vfat ' /proc/mounts; then WORK=/mnt/sd/tc100-3/update; else WORK=/tmp/update66; fi
 MAX_BYTES=$((12 * 1024 * 1024))
+SIGST=${UPDATE66_SIGST:-/tmp/update66.sig}
 
 printf 'Content-Type: application/json\r\nCache-Control: no-store\r\n\r\n'
 js() { printf '%s' "$1" | awk '{ gsub(/[\\"]/, ""); gsub(/[\001-\037]/, " "); printf "%s", $0 }'; }
@@ -27,6 +28,13 @@ if [ "${REQUEST_METHOD:-GET}" = "POST" ]; then
 	fi
 fi
 cur=$(js "$(cat /mnt/VERSION 2>/dev/null)")
+# signature state left by "update66.sh check" (/tmp/update66.sig: "signed ID" | "unsigned WHY" | "refused WHY") as JSON
+# members: "sig":"signed|unsigned|refused" and "sig_info" (key id, or the reason); nothing when the check did not run
+sig_json() {
+	[ -f "$SIGST" ] || return 0
+	read -r _s _i < "$SIGST"
+	case "$_s" in signed|unsigned|refused) printf ',"sig":"%s","sig_info":"%s"' "$_s" "$(js "$_i")" ;; esac
+}
 # R26 (IPCAM1, rc31): the work folder is on the card when there is one, and a package left there by an earlier session
 # (an rc28 on a camera in rc31) was shown as staged and could be installed. A package is staged only when it was
 # uploaded and checked since the camera started: the mark is in RAM (/tmp), gone at the next start.
@@ -61,7 +69,8 @@ GET:status|GET:)
 	st=idle; staged=""; msg=$(js "$(cat /tmp/update66.status 2>/dev/null)")
 	if [ -e /tmp/update66.running ]; then st=installing
 	elif staged_ok; then st=staged; staged=$(js "$(cat "$WORK/VERSION")"); fi
-	printf '{"ok":true,"current":"%s","state":"%s","staged":"%s","kind":"linux66","message":"%s"}\n' "$cur" "$st" "$staged" "$msg" ;;
+	sj=; [ "$st" = staged ] && sj=$(sig_json)
+	printf '{"ok":true,"current":"%s","state":"%s","staged":"%s","kind":"linux66","message":"%s"%s}\n' "$cur" "$st" "$staged" "$msg" "$sj" ;;
 POST:upload)
 	# never during an install: it would delete the package being written (review 2026-11-12)
 	busy_or_failed
@@ -94,13 +103,14 @@ POST:upload)
 			}
 		fi
 	fi
-	head -c "$n" | ( cd "$WORK" && tar xf - VERSION stack.sqfs c66.img c66rd.gz MD5SUMS 2>/dev/null )
+	head -c "$n" | ( cd "$WORK" && tar xf - VERSION stack.sqfs c66.img c66rd.gz MD5SUMS SHA256SUMS SHA256SUMS.sig 2>/dev/null )
 	t=0; for f in VERSION stack.sqfs c66.img c66rd.gz MD5SUMS; do [ -f "$WORK/$f" ] && t=$((t + $(wc -c < "$WORK/$f"))); done
 	[ "$t" -gt 0 ] || { rm -rf "$WORK"; echo '{"ok":false,"error":"upload","message":"Upload incomplete or not a 3.0 update package."}'; exit 0; }
+	rm -f "$SIGST"
 	r=$(sh $U check "$WORK" 2>&1)
-	if [ "$r" != ok ]; then rm -rf "$WORK"; printf '{"ok":false,"error":"invalid","message":"%s"}\n' "$(js "$r")"; exit 0; fi
+	if [ "$r" != ok ]; then rm -rf "$WORK"; printf '{"ok":false,"error":"invalid","message":"%s"%s}\n' "$(js "$r")" "$(sig_json)"; exit 0; fi
 	: > "$WORK/ok"; printf '%s' "$WORK" > "$STAGED_MARK"
-	printf '{"ok":true,"kind":"linux66","version":"%s","current":"%s"}\n' "$(js "$(cat "$WORK/VERSION")")" "$cur" ;;
+	printf '{"ok":true,"kind":"linux66","version":"%s","current":"%s"%s}\n' "$(js "$(cat "$WORK/VERSION")")" "$cur" "$(sig_json)" ;;
 POST:install)
 	staged_ok || { echo '{"ok":false,"error":"state","message":"Upload a package first."}'; exit 0; }
 	new=$(js "$(cat "$WORK/VERSION")")
