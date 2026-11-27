@@ -270,6 +270,23 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
   back for all.
 - **Pass:** all of the above.
 
+### UP32-FLASH 3.2.0-rc1 written to the flash of ONE camera (owner's decision of 2026-11-27) — `to test` (after the SD gate)
+- **What:** the web update `tc100-3.2.0-rc1-update.tar` of the CI artifact `tc100-3-release` of the rc1 run on
+  `upgrade-3.2` (same build as the SD test files). It writes `stack`, the kernel and the initramfs through `flashw`
+  (read back, md5); U-Boot, `boot`, `mac` and the U-Boot environment are not touched.
+- **Gate before flashing (a flashed kernel that does not boot never reaches the rescue initramfs, AGENTS.md):** the
+  same rc1 booted from the SD card in RAM on that camera first, at least: UP32-KERNEL boot checks (`/proc/cmdline`
+  complete, `uname -r` 6.6.163, video 1080p and 720p, audio, Wi-Fi signal close to the flash kernel's, clean `dmesg`)
+  and one hour of streaming, and UP32-BASE steps Wi-Fi join, ssh and web UI. Owner near the camera; the SD card in it
+  (the update saves each partition to the card first, `flashw -b`; no card = only with "install without a backup").
+- **Install:** web UI, Settings -> Update & backup, upload the tar. The 3.0.2-rc8 updater of the camera installs it
+  (it ignores the new `SHA256SUMS`). Expected: version 3.2.0-rc1 after the reboot, settings kept.
+- **Ways back:** (1) web update with `tc100-3.0.2-rc8-update.tar` (the 3.2 updater accepts an unsigned package at
+  `UPDATE_REQUIRE_SIG=0`, the default; 3.0.2 sets the secret files back to 600 at boot); (2) if the camera does not come
+  up: the 3.0.2-rc8 SD card with `tc100test/c66.img` (the SD kernel boots before the flash one), then Settings ->
+  Install to flash, or the partition backups of the card; (3) last resort, the full flash backup of the card.
+- **Pass:** the camera runs 48 h on the flash with the UP32 checks green, then the second camera.
+
 ### UP32-SBOM SBOM and CVE report in every build (`[up-sbom]`) — `CI only` (nothing on the camera)
 - **What / notes:** [upgrade-3.2/sbom.md](upgrade-3.2/sbom.md). `sbom.cdx.json`, `sbom.md`, `cve-report.md/.json` in the
   `tc100-3-release` artifact; the CVE step is non-blocking, its NVD data cached per ISO week.
