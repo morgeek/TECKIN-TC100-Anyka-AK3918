@@ -1,6 +1,6 @@
 name: Build base root filesystem (Buildroot, musl)
 
-# Our own replacement for the OpenIPC root filesystem: Buildroot 2024.02 LTS,
+# Our own replacement for the OpenIPC root filesystem: Buildroot 2025.02 LTS,
 # external tree v3/buildroot, BusyBox, dropbear, wpa_supplicant, curl, jq, alsa-utils.
 on:
   workflow_dispatch:
@@ -32,26 +32,20 @@ jobs:
           echo "CFLAGS_FOR_BUILD=-std=gnu17" >> $GITHUB_ENV
           echo "HOSTCFLAGS=-std=gnu17" >> $GITHUB_ENV
 
-      - name: Fetch Buildroot 2024.02.9
+      - name: Fetch Buildroot 2025.02.20
         if: steps.base.outputs.cache-hit != 'true'
         run: |
           # pinned: the tag must be this commit (.github/ci-pins.sh); Buildroot checks each package download against its .hash
           . .github/ci-pins.sh
           git_clone_pinned "$BUILDROOT_TAG" "$BUILDROOT_COMMIT" buildroot-src https://github.com/buildroot/buildroot.git
-          sed -i 's/M4_VERSION = 1.4.19/M4_VERSION = 1.4.21/' buildroot-src/package/m4/m4.mk
-          sed -i 's/f25c6ab51548a73a75558742fb031e0625d6485fe5f9155949d6486a2408ab66/f25c6ab51548a73a75558742fb031e0625d6485fe5f9155949d6486a2408ab66/' buildroot-src/package/m4/m4.hash 2>/dev/null || true
-          echo "sha256  f25c6ab51548a73a75558742fb031e0625d6485fe5f9155949d6486a2408ab66  m4-1.4.21.tar.xz" > buildroot-src/package/m4/m4.hash
-          echo "sha256  3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986  COPYING" >> buildroot-src/package/m4/m4.hash
-          sed -i '/\$(eval \$(cmake-package))/i MBEDTLS_CONF_OPTS += -DCMAKE_POLICY_VERSION_MINIMUM=3.5' buildroot-src/package/mbedtls/mbedtls.mk
-          sed -i 's/-DCMAKE_COLOR_MAKEFILE=OFF/-DCMAKE_COLOR_MAKEFILE=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5/' buildroot-src/package/pkg-cmake.mk
 
       - name: Cache downloads
         if: steps.base.outputs.cache-hit != 'true'
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: dl
-          key: buildroot-dl-2024.02.9-${{ hashFiles('v3/buildroot/configs/**') }}
-          restore-keys: buildroot-dl-2024.02.9-
+          key: buildroot-dl-2025.02.20-${{ hashFiles('v3/buildroot/configs/**') }}
+          restore-keys: buildroot-dl-2025.02.20-
 
       - name: Build
         if: steps.base.outputs.cache-hit != 'true'

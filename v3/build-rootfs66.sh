@@ -61,6 +61,10 @@ if [ ! -f lib/firmware/regulatory.db ]; then
   [ "${ALLOW_NO_REGDB:-0}" = 1 ] || { echo "no lib/firmware/regulatory.db in the base image (ALLOW_NO_REGDB=1 to build anyway)" >&2; exit 1; }
   echo "warning: no lib/firmware/regulatory.db, the Wi-Fi keeps the world rules" >&2
 fi
+# rescue safety: every dynamically linked program left in the image (wpa_supplicant, BusyBox, the scripts' tools) must find
+# each NEEDED library in /lib or /usr/lib of this image after the prune above (what the prune list moved to ext/ is not
+# there before the user space is mounted); a prune entry or a base image change that breaks it fails the build here
+sh "$HERE/check-needed.sh" "$PWD" "$PWD/lib:$PWD/usr/lib"
 INITRD_SIZE=${INITRD_SIZE:-2012654}
 # reproducible image (item CI-PIN): with SOURCE_DATE_EPOCH (the CI sets it to the commit time) every file gets that time,
 # the list is sorted and GNU cpio renumbers the inodes (--reproducible, cpio 2.14 or later: without it

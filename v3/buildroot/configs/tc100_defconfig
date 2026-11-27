@@ -30,6 +30,8 @@ BR2_PACKAGE_ALSA_LIB_CTL_PLUGINS="ext"
 # BR2_INET_IPV6 is not set
 BR2_PACKAGE_CA_CERTIFICATES=y
 BR2_PACKAGE_MBEDTLS=y
+# DTLS-SRTP (RFC 5764) for tc100-whep: Buildroot 2025.02 enables MBEDTLS_SSL_DTLS_SRTP itself (v3/buildroot/external.mk checks it)
+BR2_PACKAGE_MBEDTLS_DTLS_SRTP=y
 # item 35: the WebRTC (WHEP) gateway, built from src/whep; the runtime service is on by default (boot.conf WHEP=1)
 BR2_PACKAGE_TC100_WHEP=y
 BR2_PACKAGE_LIBCURL=y

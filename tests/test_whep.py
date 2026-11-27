@@ -60,8 +60,9 @@ class Wiring(unittest.TestCase):
 
     def test_base_image(self):
         mk = read('v3/buildroot/external.mk')
-        self.assertIn('MBEDTLS_POST_PATCH_HOOKS += MBEDTLS_ENABLE_DTLS_SRTP', mk)
+        self.assertIn('MBEDTLS_POST_CONFIGURE_HOOKS += MBEDTLS_CHECK_DTLS_SRTP', mk)
         self.assertIn('MBEDTLS_SSL_DTLS_SRTP', mk)
+        self.assertIn('BR2_PACKAGE_MBEDTLS_DTLS_SRTP=y', read('v3/buildroot/configs/tc100_defconfig'))
         self.assertIn('include $(sort $(wildcard $(BR2_EXTERNAL_TC100_PATH)/package/*/*.mk))', mk)
         self.assertIn('BR2_PACKAGE_TC100_WHEP=y', read('v3/buildroot/configs/tc100_defconfig'))
         self.assertIn('package/tc100-whep/Config.in', read('v3/buildroot/Config.in'))

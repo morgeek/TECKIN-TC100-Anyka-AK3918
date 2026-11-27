@@ -4,6 +4,11 @@ set -eu
 T=$1
 rm -rf "$T"/usr/share/man "$T"/usr/share/doc "$T"/usr/share/info "$T"/usr/include "$T"/usr/lib/pkgconfig
 rm -f "$T"/usr/bin/aserver "$T"/usr/bin/alsaucm 2>/dev/null || true
+# curl 8.23 installs wcurl (a shell wrapper, new in 2025.02): no script calls it
+rm -f "$T"/usr/bin/wcurl
+# Buildroot 2025.02 installs an init script for crond when BusyBox has it (S50crond): the camera starts crond itself, only
+# when the managed crontab has an entry (v3/autorun-linux66.sh, "Scheduled reboot"), so a resident one is not wanted
+rm -f "$T"/etc/init.d/S50crond
 # PCI sound card configurations (272 KB; the camera has one fixed codec) and the sample hostapd.conf (128 KB;
 # wifi-rescue.sh writes its own).  libgcc_s is needed by no binary of the image (readelf -d), only C++ and unwinding.
 rm -rf "$T"/usr/share/alsa/cards "$T"/etc/hostapd.conf

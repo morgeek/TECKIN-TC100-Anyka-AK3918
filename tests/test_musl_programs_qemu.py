@@ -1,4 +1,4 @@
-"""The programs of the 3.0 system built against musl 1.2.4 (src/musl.mk, sysroot from v3/musl/build-musl.sh), the C
+"""The programs of the 3.0 system built against musl 1.2.6 (src/musl.mk, sysroot from v3/musl/build-musl.sh), the C
 library of the camera's base system: tc100-mqttd, tc100-onvifd, tc100-supervisord, tc100-logfwd, rwconf and the musl
 build of libnetacl. Until 2026-11-07 they ran under the vendor uClibc loader with a stand-in libc.
 
