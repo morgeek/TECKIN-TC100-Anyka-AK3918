@@ -347,11 +347,36 @@ class AttributesBeforeTheRename(unittest.TestCase):
         st = os.stat(p)
         self.assertEqual((st.st_uid, st.st_gid, st.st_mode & 0o777), (0, GID, 0o640))
 
-    def test_rwconf_source_asks_for_the_owner_and_checks_it(self):
+    def test_rwconf_source_asks_for_the_owner_and_only_warns(self):
         s = text('src/rwconf/rwconf.c')
         save = s[s.index('static void save('):]
         self.assertLess(save.index('fchown(fileno(f), st.st_uid, st.st_gid)'), save.index('rename(tmp, path)'))
-        self.assertIn('file unchanged', save[save.index('fchown('):save.index('fchmod(')])
+        between = save[save.index('fchown('):save.index('fchmod(')]
+        self.assertIn('warning: cannot keep the owner', between)
+        self.assertNotIn('exit(1)', between, 'a refused fchown does not stop the write')
+        self.assertNotIn('unlink(tmp)', between)
+
+    @unittest.skipUnless(HAVE_CC, 'needs a C compiler')
+    def test_rwconf_still_writes_when_the_owner_cannot_be_kept(self):
+        """a caller that is not root cannot give the file a group it is not in: warning, and the write completes"""
+        if os.geteuid() != 0:
+            self.skipTest('needs root to run the writer as another user')
+        exe = self.tmp / 'rwconf'
+        subprocess.run(['cc', '-O1', '-Wall', '-Wextra', '-o', str(exe), str(ROOT / 'src/rwconf/rwconf.c')], check=True)
+        p = self.mk('rtspserver.conf', 0o660, '[0]\nfps=15\n')
+        os.chmod(self.tmp, 0o755)
+        os.chown(self.tmp, 65000, 65000)
+        os.chown(p, 65000, 65001)                           # a group the writer is not in
+
+        def to_user():
+            os.setgroups([])
+            os.setgid(65000)
+            os.setuid(65000)
+        r = subprocess.run([str(exe), str(p), 'w', '0', 'fps', '20'], capture_output=True, text=True, preexec_fn=to_user)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('warning: cannot keep the owner', r.stderr)
+        self.assertIn('fps=20', p.read_text())
+        self.assertEqual(os.stat(p).st_mode & 0o777, 0o660)
 
 
 
@@ -481,6 +506,27 @@ def pids_matching(sub):
     return found
 
 
+def wsse(user, password, digest):
+    """a WS-Security UsernameToken header, PasswordDigest or PasswordText"""
+    import base64
+    import hashlib
+    import secrets
+    from datetime import datetime, timezone
+    ns = ('xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd" '
+          'xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd"')
+    base = 'http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#'
+    created = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+    if digest:
+        nonce = secrets.token_bytes(16)
+        d = base64.b64encode(hashlib.sha1(nonce + created.encode() + password.encode()).digest()).decode()
+        pw = ('<wsse:Password Type="%sPasswordDigest">%s</wsse:Password><wsse:Nonce>%s</wsse:Nonce><wsu:Created>%s</wsu:Created>'
+              % (base, d, base64.b64encode(nonce).decode(), created))
+    else:
+        pw = '<wsse:Password Type="%sPasswordText">%s</wsse:Password>' % (base, password)
+    return ('<wsse:Security %s><wsse:UsernameToken><wsse:Username>%s</wsse:Username>%s</wsse:UsernameToken></wsse:Security>'
+            % (ns, user, pw))
+
+
 def uid_of(pid):
     for line in Path('/proc/%d/status' % pid).read_text().splitlines():
         if line.startswith('Uid:'):
@@ -550,9 +596,10 @@ class RealProcesses(unittest.TestCase):
         for n in ('rtspserver.conf', 'boot.conf', 'mac'):
             os.chmod(self.work / n, 0o644)
 
-    def soap_status(self, svc, body):
+    def soap_status(self, svc, body, header=''):
         env = ('<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:trt="http://www.onvif.org/ver10/media/wsdl" '
-               'xmlns:tds="http://www.onvif.org/ver10/device/wsdl"><s:Body>%s</s:Body></s:Envelope>' % body).encode()
+               'xmlns:tds="http://www.onvif.org/ver10/device/wsdl"><s:Header>%s</s:Header><s:Body>%s</s:Body></s:Envelope>'
+               % (header, body)).encode()
         req = ('POST /onvif/%s HTTP/1.1\r\nHost: x\r\nContent-Type: application/soap+xml\r\nContent-Length: %d\r\n\r\n'
                % (svc, len(env))).encode() + env
         s = socket.create_connection(('127.0.0.1', self.port), timeout=15)
@@ -768,6 +815,69 @@ class RealProcesses(unittest.TestCase):
         self.assertIn('if (cfg_poll(NCFG, 1)) load_config();', s, 'the poll of the loop retries unreadable files')
         self.assertNotIn('cfg_sig[0].retry = 1;		/* emptied', s)
         self.assertIn('rtsp_good', s)
+
+    def start_as_user(self, extra=None):
+        """tc100-onvifd started by an ordinary uid with no -D: the FIRST read of user.pwd can fail (root 600)"""
+        def to_user():
+            os.setgroups([])
+            os.setgid(65000)
+            os.setuid(65000)
+        cmd, env = self.onvif_cmd(extra or [])
+        p = subprocess.Popen(cmd, env=env, stderr=subprocess.DEVNULL, preexec_fn=to_user)
+        self.procs.append(p)
+        self.wait_port()
+        return p
+
+    def test_onvifd_first_load_read_error_closes_every_call_even_for_the_sentinel_password(self):
+        """no sentinel password: with user.pwd unreadable at the first load, user root + password \\x01 (digest and
+        PasswordText) is refused like any other; once the file is readable the real password works and \\x01 does not"""
+        if os.geteuid() != 0:
+            self.skipTest('needs root to start the daemon as another user')
+        self.write_conf(mode=0o600, pw='s3cret-pw\n')
+        os.chown(self.work / 'user.pwd', 0, 0)
+        self.start_as_user()
+        for pwd in ('\x01', 's3cret-pw', ''):
+            for digest in (True, False):
+                self.assertEqual(self.soap_status('media_service', '<trt:GetProfiles/>', wsse('root', pwd, digest)), 400,
+                                 'closed: %r digest=%s' % (pwd, digest))
+        time.sleep(2.5)                                        # a poll that still cannot read it: still closed
+        self.assertEqual(self.soap_status('media_service', '<trt:GetProfiles/>', wsse('root', '\x01', False)), 400)
+        self.assertEqual(self.soap_status('media_service', '<trt:GetProfiles/>', wsse('root', 's3cret-pw', False)), 400)
+        self.assertEqual(self.soap_status('device_service', '<tds:GetSystemDateAndTime/>'), 200, 'the calls that need no credentials')
+        os.chmod(self.work / 'user.pwd', 0o644)                # readable now (ctime changes)
+        for _ in range(40):
+            if self.soap_status('media_service', '<trt:GetProfiles/>', wsse('root', 's3cret-pw', True)) == 200:
+                break
+            time.sleep(0.25)
+        self.assertEqual(self.soap_status('media_service', '<trt:GetProfiles/>', wsse('root', 's3cret-pw', True)), 200)
+        self.assertEqual(self.soap_status('media_service', '<trt:GetProfiles/>', wsse('root', 's3cret-pw', False)), 200)
+        self.assertEqual(self.soap_status('media_service', '<trt:GetProfiles/>', wsse('root', '\x01', True)), 400)
+        self.assertEqual(self.soap_status('media_service', '<trt:GetProfiles/>', wsse('root', '\x01', False)), 400)
+
+    def test_onvifd_closed_state_is_cleared_by_an_empty_file(self):
+        if os.geteuid() != 0:
+            self.skipTest('needs root to start the daemon as another user')
+        self.write_conf(mode=0o600, pw='x\n')
+        os.chown(self.work / 'user.pwd', 0, 0)
+        self.start_as_user()
+        self.assertEqual(self.soap_status('media_service', '<trt:GetProfiles/>'), 400)
+        (self.work / 'user.pwd').write_text('')
+        os.chmod(self.work / 'user.pwd', 0o644)
+        for _ in range(40):
+            if self.soap_status('media_service', '<trt:GetProfiles/>') == 200:
+                break
+            time.sleep(0.25)
+        self.assertEqual(self.soap_status('media_service', '<trt:GetProfiles/>'), 200, 'an empty file read without error: no password')
+
+    def test_onvifd_source_has_no_sentinel_password(self):
+        s = text('src/onvifd/onvifd.c')
+        self.assertNotIn(chr(39) + chr(92) + '001' + chr(39), s)
+        ca = s[s.index('static int check_auth('):]
+        self.assertLess(ca.index('if (auth_closed) return 0;'), ca.index('if (!G.pass[0]) return 1;'))
+        self.assertLess(ca.index('if (auth_closed) return 0;'), ca.index('ct_eq(pw, G.pass)'))
+        lc = s[s.index('static void load_config(void)'):]
+        self.assertEqual(lc.count('auth_closed = 1;'), 1)
+        self.assertIn('auth_closed = 0;', lc)
 
     def test_logfwd_forwards_after_the_drop(self):
         self.need_root()

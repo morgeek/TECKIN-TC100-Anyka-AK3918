@@ -54,8 +54,10 @@ secrets (`mqtt.conf`, `wpa_supplicant.conf`, `telegram.conf`, `notify.conf`) sta
 the file never exists with attributes the daemons cannot read. A file of the secret list gets the policy above; any other
 file keeps the attributes of the one it replaces. Writers that replace the two shared files:
 - `rwconf` (`src/rwconf`, the web actions: volume, motion sensitivity, ...): `fchown` of the temporary file to the owner and
-  group of the original, checked (a refused change leaves the old file whole and the status non-zero); asked only when they
-  differ from the process's own, so a FAT card (no owners) still works;
+  group of the original, asked only when they differ from the process's own (a FAT card has no owners). The result is
+  checked, but a refusal (a card mounted with `uid=`/`gid=`, a caller that is not root) only prints a warning and the write
+  completes, as before this stream: onvifd keeps its last good settings and `secret_modes_fix` puts the group back at the
+  next boot or restore;
 - `rewrite_config` (`scripts/common_functions.sh`), `tc_commit_config_files` (`scripts/config-transaction.sh`: settings
   import) and `all_password` (the web password change, `user.pwd`): `secret_file_attrs` on the temporary file, then `mv`;
 - the boot (`secret_modes_fix`), the restore (`cfg-persist`) and `privdrop_opt` (a service restarted after the switch was
@@ -63,10 +65,14 @@ file keeps the attributes of the one it replaces. Writers that replace the two s
 
 **Fail closed.** A read error never means "no password" and never changes the settings:
 - `tc100-onvifd` password: only a missing file (ENOENT) or an empty one read without error means open. Any other read error
-  keeps the previous state (at start up, closed) and sets a retry flag: the 2 s poll of the loop looks at the file again, a
+  sets `auth_closed`, which `check_auth` tests first: every authenticated call is refused, whatever the credentials (the
+  calls that need none still answer). There is **no sentinel password**: a password the daemon holds is one a client can
+  compute (the digest of any known string), so none is ever stored for this state. The flag is cleared by the next read that
+  works (a password, an empty file) or by ENOENT. It also sets a retry flag: the 2 s poll of the loop looks at the file again, a
   request does not (so a file that stays unreadable costs one reload per poll, not one per request). The file signature now
   includes the status-change time, so a `chgrp` or `chmod` that makes the file readable (it changes only the ctime) is seen;
-- `tc100-onvifd` `rtspserver.conf`: the last copy read without error is kept; a re-read that fails (not ENOENT) uses it
+- `tc100-onvifd` `rtspserver.conf`: the last copy read without error is kept (up to 16 KB; the real file is a few hundred
+  bytes, a bigger one is simply not cached); a re-read that fails (not ENOENT) uses it
   instead of the defaults (port 554, user root, 1080p) and is retried at the poll;
 - `tc100-whep`: a file that cannot be read, or a read error, keeps the last credentials (only a missing file clears them; a
   missing password only makes the RTSP request unauthenticated, which `tc100_rtsp` refuses).
@@ -89,7 +95,7 @@ root as before. The value may be quoted and followed by a comment (`PRIVDROP=0 #
 
 ## 4. Tests (host)
 
-`tests/test_privdrop.py` (38 tests, including the writers, the group of rwconf and the fail-closed ones; run with the secret-mode, onvifd and rwconf modules: 112 tests as root, OK): the order drop-after-bind in each of the
+`tests/test_privdrop.py` (42 tests, including the writers, the group of rwconf and the fail-closed ones; run with the secret-mode, onvifd and rwconf modules: 112 tests as root, OK): the order drop-after-bind in each of the
 four sources and the abort on failure; the same function in the three libc programs and the raw-syscall one for mdnsd; the
 three that stay root carry none; the switch (default on, off values, last line wins, comments ignored); the modes follow the
 switch; the start scripts of `mdns` and `whep` run with a fake daemon and show `-D 1001:1001` or nothing (onvif and the log

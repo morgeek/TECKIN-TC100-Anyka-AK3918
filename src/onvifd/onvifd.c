@@ -341,7 +341,8 @@ static struct { long long mt, mtn, sz, ino, ct, ctn; int ok, retry; } cfg_sig[NC
 static int cfg_loaded;
 /* the last rtspserver.conf that was read without error: a re-read that fails (errno other than ENOENT) uses it, so a
  * moment with the file unreadable never turns the streams, the port and the user into defaults */
-static char rtsp_good[8192];
+static int auth_closed;	/* user.pwd could not be read (not: missing): every authenticated call is refused */
+static char rtsp_good[16384];
 static int rtsp_good_n = -1;
 
 /* 1: one of the first nf files changed since the last look; the new state is kept */
@@ -456,11 +457,14 @@ static void load_config(void)
 		}
 		/* [up-privdrop] "no password" (open) comes only from a missing file (ENOENT) or an empty one read without error. A
 		 * read error of any other kind (a mode or an owner the daemon does not have: a file that arrives as root 600 before
-		 * its group is set) keeps the previous state, at start up too (closed: a password nobody can match is not
-		 * "open"), and is looked at again at the next poll (retry), the signature of the file being no proof of anything */
+		 * its group is set) CLOSES the authenticated calls: auth_closed, checked first in check_auth, refuses every request
+		 * whatever the credentials (no sentinel password: any password the daemon holds is one a client can compute). It is
+		 * cleared by the next read that works (a password, an empty file) or by ENOENT, and the file is looked at again at
+		 * the next poll (retry), the signature of the file being no proof of anything */
+		auth_closed = 0;
 		if (rd_err && rd_err != ENOENT) {
 			cfg_sig[0].retry = 1;
-			if (!cfg_loaded) { G.pass[0] = '\001'; G.pass[1] = 0; }	/* never read: closed, not open */
+			auth_closed = 1;
 		} else if (!np[0] && G.pass[0] && cfg_loaded && stat(path, &st) == 0 &&
 		    (long long)time(NULL) - (long long)st.st_mtime <= 2) {
 			cfg_sig[0].ok = -1;		/* emptied 2 s ago or less (a writer between truncating and writing): looked at again, also by a request, for at most 2 s */
@@ -880,6 +884,7 @@ static int check_auth(const char *b, int n)
 	long long t = now_ms();
 
 	if (cfg_poll(1, 0)) load_config();	/* B1: a changed password counts before this request is judged */
+	if (auth_closed) return 0;	/* [up-privdrop] the password file cannot be read: nobody gets in, whatever they send */
 	if (!G.pass[0]) return 1;
 	if (fail_locked(g_peer, t)) return 0;	/* guessing from this address: refused for the rest of its minute */
 	if (!find_elem(b, end, "UsernameToken", NULL, NULL, &cl)) return 0;
