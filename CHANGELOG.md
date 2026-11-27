@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [3.2.0] - unreleased (branch `upgrade-3.2`, the major upgrade; SD-card tests only)
+## [3.2.0-rc1] - 2026-11-27 (branch `upgrade-3.2`, the major upgrade; SD-card tests only)
 
 ### Security
 - **Kernel 6.6.0 -> 6.6.163** (`[up-kernel]`): the 25 patches rebased on the latest 6.6.y (163 stable releases of
@@ -13,6 +13,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Signed update packages** (`[up-sign]`): `SHA256SUMS` + detached Ed25519 `SHA256SUMS.sig`, verified on the camera by
   `tc100-sigcheck` (Monocypher 4.0.2) before any flash write; `UPDATE_REQUIRE_SIG` (0 on this branch); the owner signs
   with `scripts/sign_update.py`. Test-queue UP32-SIGN.
+
+- **Base system** (`[up-base]`): Buildroot 2024.02.9 -> 2025.02.20 (BusyBox 1.37, Dropbear 2026.93, wpa_supplicant /
+  hostapd 2.12, curl 8.23), Mbed TLS 2.28.9 (out of maintenance) -> 3.6.7 LTS with the WebRTC gateway ported, musl
+  1.2.4 -> 1.2.6 for the free programs; a build-time check that every program finds its libraries. Test-queue UP32-BASE.
+- **Network daemons without root** (`[up-privdrop]`, `PRIVDROP=1`): onvifd and whep as `tc100svc`, mdnsd and logfwd as
+  `tc100net`; the web front, MQTT and the video server keep root. Test-queue UP32-PRIVDROP.
 
 ### Fixed
 - **tc100-onvifd:** an ISO 8601 duration such as `PT999999H` overflowed and gave a negative subscription time (found by

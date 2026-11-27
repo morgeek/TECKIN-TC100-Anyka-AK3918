@@ -244,6 +244,32 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
 - **Test:** fuzz.md "Camera test": ONVIF discovery, profiles, stream, a motion subscription (Create, Pull, Renew); the web
   UI opens as before. **Pass:** as on 3.0.2.
 
+### UP32-BASE Base system: Buildroot 2025.02.20, Mbed TLS 3.6.7 (WebRTC port), musl 1.2.6 (`[up-base]`) — `to test` (SD, 48 h)
+- **What / notes:** [upgrade-3.2/base.md](upgrade-3.2/base.md): BusyBox 1.37, Dropbear 2026.93, wpa_supplicant/hostapd
+  2.12, curl 8.23, the Bootlin toolchain of 2025.02; the WebRTC gateway ported to Mbed TLS 3.6 (aiortc interop green);
+  `stack.sqfs` 2,338,816 bytes (491,520 free). Reviewed: SRTP keys derived as before; a build-time check that every
+  program of the initramfs and the stack finds its libraries; BusyBox 1.37 `flashcp` always erases; an update cut after
+  the stack write keeps working (all 1,863 imported symbols exported by the old initramfs libraries).
+- **Switch:** none (one base system); the way back is a power cycle (flash firmware).
+- **Test:** base.md "Camera test": Wi-Fi join, rescue access point (hostapd), ssh (dropbear), web UI, live view WebRTC
+  in a browser and the HTML5 fallback, RTSP in Frigate, MQTT, ONVIF, two-way audio, the read-only update check, 48 h.
+- **Pass:** every step as on 3.0.2, no new error in `dmesg` or the logs.
+
+### UP32-PRIVDROP Network daemons without root (`[up-privdrop]`, `PRIVDROP`) — `to test` (SD)
+- **What / notes:** [upgrade-3.2/privdrop.md](upgrade-3.2/privdrop.md): `tc100-onvifd` and `tc100-whep` as `tc100svc`
+  (uid/gid 1001, may read `user.pwd` and `rtspserver.conf`, mode 640 group 1001 while PRIVDROP is on), `tc100-mdnsd`
+  and `tc100-logfwd` as `tc100net` (1002, no secret); `httpfront`, `tc100-mqttd`, `tc100_rtsp` keep root (CGIs, admin
+  commands, devices). Two review rounds: owner/group/mode kept by every writer (rwconf, rewrite_config, import,
+  all_password), onvifd keeps its last good config, `auth_closed` refuses every authenticated ONVIF call while
+  `user.pwd` cannot be read.
+- **Switch:** `PRIVDROP=0` in `boot.conf` (every daemon as root, secret files back to 600), then a reboot.
+- **Test:** privdrop.md section 5: `ps -o user,comm` shows the four daemons under 1001/1002 (names only after an
+  initramfs with the users), and every function works: web UI incl. a settings save, backup and restore, live view
+  WebRTC, RTSP in Frigate, ONVIF discovery / stream / events, MQTT state and commands, mDNS name, log forwarding;
+  a volume or motion change from the web UI keeps ONVIF's profiles right (the rwconf owner fix); `PRIVDROP=0` brings root
+  back for all.
+- **Pass:** all of the above.
+
 ### UP32-SBOM SBOM and CVE report in every build (`[up-sbom]`) — `CI only` (nothing on the camera)
 - **What / notes:** [upgrade-3.2/sbom.md](upgrade-3.2/sbom.md). `sbom.cdx.json`, `sbom.md`, `cve-report.md/.json` in the
   `tc100-3-release` artifact; the CVE step is non-blocking, its NVD data cached per ISO week.
