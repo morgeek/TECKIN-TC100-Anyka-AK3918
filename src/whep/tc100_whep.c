@@ -823,9 +823,10 @@ static void read_pw(void)
 		if (errno == ENOENT) G.auth[0] = 0;	/* no file: no password. A file that cannot be read (mode) keeps the last one */
 		return;
 	}
-	G.auth[0] = 0;
 	if (fgets(pw, sizeof pw, f)) pw[strcspn(pw, "\r\n")] = 0;
+	else if (ferror(f)) { fclose(f); return; }	/* a read error is no "no password": the last credentials stay */
 	fclose(f);
+	G.auth[0] = 0;
 	if (!pw[0]) return;			/* no password: tc100_rtsp is open */
 	n = (size_t)snprintf(plain, sizeof plain, "%s:%s", G.ruser, pw);
 	for (i = 0; i < n; i += 3) {

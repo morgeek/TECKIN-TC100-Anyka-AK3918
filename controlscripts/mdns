@@ -32,7 +32,7 @@ start()
   grep -q '^MDNS_INFO=1' /mnt/config/boot.conf 2>/dev/null && _md_opt="$_md_opt -v"
   # shellcheck disable=SC2086
   # PRIVDROP (boot.conf, default 1): the daemon gives up root once its socket is bound (-D uid:gid of scripts/secret-modes.sh)
-  _md_opt="$_md_opt $(privdrop_opt 2>/dev/null)"
+  _md_opt="$_md_opt $(privdrop_opt net 2>/dev/null)"
   "$BIN" -i wlan0 $_md_opt </dev/null >/dev/null 2>&1 &
   echo $! > "$PIDFILE"
   sleep 1

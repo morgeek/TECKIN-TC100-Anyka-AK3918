@@ -46,7 +46,7 @@ NET_ALLOW_EXTRA=
 # 5 minutes (httpfront; the camera itself never). The kernel has no packet filter, so this is the
 # web server's own. 0 = no limit.
 WEB_LOCKOUT=1
-# PRIVDROP=1 (default): the network daemons that need no root run as the user tc100svc (uid/gid 1001) instead of root, so a
+# PRIVDROP=1 (default): the network daemons that need no root run as the users tc100svc (1001, onvif and whep) and tc100net (1002, mdns and log forwarding) instead of root, so a
 # memory bug in their parsers no longer gives the whole camera: tc100-onvifd, tc100-whep (WebRTC), tc100-mdnsd and
 # tc100-logfwd (syslog forwarding). They bind their ports and read what only root may read first, then give up root for
 # good (and stop if that fails). httpfront (its pages write the settings, update and reboot), tc100-mqttd (its admin

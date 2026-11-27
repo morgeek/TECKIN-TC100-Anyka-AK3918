@@ -153,6 +153,8 @@ rewrite_config(){
     # a truncated config behind (FAT32 has no journal to recover from that).
     _rc_tmp="${cfg_path}.tmp.$$"
     if sed -e "/^[[:space:]]*#/! s|^[[:space:]]*${cfg_key}=.*|${cfg_key}=${esc_value}|" "$cfg_path" > "$_rc_tmp"; then
+      # same owner, group and mode as the file it replaces (rtspserver.conf is read by dropped daemons)
+      command -v secret_file_attrs >/dev/null 2>&1 && secret_file_attrs "$_rc_tmp" "$cfg_path"
       mv "$_rc_tmp" "$cfg_path"
     else
       rm -f "$_rc_tmp" 2>/dev/null
@@ -709,9 +711,10 @@ all_password()
     # see it truncated (an empty file means "no password: open"). No in-place fallback: on a full file system it would
     # leave the file empty; the old password then stays in force and the failure is reported.
     if ( umask 077; printf '%s\n' "$1" > /mnt/config/user.pwd.$$.tmp ) && [ -s /mnt/config/user.pwd.$$.tmp ] \
+        && { command -v secret_file_attrs >/dev/null 2>&1 && secret_file_attrs /mnt/config/user.pwd.$$.tmp /mnt/config/user.pwd; true; } \
         && mv -f /mnt/config/user.pwd.$$.tmp /mnt/config/user.pwd; then
-        # the new file is root 600: tc100-onvifd and tc100-whep (dropped to tc100svc) read it again; 640 with their group
-        command -v secret_modes_fix >/dev/null 2>&1 && secret_modes_fix /mnt/config
+        # the group and the mode (640 with the service group: tc100-onvifd and tc100-whep, dropped to tc100svc, read the
+        # file again) were set on the temporary file BEFORE the rename: no moment with a file they cannot read
         return 0
     fi
     rm -f /mnt/config/user.pwd.$$.tmp
@@ -931,7 +934,7 @@ syslogd_start() {
     # remote host (the file is new at each boot: tmpfs). Later restarts
     # would resend it: only when the log is young (first 10 min).
     _fwd_b=""; [ "$(cut -d. -f1 /proc/uptime 2>/dev/null)" -lt 600 ] 2>/dev/null && _fwd_b=-b
-    ( trap '' HUP; exec "$_sl_fwd" -r "$_sl_remote" -f /var/log/messages $_fwd_b $(privdrop_opt 2>/dev/null) ) </dev/null >/dev/null 2>&1 &
+    ( trap '' HUP; exec "$_sl_fwd" -r "$_sl_remote" -f /var/log/messages $_fwd_b $(privdrop_opt net 2>/dev/null) ) </dev/null >/dev/null 2>&1 &
     _sl_pid=$!
   fi
   # klogd stamps the kernel lines itself: the vendor one starts before the

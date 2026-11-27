@@ -52,7 +52,7 @@ int LLVMFuzzerInitialize(int *argc, char ***argv)
 	scpy(G.dname, sizeof G.dname, "Teckin"); scpy(G.model, sizeof G.model, "TC100");
 	scpy(G.mac, sizeof G.mac, "02:11:22:33:44:55");
 	device_uuid();
-	cfg_poll(NCFG);
+	cfg_poll(NCFG, 0);
 	load_config();
 	cfg_loaded = 1;
 	G.talk = 1; G.audio = 1;

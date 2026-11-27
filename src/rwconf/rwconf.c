@@ -149,7 +149,17 @@ static void save(const char *path)
 	snprintf(tmp, pl + 16, "%s.%d.tmp", path, (int)getpid());
 	FILE *f = fopen(tmp, "wb");
 	if (!f) { free(tmp); free(real); return; }
-	if (!stat(path, &st)) fchmod(fileno(f), st.st_mode & 07777);
+	if (!stat(path, &st)) {
+		/* [up-privdrop] the new file keeps the owner and the group of the one it replaces: rtspserver.conf and user.pwd are
+		 * root:tc100svc 640, read by daemons that no longer run as root. Only asked when they differ from ours (a FAT card
+		 * has no owners and shows the mount's); a refused change leaves the old file whole, like any other write failure */
+		if ((st.st_uid != geteuid() || st.st_gid != getegid()) && fchown(fileno(f), st.st_uid, st.st_gid)) {
+			fclose(f); unlink(tmp); free(tmp); free(real);
+			say_err("rwconf: cannot keep the owner of the file, file unchanged\n");
+			exit(1);
+		}
+		fchmod(fileno(f), st.st_mode & 07777);
+	}
 	qsort(E, nE, sizeof *E, cmp);
 	const char *cur = "";
 	for (size_t i = 0; i < nE; i++) {

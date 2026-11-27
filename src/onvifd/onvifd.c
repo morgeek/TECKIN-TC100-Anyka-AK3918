@@ -334,26 +334,35 @@ static void cfg_cut(const char *path, int n)
  * when its existence, inode, size or modification time (with nanoseconds) differ from the last look. */
 static const char *const cfg_files[] = { "user.pwd", "rtspserver.conf", "boot.conf", "rtsp.env", "timezone.conf" };
 #define NCFG ((int)(sizeof cfg_files / sizeof cfg_files[0]))
-static struct { long long mt, mtn, sz, ino; int ok; } cfg_sig[NCFG];
+/* [up-privdrop] ct / ctn: the status-change time too (a chgrp or chmod that makes the file readable changes only that).
+ * retry: the last load could not read the file (a mode the daemon does not have): looked at again at every poll of the
+ * loop (cfg_poll(n, 1)), never at every request, and the unreadable state is not what the signature records. */
+static struct { long long mt, mtn, sz, ino, ct, ctn; int ok, retry; } cfg_sig[NCFG];
 static int cfg_loaded;
+/* the last rtspserver.conf that was read without error: a re-read that fails (errno other than ENOENT) uses it, so a
+ * moment with the file unreadable never turns the streams, the port and the user into defaults */
+static char rtsp_good[8192];
+static int rtsp_good_n = -1;
 
 /* 1: one of the first nf files changed since the last look; the new state is kept */
-static int cfg_poll(int nf)
+static int cfg_poll(int nf, int retry)
 {
 	int i, ch = 0;
 
 	for (i = 0; i < nf; i++) {
 		char path[200];
 		struct stat st;
-		long long mt = 0, mtn = 0, sz = -1, ino = 0;
+		long long mt = 0, mtn = 0, sz = -1, ino = 0, ct = 0, ctn = 0;
 		int ok;
 
 		snprintf(path, sizeof path, "%s/%s", p_conf, cfg_files[i]);
 		ok = stat(path, &st) == 0;
-		if (ok) { mt = st.st_mtime; mtn = st.st_mtim.tv_nsec; sz = st.st_size; ino = (long long)st.st_ino; }
-		if (ok != cfg_sig[i].ok || mt != cfg_sig[i].mt || mtn != cfg_sig[i].mtn || sz != cfg_sig[i].sz || ino != cfg_sig[i].ino)
+		if (ok) { mt = st.st_mtime; mtn = st.st_mtim.tv_nsec; sz = st.st_size; ino = (long long)st.st_ino; ct = st.st_ctime; ctn = st.st_ctim.tv_nsec; }
+		if (ok != cfg_sig[i].ok || mt != cfg_sig[i].mt || mtn != cfg_sig[i].mtn || sz != cfg_sig[i].sz || ino != cfg_sig[i].ino ||
+		    ct != cfg_sig[i].ct || ctn != cfg_sig[i].ctn || (retry && cfg_sig[i].retry))
 			ch = 1;
 		cfg_sig[i].ok = ok; cfg_sig[i].mt = mt; cfg_sig[i].mtn = mtn; cfg_sig[i].sz = sz; cfg_sig[i].ino = ino;
+		cfg_sig[i].ct = ct; cfg_sig[i].ctn = ctn;
 	}
 	return ch;
 }
@@ -368,6 +377,17 @@ static void load_config(void)
 	/* rtspserver.conf: port, user, the two streams */
 	snprintf(path, sizeof path, "%s/rtspserver.conf", p_conf);
 	n = slurp(path, cbuf, sizeof cbuf);
+	cfg_sig[1].retry = 0;
+	if (n < 0 && errno != ENOENT && rtsp_good_n >= 0) {	/* unreadable (not missing): the last good settings stay, tried again */
+		memcpy(cbuf, rtsp_good, (size_t)rtsp_good_n + 1);
+		n = rtsp_good_n;
+		cfg_sig[1].retry = 1;
+	} else if (n < 0 && errno != ENOENT) {
+		cfg_sig[1].retry = 1;
+	} else if (n >= 0 && n < (int)sizeof rtsp_good) {
+		memcpy(rtsp_good, cbuf, (size_t)n + 1);
+		rtsp_good_n = n;
+	}
 	cfg_cut(path, n);
 	if (n < 0) cbuf[0] = 0;
 	G.rtsp_port = ini_get(cbuf, "", "PORT", v, sizeof v) ? num_at(v, 554) : 554;
@@ -423,21 +443,30 @@ static void load_config(void)
 	{
 		char np[sizeof G.pass];
 		struct stat st;
+		int rd_err;
 
 		np[0] = 0;
 		snprintf(path, sizeof path, "%s/user.pwd", p_conf);
 		n = slurp(path, cbuf, 256);
+		rd_err = n < 0 ? errno : 0;
+		cfg_sig[0].retry = 0;
 		if (n > 0) {
 			cbuf[strcspn(cbuf, "\r\n")] = 0;
 			scpy(np, sizeof np, cbuf);
 		}
-		/* [up-privdrop] a file that exists but cannot be read (mode, owner) is never "no password": the old one stays and the
-		 * file is looked at again; only a missing or an empty file, read without error, means open */
-		if (!np[0] && G.pass[0] && cfg_loaded && stat(path, &st) == 0 &&
-		    (n < 0 || (long long)time(NULL) - (long long)st.st_mtime <= 2))
-			cfg_sig[0].ok = -1;
-		else
+		/* [up-privdrop] "no password" (open) comes only from a missing file (ENOENT) or an empty one read without error. A
+		 * read error of any other kind (a mode or an owner the daemon does not have: a file that arrives as root 600 before
+		 * its group is set) keeps the previous state, at start up too (closed: a password nobody can match is not
+		 * "open"), and is looked at again at the next poll (retry), the signature of the file being no proof of anything */
+		if (rd_err && rd_err != ENOENT) {
+			cfg_sig[0].retry = 1;
+			if (!cfg_loaded) { G.pass[0] = '\001'; G.pass[1] = 0; }	/* never read: closed, not open */
+		} else if (!np[0] && G.pass[0] && cfg_loaded && stat(path, &st) == 0 &&
+		    (long long)time(NULL) - (long long)st.st_mtime <= 2) {
+			cfg_sig[0].ok = -1;		/* emptied 2 s ago or less (a writer between truncating and writing): looked at again, also by a request, for at most 2 s */
+		} else {
 			scpy(G.pass, sizeof G.pass, np);
+		}
 	}
 
 	/* time zone (first line that is not a comment) */
@@ -850,7 +879,7 @@ static int check_auth(const char *b, int n)
 	int al = 0, cl = 0;
 	long long t = now_ms();
 
-	if (cfg_poll(1)) load_config();	/* B1: a changed password counts before this request is judged */
+	if (cfg_poll(1, 0)) load_config();	/* B1: a changed password counts before this request is judged */
 	if (!G.pass[0]) return 1;
 	if (fail_locked(g_peer, t)) return 0;	/* guessing from this address: refused for the rest of its minute */
 	if (!find_elem(b, end, "UsernameToken", NULL, NULL, &cl)) return 0;
@@ -2024,7 +2053,7 @@ int main(int argc, char **argv)
 	if (slurp(p_mac, buf, 40) >= 17) { buf[17] = 0; scpy(G.mac, sizeof G.mac, buf); }
 	device_uuid();
 	g_instance = (unsigned)time(NULL);
-	cfg_poll(NCFG);	/* the state of the settings files first, then what they say (a change in between is seen next time) */
+	cfg_poll(NCFG, 0);	/* the state of the settings files first, then what they say (a change in between is seen next time) */
 	load_config();
 	cfg_loaded = 1;
 	parse_allow(getenv("TC100_NET_ALLOW"));
@@ -2073,14 +2102,14 @@ int main(int argc, char **argv)
 		struct timeval tv = { 0, 500000 };
 		long long t;
 
-		if (g_hup) { g_hup = 0; cfg_poll(NCFG); load_config(); }
+		if (g_hup) { g_hup = 0; cfg_poll(NCFG, 0); load_config(); }
 		FD_ZERO(&rf);
 		FD_SET(g_lfd, &rf);
 		if (g_ufd >= 0) { FD_SET(g_ufd, &rf); if (g_ufd > mx) mx = g_ufd; }
 		for (i = 0; i < MAXCONN; i++) if (cn[i].fd >= 0) { FD_SET(cn[i].fd, &rf); if (cn[i].fd > mx) mx = cn[i].fd; }
 		r = select(mx + 1, &rf, NULL, NULL, &tv);
 		t = now_ms();
-		if (t >= next_cfg) { if (cfg_poll(NCFG)) load_config(); next_cfg = t + 2000; }	/* B1: the settings files, every 2 s */
+		if (t >= next_cfg) { if (cfg_poll(NCFG, 1)) load_config(); next_cfg = t + 2000; }	/* B1: the settings files, every 2 s */
 		if (r > 0) {
 			if (FD_ISSET(g_lfd, &rf)) conn_accept();
 			if (g_ufd >= 0 && FD_ISSET(g_ufd, &rf)) udp_in();

@@ -26,7 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SH = ['busybox', 'ash'] if shutil.which('busybox') else ['sh']
 HAVE_CC = shutil.which('cc') is not None
 POSIX = os.name == 'posix' and Path('/proc').is_dir()
-UID = GID = 1001
+UID = GID = 1001          # tc100svc: onvifd, whep
+NET = 1002                # tc100net: mdnsd, logfwd (no group on any secret)
 
 
 def text(rel):
@@ -143,12 +144,12 @@ class TheSwitch(unittest.TestCase):
         self.assertEqual(sorted(hits), ['config/boot.conf.dist', 'scripts/secret-modes.sh'])
 
     def test_start_scripts_pass_the_option(self):
-        self.assertIn('$(privdrop_opt 2>/dev/null)', text('controlscripts/mdns'))
+        self.assertIn('$(privdrop_opt net 2>/dev/null)', text('controlscripts/mdns'))
         self.assertIn('-I 300 $(privdrop_opt 2>/dev/null) </dev/null', text('controlscripts/whep'))
         onv = text('controlscripts/onvif')
         self.assertIn('-sp "$ONVIF_STREAM_POLICY" $(privdrop_opt 2>/dev/null) 2>> "$LOGPATH"', onv)
         cf = text('scripts/common_functions.sh')
-        self.assertIn('$_fwd_b $(privdrop_opt 2>/dev/null) )', cf)
+        self.assertIn('$_fwd_b $(privdrop_opt net 2>/dev/null) )', cf)
         self.assertIn('. /mnt/scripts/secret-modes.sh', cf)
         # the web server, the MQTT bridge and the video server are started without it
         for f in ('controlscripts/web-server', 'controlscripts/mqtt-bridge', 'controlscripts/rtsp-h26x', 'v3/linux66-sd/rtsp-launch.sh'):
@@ -193,16 +194,28 @@ class HelperBehaviour(unittest.TestCase):
             self.assertEqual(self.sh('privdrop_opt'), '', v)
         self.conf('PRIVDROP=1\nPRIVDROP=0\n')                       # the last line wins, as for the other keys
         self.assertEqual(self.sh('privdrop_opt'), '')
+        for line in ('PRIVDROP=0 # why\n', "PRIVDROP='0'\n", 'PRIVDROP="off"  \n', 'PRIVDROP=no\t# tab\n', 'PRIVDROP="0" # x\n'):
+            self.conf(line)
+            self.assertEqual(self.sh('privdrop_opt'), '', repr(line))
+        for line in ('PRIVDROP=1 # on\n', "PRIVDROP='1'\n", 'PRIVDROP=\n', 'PRIVDROP=yes\n'):
+            self.conf(line)
+            self.assertEqual(self.sh('privdrop_opt'), '-D %d:%d' % (UID, GID), repr(line))
         self.conf('# PRIVDROP=0\n')                                  # a comment is not the key
         self.assertEqual(self.sh('privdrop_opt'), '-D %d:%d' % (UID, GID))
 
     def test_the_ids_are_the_image_ids(self):
         table = text('v3/buildroot/board/tc100/users.table')
-        line = next(x for x in table.splitlines() if x.startswith('tc100svc '))
-        f = line.split()
-        self.assertEqual((f[0], f[1], f[2], f[3]), ('tc100svc', str(UID), 'tc100svc', str(GID)))
-        self.assertEqual(f[4], '*', 'no password: no login')
-        self.assertEqual(self.sh('echo "$TC100_SVC_UID:$TC100_SVC_GID"').strip(), '%d:%d' % (UID, GID))
+        for name, n in (('tc100svc', UID), ('tc100net', NET)):
+            f = next(x for x in table.splitlines() if x.startswith(name + ' ')).split()
+            self.assertEqual((f[0], f[1], f[2], f[3]), (name, str(n), name, str(n)))
+            self.assertEqual(f[4], '*', 'no password: no login')
+        self.assertEqual(self.sh('echo "$TC100_SVC_UID:$TC100_SVC_GID $TC100_NET_UID:$TC100_NET_GID"').strip(),
+                         '%d:%d %d:%d' % (UID, GID, NET, NET))
+        self.conf('PRIVDROP=1\n')
+        self.assertEqual(self.sh('privdrop_opt net'), '-D %d:%d' % (NET, NET))
+        self.assertEqual(self.sh('privdrop_opt svc'), '-D %d:%d' % (UID, GID))
+        self.conf('PRIVDROP=0\n')
+        self.assertEqual(self.sh('privdrop_opt net'), '')
 
     def test_modes_follow_the_switch(self):
         for n in ('user.pwd', 'rtspserver.conf', 'mqtt.conf', 'wpa_supplicant.conf', 'telegram.conf', 'notify.conf'):
@@ -243,7 +256,103 @@ class HelperBehaviour(unittest.TestCase):
     def test_all_password_leaves_the_new_file_readable_by_the_service_group(self):
         s = text('scripts/common_functions.sh')
         ap = s[s.index('all_password()'):s.index('# Input arg - file with PID')]
-        self.assertLess(ap.index('mv -f /mnt/config/user.pwd.$$.tmp /mnt/config/user.pwd'), ap.index('secret_modes_fix /mnt/config'))
+        self.assertLess(ap.index('secret_file_attrs /mnt/config/user.pwd.$$.tmp'), ap.index('mv -f /mnt/config/user.pwd.$$.tmp /mnt/config/user.pwd'))
+
+
+@unittest.skipUnless(POSIX, 'needs a POSIX shell and /proc')
+class AttributesBeforeTheRename(unittest.TestCase):
+    """secret_file_attrs: owner, group and mode are set on the temporary file, before it replaces the real one"""
+    LIB = ROOT / 'scripts' / 'secret-modes.sh'
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix='privattr-'))
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def sh(self, code, pre=''):
+        env = dict(os.environ, TC100_CONFIG_DIR=str(self.tmp))
+        r = subprocess.run(SH + ['-c', pre + '. "$1"; ' + code, 'sh', str(self.LIB)], capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def mk(self, name, mode, body='x\n'):
+        p = self.tmp / name
+        p.write_text(body)
+        os.chmod(p, mode)
+        return p
+
+    def test_a_secret_file_gets_the_policy_on_the_temporary_file(self):
+        (self.tmp / 'boot.conf').write_text('PRIVDROP=1\n')
+        for name in ('user.pwd', 'rtspserver.conf'):
+            t = self.mk(name + '.tmp', 0o600)
+            self.sh('secret_file_attrs "$TC100_CONFIG_DIR/%s.tmp" "$TC100_CONFIG_DIR/%s"' % (name, name))
+            self.assertEqual(os.stat(t).st_mode & 0o777, 0o640, name)
+            if os.geteuid() == 0:
+                self.assertEqual(os.stat(t).st_gid, GID, name)
+        t = self.mk('mqtt.conf.tmp', 0o644)
+        self.sh('secret_file_attrs "$TC100_CONFIG_DIR/mqtt.conf.tmp" "$TC100_CONFIG_DIR/mqtt.conf"')
+        self.assertEqual(os.stat(t).st_mode & 0o777, 0o600, 'a secret nobody dropped reads: owner only')
+        (self.tmp / 'boot.conf').write_text('PRIVDROP=0\n')
+        t = self.mk('user.pwd.tmp', 0o644)
+        self.sh('secret_file_attrs "$TC100_CONFIG_DIR/user.pwd.tmp" "$TC100_CONFIG_DIR/user.pwd"')
+        self.assertEqual(os.stat(t).st_mode & 0o777, 0o600)
+
+    def test_another_file_keeps_the_attributes_of_the_one_it_replaces(self):
+        old = self.mk('other.conf', 0o640)
+        t = self.mk('other.conf.tmp', 0o600)
+        self.sh('secret_file_attrs "$TC100_CONFIG_DIR/other.conf.tmp" "$TC100_CONFIG_DIR/other.conf"')
+        self.assertEqual(os.stat(t).st_mode & 0o777, 0o640)
+        self.assertEqual(os.stat(t).st_gid, os.stat(old).st_gid)
+
+    def test_rewrite_config_keeps_group_and_mode(self):
+        (self.tmp / 'boot.conf').write_text('PRIVDROP=1\n')
+        p = self.mk('rtspserver.conf', 0o640, 'PORT=554\nUSERPASSWORD=a\n')
+        if os.geteuid() == 0:
+            os.chown(p, 0, GID)
+        r = subprocess.run(SH + ['-c', '. "$1"; . "$2"; rewrite_config "$3" USERPASSWORD b', 'sh', str(ROOT / 'scripts' / 'secret-modes.sh'),
+                                 str(ROOT / 'scripts' / 'common_functions.sh'), str(p)],
+                           capture_output=True, text=True, env=dict(os.environ, TC100_CONFIG_DIR=str(self.tmp)))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('USERPASSWORD=b', p.read_text())
+        self.assertEqual(os.stat(p).st_mode & 0o777, 0o640)
+        if os.geteuid() == 0:
+            self.assertEqual(os.stat(p).st_gid, GID)
+
+    def test_the_writers_call_it_before_the_rename(self):
+        cf = text('scripts/common_functions.sh')
+        ap = cf[cf.index('all_password()'):cf.index('# Input arg - file with PID')]
+        self.assertLess(ap.index('secret_file_attrs /mnt/config/user.pwd.$$.tmp'), ap.index('mv -f /mnt/config/user.pwd.$$.tmp'))
+        rc = cf[cf.index('rewrite_config(){'):cf.index('install_config()')]
+        self.assertLess(rc.index('secret_file_attrs "$_rc_tmp"'), rc.index('mv "$_rc_tmp" "$cfg_path"'))
+        ct = text('scripts/config-transaction.sh')
+        cm = ct[ct.index('tc_commit_config_files()'):]
+        self.assertLess(cm.index('secret_file_attrs "${_tc_dest}.tc100-new.$$"'), cm.index('mv -f "${_tc_dest}.tc100-new.$$"'))
+
+    @unittest.skipUnless(HAVE_CC, 'needs a C compiler')
+    def test_rwconf_keeps_owner_group_and_mode(self):
+        exe = self.tmp / 'rwconf'
+        subprocess.run(['cc', '-O1', '-Wall', '-Wextra', '-o', str(exe), str(ROOT / 'src/rwconf/rwconf.c')], check=True)
+        p = self.mk('rtspserver.conf', 0o640, '[0]\nfps=15\n')
+        root = root_prefix()
+        if os.geteuid() == 0:
+            os.chown(p, 0, GID)
+        elif root is None:
+            self.skipTest('the group of another user needs root')
+        else:
+            subprocess.run(root + ['chown', '0:%d' % GID, str(p)], check=True)
+        r = subprocess.run((root or []) + [str(exe), str(p), 'w', '0', 'fps', '20'], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('fps=20', p.read_text())
+        st = os.stat(p)
+        self.assertEqual((st.st_uid, st.st_gid, st.st_mode & 0o777), (0, GID, 0o640))
+
+    def test_rwconf_source_asks_for_the_owner_and_checks_it(self):
+        s = text('src/rwconf/rwconf.c')
+        save = s[s.index('static void save('):]
+        self.assertLess(save.index('fchown(fileno(f), st.st_uid, st.st_gid)'), save.index('rename(tmp, path)'))
+        self.assertIn('file unchanged', save[save.index('fchown('):save.index('fchmod(')])
+
 
 
 @unittest.skipUnless(POSIX, 'needs a POSIX shell and /proc')
@@ -313,7 +422,7 @@ class StartScripts(unittest.TestCase):
                 a = self.run_script('mdns', boot)
                 self.assertEqual('-D' in a, want, a)
                 if want:
-                    self.assertEqual(a[a.index('-D') + 1], '%d:%d' % (UID, GID))
+                    self.assertEqual(a[a.index('-D') + 1], '%d:%d' % (NET, NET), 'mdns has its own user, no secret group')
                 self.assertEqual(a[:2], ['-i', 'wlan0'])
                 subprocess.run(SH + [str(self.tmp / 'mdns'), 'stop'], capture_output=True, env=dict(os.environ))
                 self.kill_all(self.mdnsd)
@@ -338,10 +447,11 @@ class TheImage(unittest.TestCase):
         cfg = text('v3/buildroot/configs/tc100_defconfig')
         self.assertIn('BR2_ROOTFS_USERS_TABLES="$(BR2_EXTERNAL_TC100_PATH)/board/tc100/users.table"', cfg)
         table = [x for x in text('v3/buildroot/board/tc100/users.table').splitlines() if x.strip() and not x.startswith('#')]
-        self.assertEqual(len(table), 1)
-        f = table[0].split()
-        self.assertEqual(f[:5], ['tc100svc', '1001', 'tc100svc', '1001', '*'])
-        self.assertEqual(f[5:7], ['-', '/bin/false'], 'no home, no shell')
+        self.assertEqual(len(table), 2)
+        for line, (name, n) in zip(table, (('tc100svc', '1001'), ('tc100net', '1002'))):
+            f = line.split()
+            self.assertEqual(f[:5], [name, n, name, n, '*'])
+            self.assertEqual(f[5:7], ['-', '/bin/false'], 'no home, no shell')
 
     def test_post_build_still_locks_root_only(self):
         pb = text('v3/buildroot/board/tc100/post-build.sh')
@@ -419,7 +529,7 @@ class RealProcesses(unittest.TestCase):
             except subprocess.TimeoutExpired:
                 pass
 
-    def onvif_cmd(self, extra):
+    def onvif_cmd(self, extra, rtsp=True):
         self.port = free_port()
         self.dport = free_port(socket.SOCK_DGRAM)
         env = dict(os.environ, ONVIFD_CONF_DIR=str(self.work), ONVIFD_VERSION_FILE=str(self.work / 'VERSION'),
@@ -427,8 +537,8 @@ class RealProcesses(unittest.TestCase):
                    ONVIFD_MAC_FILE=str(self.work / 'mac'), ONVIFD_IFACE='lo0', ONVIFD_DISCOVERY_PORT=str(self.dport),
                    ONVIFD_MOTION_FILE=str(self.work / 'rec_control'))
         env.pop('TC100_NET_ALLOW', None)
-        cmd = [str(self.onvifd), '-p', str(self.port), '-w', '80', '-wp', 'http', '-r', '554', '-hwn', 'AK3918', '-vnn', 'Anyka',
-               '-loc', 'Earth', '-dn', 'Teckin', '-mod', 'TC100'] + extra
+        cmd = [str(self.onvifd), '-p', str(self.port), '-w', '80', '-wp', 'http'] + (['-r', '554'] if rtsp else []) + [
+               '-hwn', 'AK3918', '-vnn', 'Anyka', '-loc', 'Earth', '-dn', 'Teckin', '-mod', 'TC100'] + extra
         return cmd, env
 
     def write_conf(self, mode=0o644, pw='hunter2\n'):
@@ -456,6 +566,7 @@ class RealProcesses(unittest.TestCase):
                 data += d
         finally:
             s.close()
+        self.last_body = data.decode(errors='replace')
         return int(data.split()[1])
 
     def wait_port(self):
@@ -583,6 +694,80 @@ class RealProcesses(unittest.TestCase):
                 break
             time.sleep(0.2)
         self.assertEqual(self.soap_status('media_service', '<trt:GetProfiles/>'), 200)
+
+    def start_dropped(self, root_cmd=True, rtsp=False):
+        cmd, env = self.onvif_cmd(['-D', '65000:65001'], rtsp=rtsp)
+        p = subprocess.Popen((self.root if root_cmd else []) + ['env'] + ['%s=%s' % kv for kv in env.items() if kv[0].startswith('ONVIFD_')] + cmd,
+                             stderr=subprocess.DEVNULL)
+        self.procs.append(p)
+        self.wait_port()
+        return p
+
+    def stream_uri(self):
+        self.soap_status('media_service', '<trt:GetStreamUri><trt:StreamSetup><tt:Stream xmlns:tt="http://www.onvif.org/ver10/schema">RTP-Unicast</tt:Stream>'
+                         '<tt:Transport xmlns:tt="http://www.onvif.org/ver10/schema"><tt:Protocol>RTSP</tt:Protocol></tt:Transport></trt:StreamSetup>'
+                         '<trt:ProfileToken>profile_1</trt:ProfileToken></trt:GetStreamUri>')
+        m = re.search(r'rtsp://[^<]+', self.last_body)
+        return m.group(0) if m else ''
+
+    def test_onvifd_keeps_the_last_good_rtsp_settings_when_the_file_becomes_unreadable(self):
+        """the file replaced by a root 600 one (a writer that did not keep the group): port, streams and user stay, not defaults"""
+        self.need_root()
+        if os.geteuid() != 0:
+            self.skipTest('replacing the file as another owner needs root')
+        self.write_conf(mode=0o640, pw='')
+        os.chown(self.work / 'user.pwd', 0, 65001)
+        (self.work / 'rtspserver.conf').write_text('PORT=8554\nUSERNAME=root\n[0]\nbps=1600\ncodec=0\nfps=20\n[1]\nbps=300\ncodec=2\nfps=10\n')
+        os.chmod(self.work / 'rtspserver.conf', 0o640)
+        os.chown(self.work / 'rtspserver.conf', 0, 65001)
+        self.start_dropped()
+        self.assertIn(':8554/', self.stream_uri())
+        new = self.work / 'rtspserver.conf.new'
+        new.write_text('PORT=9999\nUSERNAME=root\n')
+        os.chmod(new, 0o600)                                   # root:root 600: unreadable for the dropped daemon
+        os.rename(new, self.work / 'rtspserver.conf')
+        time.sleep(3.5)                                        # more than one 2 s poll
+        self.assertIn(':8554/', self.stream_uri(), 'still the settings read before: not the default 554, not the new 9999')
+        os.chmod(self.work / 'rtspserver.conf', 0o640)         # the group comes: the next poll reads it (ctime is in the signature)
+        os.chown(self.work / 'rtspserver.conf', 0, 65001)
+        for _ in range(40):
+            if ':9999/' in self.stream_uri():
+                break
+            time.sleep(0.25)
+        self.assertIn(':9999/', self.stream_uri())
+
+    def test_onvifd_new_password_that_arrives_unreadable_is_read_once_it_is_readable(self):
+        """open at first (empty file); the first password arrives by rename as root 600 and gets its group afterwards: the
+        daemon must not record "open" for that file for good (chgrp and chmod change only the ctime)"""
+        self.need_root()
+        if os.geteuid() != 0:
+            self.skipTest('replacing the file as another owner needs root')
+        self.write_conf(mode=0o640, pw='')
+        os.chown(self.work / 'user.pwd', 0, 65001)
+        self.start_dropped()
+        self.assertEqual(self.soap_status('media_service', '<trt:GetProfiles/>'), 200, 'no password yet: open')
+        new = self.work / 'user.pwd.new'
+        new.write_text('s3cret\n')
+        os.chmod(new, 0o600)
+        os.rename(new, self.work / 'user.pwd')
+        time.sleep(3.5)                                        # polls that cannot read it: no verdict, tried again
+        os.chmod(self.work / 'user.pwd', 0o640)
+        os.chown(self.work / 'user.pwd', 0, 65001)
+        for _ in range(40):
+            if self.soap_status('media_service', '<trt:GetProfiles/>') == 400:
+                break
+            time.sleep(0.25)
+        self.assertEqual(self.soap_status('media_service', '<trt:GetProfiles/>'), 400, 'the password is now in force')
+
+    def test_onvifd_source_never_derives_open_from_a_read_error(self):
+        s = text('src/onvifd/onvifd.c')
+        lc = s[s.index('static void load_config(void)'):]
+        self.assertIn('rd_err && rd_err != ENOENT', lc)
+        self.assertIn('ct != cfg_sig[i].ct || ctn != cfg_sig[i].ctn || (retry && cfg_sig[i].retry)', s)
+        self.assertIn('if (cfg_poll(1, 0)) load_config();', s, 'a request only looks at the signature')
+        self.assertIn('if (cfg_poll(NCFG, 1)) load_config();', s, 'the poll of the loop retries unreadable files')
+        self.assertNotIn('cfg_sig[0].retry = 1;		/* emptied', s)
+        self.assertIn('rtsp_good', s)
 
     def test_logfwd_forwards_after_the_drop(self):
         self.need_root()
