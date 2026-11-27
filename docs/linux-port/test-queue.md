@@ -2090,3 +2090,9 @@ Historical dated reports (2026-10-30 onward) were archived to [test-queue-archiv
   rtsp.env unchanged. Results files kept on the tester's side (res-24-disr).
 - **2026-11-27 08:55, IPCAM1 on rc7, owner's confirmation (in chat): "everything works" (web login, MQTT, Frigate with the secret files at 600).** Both
   cameras are on 3.0.2-rc7 (version file read on each); no commit of the other agent after e1a5c28. ONVIF still not read on rc7 (owner does not report it).
+
+### 2026-11-27 11:40 3.0.2-rc8 installed on both cameras (build of 6785785, update tar md5 a8ae1b3bf9646dee3c7581a46683a8d8)
+- IPCAM1 (from rc7) and IPCAM2 (from rc7): update accepted (`version 3.0.2-rc8, current 3.0.2-rc7`), both rebooted, `/mnt/VERSION` 3.0.2-rc8, counters
+  `starts=1`, all 0, `user.pwd` mode 600, default route back. Settings kept: `rtsp.env` md5 prefixes unchanged (IPCAM1 181748783257 with its
+  `RTSP_NIGHT_KBPS=900` line, IPCAM2 bf72029f2d2f with **no** `RTSP_NIGHT_KBPS` line: NIGHT-KBPS-DEFAULT test condition met).
+- Plan for NIGHT-KBPS-DEFAULT: IPCAM2 evening switch (copy the `night setting (night)` line within the hour), night sample rows, morning return to 1600.
