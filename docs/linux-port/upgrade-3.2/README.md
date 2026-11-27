@@ -28,3 +28,31 @@ Rules for every stream (on top of `AGENTS.md`):
   streams do not edit those three files nor `VERSION`.
 - No U-Boot or environment write, no flash write from any test; camera tests of this branch run from the SD card in RAM
   until the owner decides otherwise.
+
+## State on 2026-11-27 evening (hand-off)
+
+**3.2.0-rc1** (`df8fb95`, `VERSION` 3.2.0-rc1) has all six streams merged, each reviewed by the reviewer agent (the
+kernel, the signature, the base system / DTLS port and the privilege drop twice), local CI green (tests, cross, kernel,
+fuzz, whep). The GitHub runs of rc1 give the SD files and the update tar (`tc100-3-release`). Nothing has run on a
+camera yet. Entries: `test-queue.md` section "3.2 on branch `upgrade-3.2`" (UP32-KERNEL, UP32-BASE, UP32-SIGN,
+UP32-PRIVDROP, UP32-FUZZ, UP32-FLASH, UP32-SBOM). Owner's decision of 2026-11-27: after the SD gate, the rc1 may be
+written to ONE camera (UP32-FLASH, ways back written there).
+
+Open, in order:
+1. Camera rounds from the SD card (the tester), then UP32-FLASH on one camera, 48 h, then the other.
+2. The owner's signing key: his public key in `v3/install/update-keys/`, then `UPDATE_REQUIRE_SIG=1` by default
+   ([sign.md](sign.md) "Remaining before 3.2 final").
+3. `tc100_rtsp` without root (device nodes by group, [privdrop.md](privdrop.md)); `httpfront` and `tc100-mqttd` keep
+   root by design.
+4. Flaky host tests seen only under Docker load: `test_httpfront_native` (`sd_used_kb` compares two real `df` reads,
+   limit 512 KB) and `test_supervisord ... agree_in_real_time` (button timing). Both pass on a quiet machine and on
+   GitHub; make the first use a fixture `df` if it fails on GitHub.
+5. Merge into `main` only on the owner's word, after the camera rounds (`main` is the 3.0.2 line).
+
+Traps met on this branch:
+- GitHub job logs need admin rights; failures are read from the public annotations (the CI prints the failing tests
+  and the CVE step its errors as `::error::` / `::warning::`). The unauthenticated API allows 60 requests an hour.
+- The base image cache key hashes `build-base-rootfs.yml`, `v3/buildroot/**`, `src/whep/**` and `ci-pins.sh`: touching
+  any of them rebuilds Buildroot (about 18 minutes on GitHub).
+- The CVE step downloads the NVD data (about 20 minutes) once per ISO week (cached); it never fails the build.
+- The stream worktrees were local to the main session (scratchpad); the branches `up-*` were merged and are not pushed.
