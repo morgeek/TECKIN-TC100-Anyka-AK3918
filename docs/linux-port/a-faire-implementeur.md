@@ -7,6 +7,7 @@
 Mbed TLS 2.28 hors maintenance et utilisé par WHEP activé par défaut, SEC-3 Buildroot 2024.02, SEC-4 mises à jour non
 signées, SEC-5 pas de fuzzing, SEC-7 tout en root) et options A à G ; `SECURITY.md` ajouté. Propriétaire : activer
 *Private vulnerability reporting* dans les réglages GitHub (onglet Security). Rien n'est planifié avant sa décision.
+Plan proposé (remplacements, phases 0 à 7, conditions de passage, décisions) : [plan-upgrade-3.1.md](plan-upgrade-3.1.md).
 
 Les sections datées qui suivent sont des notes historiques des RC précédentes ; leurs cases non cochées ne forment pas
 à elles seules le backlog courant. L'état terrain ci-dessous et les entrées les plus récentes de `test-queue.md` font

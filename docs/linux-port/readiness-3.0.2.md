@@ -112,6 +112,7 @@ VENCIRQ / CLEANUP (STAT fields vs 3.0.1), DN-FLAP two more evenings, SMALL-A rea
   [audit-2026-11-27-security.md](audit-2026-11-27-security.md) lists the gaps (kernel 6.6.0 without 163 stable
   releases, Mbed TLS 2.28 out of maintenance and used by WHEP, Buildroot 2024.02, unsigned updates, no fuzzing, root
   everywhere) and the options A-G; a possible 3.1 = SBOM + kernel 6.6.y + Buildroot/Mbed TLS LTS + signed updates.
+  Proposal with phases and gates: [plan-upgrade-3.1.md](plan-upgrade-3.1.md).
 
 
 Taken on 2026-11-25:
