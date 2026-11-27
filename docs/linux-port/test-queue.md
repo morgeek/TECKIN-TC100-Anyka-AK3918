@@ -2029,3 +2029,9 @@ Historical dated reports (2026-10-30 onward) were archived to [test-queue-archiv
     not show the H.264 budget); (2) the return to 1600 by day (read at 09:15); (3) whether 900 becomes a default or stays an
     opt-in: that follows (1); (4) the log line `night setting (night)` was not found, most likely lost to the 1 MB log rotation
     (8-10 h kept), as on 25/11: the CSV rows carry the proof, a next night could copy the line out before the rotation.
+- **2026-11-27 08:15, OWNER'S VERDICT on NIGHT-CEIL (said in chat): 900 kbit/s at night is good (picture accepted).** IPCAM1 return to day read
+  at 08:10 Paris (07:10 camera clock): `nightceil.csv` switch row `bw=0`, `kbps_set` 1600, `night_kbps` 0, day rate 1122 kbit/s, no `md_enc`
+  line. So the NIGHT-CEIL-AUTO step 3 passes: ceiling held all night (mean ~910), day unchanged, no false motion, owner accepts the picture.
+  Left to the implementer: decide whether `RTSP_NIGHT_KBPS=900` becomes the default (the owner's picture verdict is for IPCAM1, whose
+  room fills the budget; IPCAM2 stays near 950 without it). The night files of IPCAM1 (csv, daynight.log, rtsp.env) are saved on the
+  tester's side before the rc7 flash.
