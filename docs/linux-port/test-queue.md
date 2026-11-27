@@ -2019,3 +2019,13 @@ Historical dated reports (2026-10-30 onward) were archived to [test-queue-archiv
 - IPCAM1 (rc6, `RTSP_NIGHT_KBPS=900`): night since 21:29, 50 `nightceil.csv` sample rows since the switch, `main_kbps` mean 909.9 (min 908, max 912), `kbps_set` 900 on every row, gain 12-14. IPCAM2 (rc7, control, `kbps_set` 1600, night since 22:55): mean 945, 226-1117 on the same period (its room is quieter). No `md_enc` line on either camera, counters 0 (IPCAM1 starts=3 as before the night).
 - At 07:30 both cameras were still in night mode: the return to day (`kbps_set` back to 1600 on IPCAM1) is not read yet, second reading planned later this morning.
 - Night snapshots of both cameras taken from the camera's JPEG cache (`currentpic.cache.jpg`), not from the H.264 stream: they show the sensor image, not the effect of the 900 kbit/s budget. To judge the softness of the picture at 900 the owner should look at a night recording of IPCAM1 in Frigate.
+- **2026-11-27 07:45, what the night settles for NIGHT-CEIL (reading of the main session, owner's go to conclude):**
+  - **Settled:** `RTSP_NIGHT_KBPS=900` is obeyed after a day -> night switch of a running server (`entered=switch`, the case that
+    sat at 1600 for a whole night before): 50 sample rows, `main_kbps` 908-912, `kbps_set` 900, gain 12-14, no `md_enc` event,
+    counters unchanged. The ceiling does what its comment says (budget a picture 11250 bytes at 10 fps).
+  - **Useful reference:** the control IPCAM2 (rc7, no ceiling, same night) ran at a mean 945 kbit/s (226-1117), so 900 on IPCAM1 is
+    about the rate a quiet camera uses by itself; the ceiling only cuts the noisy-room case.
+  - **Not settled (open):** (1) the picture at 900: the owner judges a night recording of IPCAM1 in Frigate (the JPEG snapshots do
+    not show the H.264 budget); (2) the return to 1600 by day (read at 09:15); (3) whether 900 becomes a default or stays an
+    opt-in: that follows (1); (4) the log line `night setting (night)` was not found, most likely lost to the 1 MB log rotation
+    (8-10 h kept), as on 25/11: the CSV rows carry the proof, a next night could copy the line out before the rotation.
