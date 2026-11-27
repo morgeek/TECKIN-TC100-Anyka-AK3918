@@ -1,0 +1,3 @@
+GET /cgi-bin/statusline.cgi HTTP/1.0
+Authorization: Basic YWRtaW46cGxhaW5wYXNz
+

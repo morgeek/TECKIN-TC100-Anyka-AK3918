@@ -1,0 +1,9 @@
+GET_PARAMETER rtsp://192.168.1.11:554/video0_unicast RTSP/1.0
+CSeq: 7
+User-Agent: LibVLC/3.0.20 (LIVE555 Streaming Media v2016.11.28)
+Session: 0a1b2c3d
+Content-Type: text/parameters
+Content-Length: 10
+
+ping: 1
+

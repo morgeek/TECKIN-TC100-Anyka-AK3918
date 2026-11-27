@@ -107,3 +107,6 @@ dist/
 /src/sigcheck/tc100-sigcheck
 /src/sigcheck/tc100-sigcheck-host
 /bin/tc100-sigcheck
+
+# libFuzzer work folder (tests/fuzz/run.sh)
+tests/fuzz/out/

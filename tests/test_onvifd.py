@@ -677,6 +677,21 @@ class OnvifD(unittest.TestCase):
         self.assertGreater(res['t'] - t0, 9)                               # the wait is bounded: ~10 s then an empty answer
         self.assertEqual(res['m'], [])
 
+    def test_duration_overflow_is_clamped(self):
+        """[up-fuzz] "PT999999H": 999999 * 3600 overflowed an int (undefined behaviour, found by libFuzzer: it wrapped to a negative
+        duration, so a Renew got the 5 s minimum instead of the 3600 s ceiling); it is now clamped like any long duration"""
+        self.start()
+        sub = self.subscribe()
+        self.assertTrue(sub)
+        for dur in ('PT999999H', 'PT999999H999999H', 'PT99999999999H'):
+            st, n, _ = self.soap('<wsnt:Renew xmlns:wsnt="http://docs.oasis-open.org/wsn/b-2"><wsnt:TerminationTime>%s</wsnt:TerminationTime></wsnt:Renew>' % dur, sub)
+            self.assertEqual(st, 200, dur)
+            t = [datetime.strptime(n.find('wsnt:%s' % k, NS).text, '%Y-%m-%dT%H:%M:%SZ') for k in ('CurrentTime', 'TerminationTime')]
+            self.assertGreater((t[1] - t[0]).total_seconds(), 3500, dur)
+        st, n, _ = self.soap('<wsnt:Renew xmlns:wsnt="http://docs.oasis-open.org/wsn/b-2"><wsnt:TerminationTime>PT1H30M15S</wsnt:TerminationTime></wsnt:Renew>', sub)
+        t = [datetime.strptime(n.find('wsnt:%s' % k, NS).text, '%Y-%m-%dT%H:%M:%SZ') for k in ('CurrentTime', 'TerminationTime')]
+        self.assertTrue(3500 < (t[1] - t[0]).total_seconds() <= 3601)      # 5415 s: the ceiling, as before
+
     def test_renew_unsubscribe_limit_expiry(self):
         self.start()
         subs = [self.subscribe() for _ in range(4)]

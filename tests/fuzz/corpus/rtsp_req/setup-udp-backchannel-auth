@@ -1,0 +1,6 @@
+SETUP rtsp://192.168.1.11:554/video0_unicast/track3 RTSP/1.0
+CSeq: 5
+User-Agent: go2rtc/1.9.4
+Transport: RTP/AVP;unicast;client_port=50004-50005
+Session: 0a1b2c3d
+

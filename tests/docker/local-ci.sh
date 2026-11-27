@@ -4,6 +4,7 @@
 #   sh tests/docker/local-ci.sh cross    # ARM build of tc100_rtsp, libakuio, httpfront, tc100-mqttd, tc100-onvifd, tc100-logfwd, libnetacl.so (as the kernel job)
 #   sh tests/docker/local-ci.sh kernel   # Linux 6.6.y (LINUX_TAG) + patches/kernel-6.6/series + zImage + dtbs (slow the first time)
 #   sh tests/docker/local-ci.sh whep     # item 35: the WHEP daemon against aiortc (builds mbedTLS, needs network; not part of all)
+#   sh tests/docker/local-ci.sh fuzz      # [up-fuzz] libFuzzer on the network parsers (clang, 60 s per target; FUZZ_SECONDS=300 for longer; not part of all)
 #   sh tests/docker/local-ci.sh all      # tests, cross, kernel
 # Works from Git Bash on Windows (Docker Desktop) and from Linux. The tree is copied into the container (read-only
 # mount): nothing in the working copy is changed. The kernel source and the build objects are kept in the Docker
@@ -112,6 +113,24 @@ run_whep() {
 	docker run --rm -v "$SRC:/src:ro" alpine:3.20 sh /src/tests/docker/whep-musl.sh | tail -n 1 || rc=1
 }
 
+run_fuzz() {
+	echo "== fuzz (libFuzzer + AddressSanitizer + UBSan, ${FUZZ_SECONDS:-60} s per target; crash inputs and logs in tests/fuzz/out/)"
+	# the same script as the CI job (tests/fuzz/run.sh), on the runner's distribution; the tree is read-only, only
+	# tests/fuzz/out (ignored by git) is written, by the container user
+	rm -rf tests/fuzz/out; mkdir -p tests/fuzz/out
+	docker run --rm -v "$SRC:/src:ro" -v "$SRC/tests/fuzz/out:/out" ubuntu:24.04 sh -c '
+		apt-get update -qq >/dev/null && apt-get install -y -qq clang >/dev/null 2>&1
+		cp -r /src /w && cd /w && rm -rf /w/.claude /w/tests/fuzz/out
+		# the work directory is in the container (a bind mount of a Windows folder is slow for the thousands of corpus files);
+		# only what a finding needs is copied back: the logs and the crash, timeout, oom and leak inputs
+		sh tests/fuzz/run.sh -t '"${FUZZ_SECONDS:-60}"' -j "$(nproc)" -o /tmp/fuzz-out; r=$?
+		for d in /tmp/fuzz-out/*/; do
+			t=$(basename "$d"); [ "$t" = bin ] && continue
+			mkdir -p "/out/$t"; cp "$d"log "$d"crash-* "$d"timeout-* "$d"oom-* "$d"leak-* "/out/$t/" 2>/dev/null
+		done
+		exit $r' || rc=1
+}
+
 run_kernel() {
 	echo "== kernel (stable tag from ci-pins.sh + series, zImage + dtbs)"
 	docker volume create tc100-linux66 >/dev/null
@@ -144,8 +163,9 @@ case "$what" in
 	cross) run_cross ;;
 	kernel) run_kernel ;;
 	whep) run_whep ;;
+	fuzz) run_fuzz ;;
 	all) run_tests; run_cross; run_kernel ;;
-	*) echo "usage: $0 tests|cross|kernel|whep|all"; exit 2 ;;
+	*) echo "usage: $0 tests|cross|kernel|whep|fuzz|all"; exit 2 ;;
 esac
 [ "$rc" = 0 ] && echo "== local CI: ok" || echo "== local CI: FAILED"
 exit $rc

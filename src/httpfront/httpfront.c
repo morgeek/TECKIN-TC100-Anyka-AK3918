@@ -39,6 +39,9 @@ typedef unsigned int u32;
 typedef unsigned short u16;
 
 /* ---- system calls (ARM EABI: number in r7, arguments in r0..r5, result in r0) */
+#ifdef TC100_FUZZ_HOST	/* tests/fuzz/fuzz_httpfront.c (x86, libFuzzer): no ARM assembly there, the harness defines sc() */
+static long sc(long n, long a, long b, long c, long d, long e);
+#else
 static long sc(long n, long a, long b, long c, long d, long e)
 {
 	register long r7 __asm__("r7") = n, r0 __asm__("r0") = a, r1 __asm__("r1") = b, r2 __asm__("r2") = c,
@@ -47,6 +50,7 @@ static long sc(long n, long a, long b, long c, long d, long e)
 	__asm__ volatile ("svc 0" : "+r"(r0) : "r"(r7), "r"(r1), "r"(r2), "r"(r3), "r"(r4) : "memory");
 	return r0;
 }
+#endif
 #define SYS_exit 1
 #define SYS_fork 2
 #define SYS_read 3
@@ -579,6 +583,7 @@ int run(int argc, char **argv, char **envp)
 	}
 }
 
+#ifndef TC100_FUZZ_HOST
 /* entry point: argc at [sp], argv after it, then envp after argv's NULL; the stack canary first (ssp-freestanding.h) */
 __attribute__((naked, noreturn)) void _start(void)
 {
@@ -593,3 +598,4 @@ __attribute__((naked, noreturn)) void _start(void)
 		"mov r7, #1\n"
 		"svc 0\n");
 }
+#endif

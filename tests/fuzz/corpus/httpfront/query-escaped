@@ -1,0 +1,5 @@
+GET /cgi-bin/state.cgi?cmd=day%6eight&format=json&x=%00 HTTP/1.1
+Host: ipcam1.local
+User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36
+Authorization: Basic YWRtaW46cGxhaW5wYXNz
+
