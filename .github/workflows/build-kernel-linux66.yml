@@ -261,6 +261,8 @@ jobs:
       - name: CVE report (non-blocking)
         continue-on-error: true
         run: |
+          # Buildroot's pkg-stats needs aiohttp (and ijson for the NVD feed): from the runner's distribution, failure ignored
+          sudo apt-get install -y -qq python3-aiohttp python3-ijson >/dev/null 2>&1 || echo "::warning::cve-report: python3-aiohttp / python3-ijson not installed"
           sh scripts/cve-report.sh output/release/sbom.cdx.json output/release/cve-report || true
 
       - name: Upload the 3.0 release
