@@ -2035,3 +2035,16 @@ Historical dated reports (2026-10-30 onward) were archived to [test-queue-archiv
   Left to the implementer: decide whether `RTSP_NIGHT_KBPS=900` becomes the default (the owner's picture verdict is for IPCAM1, whose
   room fills the budget; IPCAM2 stays near 950 without it). The night files of IPCAM1 (csv, daynight.log, rtsp.env) are saved on the
   tester's side before the rc7 flash.
+
+### 2026-11-27 08:50 RECETTE-BENCH Results, IPCAM1 (rc7, first boot of the day, `--disruptive --wifi`, `RECETTE_KILLS=10 RECETTE_WIFI_CYCLES=3`, no `RECETTE_PASS`, no MQTT)
+- Tester's machine, bench files of main (cb89be1 and after, no local patch). Summary: **PASS 29, FAIL 1, SKIP 46, runtime 1386 s.** The SKIPs are the manual
+  checks, the ones that need the web password / MQTT host, and the hourly ones (uptime under an hour after the rc7 flash).
+- Notable PASS: kill-loop 10/10 (first picture clean, exit3 unchanged), `counters-term` 10/10, `wlan-down-up` 3 cycles (each down under 1 s, association,
+  address and default route back), kernel dmesg clean, `smash-illegal` 0, GLOBAL `config-unchanged` PASS (rtsp.env md5 prefix 181748783257, the 900 ceiling kept).
+- **The one FAIL: W1-PRIVFILL pp-privacy** (cap 74 -> 49, enc 74 -> 49 per 5 s window, pp_ms 0 -> 1879). Read against recette.log: the "without privacy"
+  windows are 71 113 104 55 50 51, the first ones are the catch-up after the ten video restarts just before (113 and 104 are above the 10 fps of this
+  camera); the last three baseline windows (50-51), the windows under privacy (49 51 50 51 46 51) and after removal (50 51) are the same rate. **Bench
+  artefact of the baseline (catch-up after the kill loop), no frame lost**; the pp_ms cost (~1.9 s a window) is the known one (cb89be1).
+  Suggested bench fix for the implementer: wait for the cap to settle (or take the baseline's last 3 windows) after `kill-loop`.
+- State after the run: tc100_rtsp running (starts 31 counted by the bench, pic_fail 0, exit3 0), default route back on wlan0, no `/tmp/tc100_privacy`, day mode,
+  rtsp.env unchanged. Results files kept on the tester's side (res-24-disr).
