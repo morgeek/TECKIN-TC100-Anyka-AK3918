@@ -214,6 +214,10 @@ for a camera that ever had this base flashed (owner's decision, after the SD rou
    what 1.2.4 exports. The write order is unchanged. The other direction (new initrd, old stack: wpa_supplicant 2.12 and
    libc 1.2.6 under an old stack) is not affected by the order. Nothing to propose.
 
+Local CI after these follow-ups (commit `82b4ae5`): `tests` 1339 tests in 751 s, `OK (skipped=63)`; `cross` all green, including
+`tests.test_httpfront_native` (43 httpfront tests OK, 11 musl-programs OK, 8 harden OK), which confirms the earlier
+failures were load-sensitive.
+
 ## Open points for the main session
 
 - The GitHub CI must confirm the base image build (cache key changed, it builds from scratch) and the two budget steps.
