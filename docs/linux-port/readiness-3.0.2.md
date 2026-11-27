@@ -89,6 +89,31 @@ VENCIRQ / CLEANUP (STAT fields vs 3.0.1), DN-FLAP two more evenings, SMALL-A rea
 
 ## 3. Owner decisions
 
+**Taken on 2026-11-27: the path to 3.0.2 final** (answers in chat, main session).
+- **Criteria for the final:** the bench run in full and green on both cameras (`--disruptive --wifi` with
+  `RECETTE_PASS` and `RECETTE_MQTT_*`), the owner's hands-on session (1-2 h, section 2 session 2), one night of
+  NIGHT-KBPS-DEFAULT, then 48 h without an incident on the last rc. MEMWATCH's 3-day window is dropped.
+- **Also before the final (owner: "do them before"):** MDNS-01 (iPhone / Safari, Windows PC, Home Assistant); AEC-01 and
+  the two-way audio (push-to-talk in Safari on the iPhone and in Chrome / Edge on Windows, the RTSP backchannel from
+  go2rtc / Frigate and from Home Assistant); ENC-01 (smart mode, still scene with a covered lens); PRES-01 (presence
+  modes from Home Assistant); T1-QP-BENCH (tester, one camera, nothing written to the flash); the `RTSP_FE_SUBBUF=1`
+  check of ENC-02 (128 KB sub-stream buffer: passed = default, failed = the option is removed).
+- **Closed without a camera test:** SUBSTREAM-LOOP (client side), MEMWATCH (3 days dropped), AUDIT-1116-FLASHBOOT
+  (both cameras boot 3.0 from the flash daily), the Mac + UART + SD session (AUDIT-1116-RECOVERY 2-5, AUDIT-1116-BOOT,
+  the USB unbind / bind steps), INST-01 (host tests), HRTIMER-01 (passed by field), AWB-01 step 3 (colours accepted).
+- **Stays as it is:** `RTSP_SENDER_THREAD` stays opt-in (0).
+- **Code before the final:** esbuild 0.21.5 -> 0.25 (Dependabot; the minified web UI compared before / after), the
+  pinned GitHub actions moved to their Node 24 versions (still pinned by commit).
+- **Release:** the main session prepares the version commit, the notes and the file list; the owner creates the
+  GitHub release `v3.0.2` himself.
+- **After 3.0.2:** the ISP privacy mask (privacy without the memset, about 40% of a core). Not picked this time: the
+  kernel guard removal of 25/11, signed updates, the OpenIPC forum draft; they wait for the owner's word.
+- **Major upgrade, to decide (owner, 27/11 evening):** the security audit
+  [audit-2026-11-27-security.md](audit-2026-11-27-security.md) lists the gaps (kernel 6.6.0 without 163 stable
+  releases, Mbed TLS 2.28 out of maintenance and used by WHEP, Buildroot 2024.02, unsigned updates, no fuzzing, root
+  everywhere) and the options A-G; a possible 3.1 = SBOM + kernel 6.6.y + Buildroot/Mbed TLS LTS + signed updates.
+
+
 Taken on 2026-11-25:
 - **NIGHT-CEIL:** cause settled on 26/11 (night noise at high gain, read B and a full dark night); owner: try
   `RTSP_NIGHT_KBPS=900` on IPCAM1 only (test-queue NIGHT-CEIL-AUTO); the default is decided after that night.

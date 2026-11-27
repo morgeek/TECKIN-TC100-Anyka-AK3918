@@ -10,14 +10,14 @@ jobs:
   base-rootfs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       # The finished image, keyed on everything that makes it (the external tree: configs, busybox fragment,
       # post-build script, package tweaks; and this workflow: Buildroot version and the fixes applied to it).
       # A hit skips the whole Buildroot build (about 40 minutes); any change there builds it again.
       - name: Cached base image
         id: base
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: br-out/images/rootfs.cpio.gz
           key: base-rootfs-${{ hashFiles('v3/buildroot/**', 'src/whep/**', '.github/workflows/build-base-rootfs.yml', '.github/ci-pins.sh') }}
@@ -45,7 +45,7 @@ jobs:
 
       - name: Cache downloads
         if: steps.base.outputs.cache-hit != 'true'
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: dl
           key: buildroot-dl-2024.02.9-${{ hashFiles('v3/buildroot/configs/**') }}
@@ -71,7 +71,7 @@ jobs:
           ls -l br-out/images/rootfs.cpio.gz
           mkdir t && cd t && gzip -dc ../br-out/images/rootfs.cpio.gz | sudo cpio -id --quiet && sudo du -sk . && sudo du -ak . | sort -rn | head -25
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: tc100-base-rootfs
           path: br-out/images/rootfs.cpio.gz

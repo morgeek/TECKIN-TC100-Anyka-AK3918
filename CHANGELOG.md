@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Docs
+- **`SECURITY.md`** (supported versions, private reporting, scope and known limits) and the security audit
+  `docs/linux-port/audit-2026-11-27-security.md` (findings SEC-1 to SEC-11, ETSI EN 303 645 mapping, upgrade options
+  for a 3.1 / 4.0 decision).
+
+### Build
+- **esbuild 0.25.12** (was 0.21.5; Dependabot alert on its development server, which the build never runs): the
+  minified web UI is the same code (17 files, +12 bytes, 6 pages differ in form only).
+- **GitHub actions on Node 24** (`[ci-pin]`): checkout v5.1.0, setup-python v6.3.0, setup-node v5.0.0, cache v5.1.0,
+  upload-artifact v6.0.0, download-artifact v7.0.0, each still pinned by commit.
+
 ## [3.0.2-rc8] - 2026-11-27
 
 ### Changed

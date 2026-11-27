@@ -138,6 +138,7 @@ Because our Linux 6.6 kernel port, memory tuning, and open-source hardware encod
 - Open an [issue on GitHub](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/issues/new/choose); for an unknown
   camera variant use the *Hardware inventory* form and attach `tc100-inventory.txt` (see the guide).
 - Never post your password, your Wi-Fi password or `tc100-3/backup/flash-stock.bin` (the copy of your camera's memory).
+- **Security issue?** Do not open a public issue: see [SECURITY.md](SECURITY.md) (private report on GitHub).
 
 ---
 

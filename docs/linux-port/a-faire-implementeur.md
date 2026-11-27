@@ -1,5 +1,13 @@
 # Liste de l'implémenteur — état courant au 2026-11-27 (3.0.2-rc8)
 
+**Décisions du 27/11 pour la finale 3.0.2 :** `readiness-3.0.2.md` section 3 (critères, ce qui se fait avant, ce qui est clos sans test, esbuild 0.25 et actions Node 24, publication par le propriétaire, après 3.0.2 le masque vie privée ISP seul).
+
+**Mise à niveau majeure, décision du propriétaire en attente (27/11) :** audit de sécurité
+[audit-2026-11-27-security.md](audit-2026-11-27-security.md) (SEC-1 noyau 6.6.0 sans les 163 versions stables, SEC-2
+Mbed TLS 2.28 hors maintenance et utilisé par WHEP activé par défaut, SEC-3 Buildroot 2024.02, SEC-4 mises à jour non
+signées, SEC-5 pas de fuzzing, SEC-7 tout en root) et options A à G ; `SECURITY.md` ajouté. Propriétaire : activer
+*Private vulnerability reporting* dans les réglages GitHub (onglet Security). Rien n'est planifié avant sa décision.
+
 Les sections datées qui suivent sont des notes historiques des RC précédentes ; leurs cases non cochées ne forment pas
 à elles seules le backlog courant. L'état terrain ci-dessous et les entrées les plus récentes de `test-queue.md` font
 foi. La liste d'origine date de rc25 ; les audits des 3, 4 et 6 novembre sont des instantanés, pas des listes de tâches

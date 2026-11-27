@@ -25,11 +25,11 @@ class Wiring(unittest.TestCase):
 
     def test_ci_installs_a_pinned_esbuild_and_requires_it(self):
         wf = (ROOT / '.github/workflows/build-kernel-linux66.yml').read_text()
-        # since item CI-PIN: npm ci from the lock file (esbuild 0.21.5 and the integrity of every package)
+        # since item CI-PIN: npm ci from the lock file (esbuild 0.25.12 and the integrity of every package)
         self.assertIn('npm ci --prefix src/webui --no-audit --no-fund', wf)
-        self.assertIn('"version": "0.21.5"', (WEBUI / 'package-lock.json').read_text())
+        self.assertIn('"version": "0.25.12"', (WEBUI / 'package-lock.json').read_text())
         self.assertIn('MINIFY_WWW=1 READELF=arm-linux-gnueabi-readelf sh v3/build-stack.sh', wf)
-        self.assertEqual(json.loads((WEBUI / 'package.json').read_text())['devDependencies']['esbuild'], '0.21.5')
+        self.assertEqual(json.loads((WEBUI / 'package.json').read_text())['devDependencies']['esbuild'], '0.25.12')
 
 
 @unittest.skipUnless(HAVE_ESBUILD, 'esbuild not installed (npm install --prefix src/webui)')

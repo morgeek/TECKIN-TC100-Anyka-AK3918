@@ -122,7 +122,7 @@ class DownloadsChecked(unittest.TestCase):
         lock = text('src/webui/package-lock.json')
         self.assertEqual(lock.count('"resolved"'), lock.count('"integrity"'))
         self.assertIn('"node_modules/esbuild"', lock)
-        self.assertIn('"version": "0.21.5"', lock)
+        self.assertIn('"version": "0.25.12"', lock)
 
     @unittest.skipUnless(os.name == 'posix' and shutil.which('sh') and shutil.which('curl') and shutil.which('sha256sum'), 'needs POSIX sh, curl, sha256sum')
     def test_fetch_sha256_refuses_a_wrong_file(self):

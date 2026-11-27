@@ -71,7 +71,7 @@ older `to test` entries below.
 - **Host tests:** `tests/test_recovery_initrd.py`, `tests/test_h265cmdlist.py` (the capture.py test was removed),
   `tests/test_jpegenc.py`, `tests/test_whep_srtp.py`.
 
-### SUBSTREAM-LOOP Why an RTSP client leaves: one log line per close (`[sub-loop]`) — `to test`
+### SUBSTREAM-LOOP Why an RTSP client leaves: one log line per close (`[sub-loop]`) — `closed 2026-11-27` (client side: the sub-stream client sends TEARDOWN itself; nothing to fix in the camera (owner's decision 2026-11-27))
 - **What:** `tc100_rtsp` logs ONE line each time it closes an RTSP client (logging only, nothing else changes):
   `rtsp: client 2 (192.168.1.20 sub tcp) closed after 182 s, 5412 frames, 9120 KB: <reason>`. Reasons: `TEARDOWN received`;
   `peer closed (recv 0, last request N s ago)`; `socket error on recv / send, errno=`; `send failed (queue limit if errno=0,
@@ -309,7 +309,7 @@ per flash write.
 - **Pass:** no oops or kernel error, the 3 h run is stable, the encoder IRQ is alive after every kill, and every reboot
   comes back.
 
-### AUDIT-1116-USB Anyka USB host: unlink of the active URB, locked `endpoint_disable`, ep0 dispatch (`[usb0003]`, kernel patch 0024) — `to test`
+### AUDIT-1116-USB Anyka USB host: unlink of the active URB, locked `endpoint_disable`, ep0 dispatch (`[usb0003]`, kernel patch 0024) — `to test` (the bench part only: steps that need the Mac + UART, unbind / bind, closed without a test (owner's decision 2026-11-27))
 - **What:** `0024-usb-host-anyka-give-an-unlinked-active-URB-back-at-o.patch`, on top of 0003/0013/0021/0022. The
   transfer paths (enqueue, interrupt handler, `done`) are not changed. Built by the local kernel CI only, never run on
   a camera.
@@ -410,7 +410,7 @@ per flash write.
   `irq_unlazy=1` that disappears with `=0` would mean a lost interrupt (the line is not the level it is taken for):
   fail, leave the switch at 0 and report.
 
-### AUDIT-1116-BOOT Boot counter saved at once after an unclean end — `to test`
+### AUDIT-1116-BOOT Boot counter saved at once after an unclean end — `closed 2026-11-27` (not tested: power pull and safe mode need the Mac + UART (owner's decision 2026-11-27); normal boots seen daily)
 - **What:** `boot-guard start` saves the counter synchronously when the previous run did not end with a requested
   restart, or when the count is already >= 1. A crash at video start is now counted, and safe mode is reached on the
   4th start. After a crash or power loss, the boot takes about 10 s longer.
@@ -423,7 +423,7 @@ per flash write.
   3. Reboot cleanly from the web UI. The boot time must be unchanged.
 - **Pass:** safe mode is reached after repeated early crashes, and a clean reboot is not slower.
 
-### AUDIT-1116-RECOVERY Rescue mode of the initramfs when `stack` is damaged (`[recovery]`) — `to test`
+### AUDIT-1116-RECOVERY Rescue mode of the initramfs when `stack` is damaged (`[recovery]`) — `closed 2026-11-27` (steps 2-5 not tested: Mac + UART + SD session dropped (owner's decision 2026-11-27))
 - **What:** the initramfs boot script (`v3/S39tc100-linux66`, step 1a) checks the `stack` partition before using it:
   squashfs magic, size against the partition, end of the image written (an update cut by a power loss leaves an
   erased start or end), mount, start files readable, `flashmode-prep.sh`. When one fails:
@@ -503,7 +503,7 @@ per flash write.
   3. A normal install must end with `c66.img.installed` and a boot from the flash.
 - **Pass:** all three.
 
-### AUDIT-1116-FLASHBOOT Does a camera installed by `stock-hook.sh` boot 3.0 from the flash? — `owner`
+### AUDIT-1116-FLASHBOOT Does a camera installed by `stock-hook.sh` boot 3.0 from the flash? — `closed 2026-11-27` (no read: both cameras boot 3.0 from the flash every day (owner's decision 2026-11-27))
 - **Why:** the `flashboot` value written by `stock-hook.sh` is about 270 characters. AGENTS.md says this U-Boot reads
   at most 256 characters per line. The hand-made camera uses the `flashargs` variable form instead. No test record
   shows a hook-installed camera starting 3.0 from its flash.
@@ -886,6 +886,16 @@ per flash write.
 - **Pass:** all runs green; the two update tars have the same SHA-256 (also `oipc.img`, `stack.sqfs`, `c66rd.gz` inside).
   Equal tars need the base image of both runs to be equal too (same cache hit, or a reproducible Buildroot build):
   if they differ, compare the pieces with `diffoscope` and write which one differs here.
+- **2026-11-27, build chain updated (`[ci-pin]`, owner's decision):** esbuild 0.21.5 -> 0.25.12 (Dependabot
+  GHSA-67mh-4wv8-2f99, dev server only, never used here); the minified web UI of both versions compared: 17 files,
+  470217 -> 470229 bytes, 6 pages differ in form only (constants folded such as `80*80` -> `6400`, `@media(...)`
+  without a space, parentheses around an IIFE). The pinned GitHub actions moved to their first Node 24 versions, still
+  pinned by commit: checkout v5.1.0, setup-python v6.3.0, setup-node v5.0.0, cache v5.1.0, upload-artifact v6.0.0,
+  download-artifact v7.0.0 (download by name, same path). **Test (next rc):** both workflows green without the Node 20
+  warning; on a camera, every web page opens without a JavaScript error in the console (Settings, Diagnostics,
+  Hardware, Logs, Multi-view, Recordings: the pages whose minified code changed). The base image cache key hashes
+  `build-base-rootfs.yml`, so this push rebuilds the base system (Buildroot, same configs and pinned sources): the rc4
+  smoke test once more (Wi-Fi, ssh, web live view / WHEP, MQTT, a web update).
 
 ### SMALL-A-1124 Six small fixes of the audit (`[small]`, audit 2026-11-24 R5 R6 R7 R8 W4 W8) — `to test`
 - **What:** no visible change with the default configuration.
@@ -926,7 +936,7 @@ per flash write.
 - **Pass:** (1) values plausible and unchanged in format; (2) lower; (3) not higher; no error in `/tmp/logs`.
   Host test: `tests/test_wifiq_forks.py` (identical files over 132 simulated minutes against the old script, fork count).
 
-### FAILCOUNT Failure totals of the video server over a day: STAT, /tmp file, memory-hourly.csv (`[failcount]`) â€” `to test` (both cameras, 24 h or more)
+### FAILCOUNT Failure totals of the video server over a day: STAT, /tmp file, memory-hourly.csv (`[failcount]`) — `to test` (both cameras, 24 h or more)
 
 - **What:** measurement only, no behaviour change. `src/tc100rtsp/tc100_rtsp.c` counts since the process start
   `pic_fail` (every encoder call without a picture, main and sub), `enc_reopen` (core reset and encoder reopened after
@@ -1030,7 +1040,8 @@ per flash write.
 - **Pass:** night bit rate about 650-950 kbit/s instead of about 1600 on the .24 after an evening switch without a
   restart; no blue gain near the cap (1536) at night; correct day colours next morning; `awb.state` has no night
   content.
- to tell a kernel leak from benign growth (`[memwatch]`) — `to test`
+
+### MEMWATCH Memory watch: `memory.csv` to tell a kernel leak from benign growth (`[memwatch]`) — `closed 2026-11-27` (3-day criterion dropped (owner's decision 2026-11-27): flat over 9 h and 19 h, the files and the switch stay)
 
 - **What:** `scripts/memwatch.sh`, called by `health-snapshot.sh` every 5 minutes, writes `memory.csv` (26 columns from
   `/proc/meminfo` and `/proc/vmstat`; kinds `boot` = baseline at 10 min of uptime, `sample`, `hourly`, `drop`) and, once
@@ -1376,7 +1387,7 @@ per flash write.
   automatic white balance moves the colour every picture, and R1 now lets that rise to the 1600 kbit/s ceiling at
   10 fps); new binary with AWB-05 (default) 155 KB / 5 s (P 170 bytes, IDR 73 KB every 25).
 
-### T1-QP-BENCH Is the encoder's 0x4040 "tables" buffer its QP control buffer? Bench only (`[t1-qp]`) — `to test` (owner, test camera)
+### T1-QP-BENCH Is the encoder's 0x4040 "tables" buffer its QP control buffer? Bench only (`[t1-qp]`) — `to test` (before 3.0.2 final (owner's decision 2026-11-27); tester, one of the two cameras, nothing written to the flash)
 - **What:** a bench program, `src/h265enc/qpbench.c` + `qpctl.h` (CI test pack `tc100test/qpbench`): `freeenc.h` at a
   fixed QP from the ISP, three phases per run (vendor's values / one change / vendor's values), raw `.265` / `.264` files
   and `run.csv` (size, QP and the core's status words per picture). `freeenc.h` gets a hook that only the bench defines
@@ -1421,7 +1432,7 @@ per flash write.
 - **Test:** boot the kernel from the SD card on one camera; Wi-Fi associates, RTSP stream for 30 min, `wifi-stall-watch.sh 60` shows the HCD counters moving as before (`bulk_out_nak`, `bulk_in_oldest_ms`), one `wpa_cli -i wlan0 reassociate` and one reboot test; `dmesg` without USB error, oops or soft lockup.
 - **Pass criteria:** same behaviour as rc43 (the fault itself is not reproducible on demand: review plus no regression).
 
-### HRTIMER-01 High-resolution timers and NO_HZ_IDLE (`[kernel]`) — `to test (venc_soft_reset fixed 2026-11-14)`
+### HRTIMER-01 High-resolution timers and NO_HZ_IDLE (`[kernel]`) — `closed 2026-11-27` (passed by field: in every build since 14/11 without an incident (owner's decision 2026-11-27))
 
 - **What (`H4`/`H5`):** a kernel with `CONFIG_HIGH_RES_TIMERS=y` and `CONFIG_NO_HZ_IDLE=y` (the AK39 timer in patch 0001 declares `CLOCK_EVT_FEAT_ONESHOT`), and `src/tc100rtsp/tc100_rtsp.c` used `nanosleep()` in `pace_udp()` (works on both kernels; `pace_udp` and `RTSP_PACING_US` removed 2026-11-24, audit, CLEANUP-1124). Patch `0008` (`venc_soft_reset()`) was updated on 2026-11-14 from `usleep_range(100, 200)` to `usleep_range(1000, 2000)` so the hardware encoder soft-reset pulse stays 1–2 ms under `HIGH_RES_TIMERS=y` instead of shrinking to ~0.2 ms (and stays 1 jiffy under `HZ_PERIODIC`).
 - **Test kernel only (2026-11-13):** 9d37efe had put both options in the base `defconfig_cma`, so every CI kernel (the next RC too) carried a timer mode no camera had ever booted; the read-only review classed it brick-class for a flash (if the one-shot path of patch 0001 misbehaves, the tick dies before the initramfs: SD recovery only), with side effects to watch: exact `usleep_range` before `ispdrv_ae_work()` (exposure writes earlier in the frame; `venc_soft_reset` pulse fixed in 0008). The base config is back to `HZ_PERIODIC`; build the test kernel with the workflow input `test_hrtimers` (packages get `-testkernel` in their version, see the 2026-10 entry below).
@@ -1849,7 +1860,7 @@ per flash write.
   no extra 401 prompt.
 - **Pass:** (a)-(d) as above, `/tmp/log/httpfront.log` without new errors.
 
-### AWB-01 Why the ISP white balance goes blue on live statistics: live checks, then a fix (`[awb-fix]`) — `steps 1, 2, 4 done 2026-11-13 on both cameras; step 3 (paper, tungsten) needs the owner` (results at the end)
+### AWB-01 Why the ISP white balance goes blue on live statistics: live checks, then a fix (`[awb-fix]`) — `steps 1, 2, 4 done 2026-11-13 on both cameras; step 3 (paper, tungsten) not done, closed 2026-11-27` (the colours of today are accepted (owner's decision 2026-11-27); results at the end)
 
 - **Diagnosis (read-only Fable analysis of patch 0006 and the recorded data, 2026-11-13; key facts checked):**
   - Every recorded `/tmp/cam_awb` line, on both cameras, by day and by night, fills **only bins 0 and 5** (bins 1-2
@@ -1891,7 +1902,7 @@ per flash write.
   struct). Test on both cameras (SD kernel): paper R/G/B within ±5 % under daylight and tungsten, field 11 follows the
   light, no kernel message.
 
-### INST-01 SD install skips the per-partition backup only on a first install (`[fast-install-fix]`) — `to test`
+### INST-01 SD install skips the per-partition backup only on a first install (`[fast-install-fix]`) — `closed 2026-11-27` (on the host tests; no real SD install (owner's decision 2026-11-27))
 
 - **What:** `v3/install/install66.sh` skipped the per-partition backup (`flashw -b`) whenever
   `restore-stock.sh --check` passed. That check compares only the `boot` and `mac` areas, so reinstalling from the card
