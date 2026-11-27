@@ -866,8 +866,10 @@ class Daemon(unittest.TestCase):
         (self.d / 'console').unlink()
         time.sleep(2.2)
         self.assertFalse(started())                                                          # same nonce: nothing
-        (self.d / 'night.flag').unlink()
-        (self.d / 'night.flag').write_text('101 9.00\n')                                     # stop + start inside one tick
+        # a new nonce replacing the flag at once (a rename, as one tick sees it). Not unlink + write: with no flag left the
+        # daemon exits on purpose (the service script's sv_start starts it again), and a loaded runner can tick in that gap
+        (self.d / 'night.flag.new').write_text('101 9.00\n')
+        os.replace(self.d / 'night.flag.new', self.d / 'night.flag')
         self.assertTrue(self.wait_for(started))
         self.assertIsNone(self.proc.poll())
         self.proc.terminate()
