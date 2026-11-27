@@ -2014,3 +2014,8 @@ Historical dated reports (2026-10-30 onward) were archived to [test-queue-archiv
 - The log line `night setting (night) ... 1600 -> 900` was not found in the files read (messages, daynight.log, tc100_rtsp.log): to look for in the morning in the log the other agent names; the CSV rows carry the proof.
 - IPCAM2 (control) stayed in day mode (room lit): 630-990 kbit/s, counters 0.
 - Step 3 (morning): back to 1600 by day, night snapshot for the owner to judge the picture.
+
+### 2026-11-27 07:30 NIGHT-CEIL-AUTO step 3 (first part: the night; the return to day is still to read)
+- IPCAM1 (rc6, `RTSP_NIGHT_KBPS=900`): night since 21:29, 50 `nightceil.csv` sample rows since the switch, `main_kbps` mean 909.9 (min 908, max 912), `kbps_set` 900 on every row, gain 12-14. IPCAM2 (rc7, control, `kbps_set` 1600, night since 22:55): mean 945, 226-1117 on the same period (its room is quieter). No `md_enc` line on either camera, counters 0 (IPCAM1 starts=3 as before the night).
+- At 07:30 both cameras were still in night mode: the return to day (`kbps_set` back to 1600 on IPCAM1) is not read yet, second reading planned later this morning.
+- Night snapshots of both cameras taken from the camera's JPEG cache (`currentpic.cache.jpg`), not from the H.264 stream: they show the sensor image, not the effect of the 900 kbit/s budget. To judge the softness of the picture at 900 the owner should look at a night recording of IPCAM1 in Frigate.
