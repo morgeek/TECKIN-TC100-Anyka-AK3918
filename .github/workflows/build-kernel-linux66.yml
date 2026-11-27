@@ -251,6 +251,18 @@ jobs:
           # the vendor image is made on each camera: a worst-case stand-in must fit its partition (tests/ci-vendor-budget.sh)
           sh tests/ci-vendor-budget.sh
 
+      # [up-sbom] software bill of materials (CycloneDX 1.5 + table) of this build; docs/linux-port/upgrade-3.2/sbom.md
+      - name: SBOM (sbom.cdx.json, sbom.md)
+        run: |
+          set -e
+          python3 scripts/sbom.py --show-info base-rootfs/show-info.json --out output/release/sbom
+
+      # non-blocking: a network problem or a finding never fails the build; the report says what it could not fetch
+      - name: CVE report (non-blocking)
+        continue-on-error: true
+        run: |
+          sh scripts/cve-report.sh output/release/sbom.cdx.json output/release/cve-report || true
+
       - name: Upload the 3.0 release
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
@@ -258,6 +270,10 @@ jobs:
           path: |
             output/release/*.zip
             output/release/*.tar
+            output/release/sbom.cdx.json
+            output/release/sbom.md
+            output/release/cve-report.md
+            output/release/cve-report.json
 
       - name: Publish the GitHub release (tags v3*)
         if: startsWith(github.ref, 'refs/tags/v3')
@@ -281,8 +297,10 @@ jobs:
           [ "$r" = "completed success" ] || { echo "no passed CI run for $GITHUB_SHA (last seen: $r)"; exit 1; }
           cd output/release
           md5sum *.zip *.tar > MD5SUMS.txt
+          # [up-sbom] the SBOM and the CVE report go with the release (the CVE ones may be missing: the step is non-blocking)
+          EXTRA=; for f in sbom.cdx.json sbom.md cve-report.md cve-report.json; do [ -f "$f" ] && EXTRA="$EXTRA $f"; done
           PRE=; case "$GITHUB_REF_NAME" in *-rc*|*-beta*|*-alpha*) PRE=--prerelease ;; esac
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" $PRE             --title "TC100 firmware $GITHUB_REF_NAME" --notes-file "$GITHUB_WORKSPACE/v3/install/RELEASE-NOTES.md"             *.zip *.tar MD5SUMS.txt
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" $PRE             --title "TC100 firmware $GITHUB_REF_NAME" --notes-file "$GITHUB_WORKSPACE/v3/install/RELEASE-NOTES.md"             *.zip *.tar MD5SUMS.txt $EXTRA
 
       - name: Upload Kernel Artifact
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
