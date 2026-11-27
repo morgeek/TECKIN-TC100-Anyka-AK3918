@@ -261,6 +261,19 @@ jobs:
           set -e
           python3 scripts/sbom.py --show-info base-rootfs/show-info.json --out output/release/sbom
 
+      # the NVD data pkg-stats downloads (about 20 minutes from scratch) is kept for the ISO week: the first build of a
+      # week refreshes it, the others reuse it
+      - name: NVD data week
+        id: nvdweek
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+
+      - name: NVD data cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: cve-work/nvd
+          key: nvd-${{ steps.nvdweek.outputs.week }}
+          restore-keys: nvd-
+
       # non-blocking: a network problem or a finding never fails the build; the report says what it could not fetch
       - name: CVE report (non-blocking)
         continue-on-error: true
