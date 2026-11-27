@@ -195,7 +195,7 @@ jobs:
           case "$HARDEN" in 0) FSSP=-fno-stack-protector ;; *) FSSP=-fstack-protector-strong ;; esac
           arm-linux-gnueabi-gcc -Os -Wall $FSSP -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/httpfront/httpfront.c -o $P/httpfront
           arm-linux-gnueabi-gcc -Os -Wall $FSSP -marm -march=armv5te -nostdlib -static -fno-builtin -fno-pic -no-pie -Wl,--build-id=none -s src/mdnsd/mdnsd.c -o $P/tc100-mdnsd
-          # 2026-11-07: every program is built against musl 1.2.4, the camera's own libc (src/musl.mk): tc100-mqttd,
+          # 2026-11-07: every program is built against musl 1.2.6, the camera's own libc (src/musl.mk): tc100-mqttd,
           # -supervisord, -onvifd, rwconf, tc100-logfwd, libnetacl-musl.so and, since 3.0.1-rc34, tc100_rtsp itself
           # (libakuio linked in, the free encoder src/h265enc/freeenc.h): no vendor library and no uClibc runtime
           sh v3/musl/build-musl.sh

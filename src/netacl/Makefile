@@ -17,7 +17,7 @@ CFLAGS ?= -Os -Wall -Wextra -std=gnu11 -fPIC -U_FORTIFY_SOURCE -fno-stack-protec
 all: libnetacl.so
 
 # The same filter for the musl programs of the 3.0 base system (its busybox telnetd/ftpd: the uClibc build above is never
-# preloaded there, netacl_exec checks the loader). Built against musl 1.2.4 (src/musl.mk), the camera's libc.
+# preloaded there, netacl_exec checks the loader). Built against musl 1.2.6 (src/musl.mk), the camera's libc.
 musl: libnetacl-musl.so
 
 include ../musl.mk

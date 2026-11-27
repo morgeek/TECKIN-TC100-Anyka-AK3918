@@ -1,7 +1,7 @@
 """[harden] (2026-11-23, audit 2026-11-16) Stack protector and full RELRO in the free programs of the flash image.
 
 - The musl programs (tc100_rtsp, tc100-mqttd, -onvifd, -supervisord, -logfwd, rwconf, libnetacl-musl.so; src/musl.mk) are
-  built with -fstack-protector-strong and -Wl,-z,relro,-z,now by default. musl 1.2.4 exports __stack_chk_fail and
+  built with -fstack-protector-strong and -Wl,-z,relro,-z,now by default. musl 1.2.6 exports __stack_chk_fail and
   __stack_chk_guard; its loader fills the guard from AT_RANDOM before the program's own copy is made (ARM GCC reads the
   canary from that global: ARMv5 has no thread register). -z now puts the GOT inside GNU_RELRO, which the musl loader
   makes read-only after relocation (musl never binds lazily).

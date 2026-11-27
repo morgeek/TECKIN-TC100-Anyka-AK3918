@@ -11,7 +11,7 @@ without go2rtc or MediaMTX, and without loading the processor (owner, 2026-11-05
 | RTP packets (H.264 / H.265 FU-A, PCMA) | none: `tc100_rtsp` already makes them for RTSP | `src/tc100rtsp` |
 | SDP offer / answer (WHEP: one HTTP POST) | once per viewer | new, small text code |
 | ICE-lite: answer the browser's STUN binding requests (HMAC-SHA1 + CRC32 fingerprint) | one every few seconds | new, ~200 lines |
-| DTLS 1.2 handshake with the `use_srtp` extension, keys exported (RFC 5764) | once per viewer, ~0.5-2 s of CPU with ECDSA P-256 | mbedTLS 2.28.9, already in the user space (`ext/lib`, used by curl) |
+| DTLS 1.2 handshake with the `use_srtp` extension, keys exported (RFC 5764) | once per viewer, ~0.5-2 s of CPU with ECDSA P-256 | Mbed TLS (2.28.9 at the time, 3.6.7 since the up-base port), already in the user space (`ext/lib`, used by curl) |
 | SRTP: AES-128-CM + HMAC-SHA1-80 on every packet | **the only per-packet cost** | `src/whep/srtp.h` (written, tested with RFC 3711 vectors) |
 | Certificate (self-signed ECDSA P-256), its fingerprint in the SDP | made once, kept in `/mnt/config` | mbedTLS |
 
@@ -92,9 +92,14 @@ What exists, and the choices made where the design left them open:
   live view is muted).
 - **Step 5, tests.** `tests/test_whep.py` (host vectors, wiring, `whep.cgi` under a shell with a stub curl),
   `tests/whep-live.test.js` (fallback logic), `tests/whep_interop.py` through `tests/docker/whep-interop.sh` (CI job
-  `whep-interop`, `sh tests/docker/local-ci.sh whep`): builds mbedTLS 2.28.9 with SRTP, the daemon, and runs aiortc as the
+  `whep-interop`, `sh tests/docker/local-ci.sh whep`): builds Mbed TLS 3.6.7 (2.28.9 before the up-base port) with SRTP, the daemon, and runs aiortc as the
   browser against a fake RTSP source (H.264 without SPS/PPS in the stream, PCMA, Basic authentication): a decoded 640x360
   frame, an audio frame, the viewer limit, DELETE.
 - **Still to do, on the camera:** SRTP cost during a stream (decides sub or main; the `srtp-bench` camera build was dropped 2026-11-25), delay, CPU and memory with 1-2
   viewers, one hour; the Buildroot build of the package is only checked by CI (the host build uses the same sources and
   the same mbedTLS version).
+
+## Port to Mbed TLS 3.6 (`[up-base]`, 2026-11-27)
+
+The daemon builds against Mbed TLS 3.6.7 since the Buildroot 2025.02 move; the API-by-API list is in
+[upgrade-3.2/base.md](upgrade-3.2/base.md). The text above describes the 2.28 build it was designed against.

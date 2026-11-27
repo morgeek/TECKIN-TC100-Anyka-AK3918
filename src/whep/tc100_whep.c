@@ -1,7 +1,7 @@
 /* tc100-whep: WebRTC (WHEP) gateway of the camera, item 35 (design: docs/linux-port/whep-design.md).
  *
  * A browser (or any WHEP client) POSTs an SDP offer; we answer with ICE-lite (one host candidate on the LAN
- * interface), a DTLS 1.2 server (mbedTLS, use_srtp SRTP_AES128_CM_HMAC_SHA1_80, self-signed ECDSA P-256 certificate
+ * interface), a DTLS 1.2 server (Mbed TLS, use_srtp SRTP_AES128_CM_HMAC_SHA1_80, self-signed ECDSA P-256 certificate
  * kept in /mnt/config) and SRTP (srtp.h). The media is not made here: for each viewer we open an RTSP session
  * (TCP interleaved, on the loopback) to tc100_rtsp, the secondary stream by default, and send its RTP packets on,
  * with the payload type and SSRC of the answer (H.264: SPS and PPS are put in front of every IDR, the browsers
@@ -13,7 +13,7 @@
  *
  *   tc100-whep [-i wlan0[,eth0]] [-p 8889] [-u 8189] [-s sub|main] [-m 2] [-a 1] [-r 554] [-U user] [-w pwfile]
  *              [-c /mnt/config] [-d]
- * Build: Buildroot package v3/buildroot/package/tc100-whep (musl, system mbedTLS 2.28 with MBEDTLS_SSL_DTLS_SRTP);
+ * Build: Buildroot package v3/buildroot/package/tc100-whep (musl, system Mbed TLS 3.6 with MBEDTLS_SSL_DTLS_SRTP);
  * on a host: see tests/docker/whep-interop.sh. */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -30,6 +30,9 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>	/* struct timeval: glibc brings it in through other headers, musl (the camera) does not */
+/* Mbed TLS 3 hides the structure fields: the negotiated SRTP profile (mbedtls_dtls_srtp_info) has no accessor in 3.6, so
+ * its one field is read through MBEDTLS_PRIVATE() (needs this define before the first Mbed TLS include) */
+#define MBEDTLS_ALLOW_PRIVATE_ACCESS
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/entropy.h"
 #include "mbedtls/md.h"
@@ -37,12 +40,11 @@
 #include "mbedtls/ssl.h"
 #include "mbedtls/x509_crt.h"
 #include "mbedtls/x509_csr.h"
-#include "mbedtls/bignum.h"
 #include "mbedtls/ecp.h"
 #include "whep_proto.h"
 
 #ifndef MBEDTLS_SSL_DTLS_SRTP
-#error "mbedTLS built without MBEDTLS_SSL_DTLS_SRTP (v3/buildroot/external.mk enables it in the base image)"
+#error "Mbed TLS built without MBEDTLS_SSL_DTLS_SRTP (v3/buildroot/external.mk enables it in the base image)"
 #endif
 
 #define MAXS 4
@@ -63,7 +65,7 @@ struct sess {
 	uint8_t in[25 + WH_CH_MAX];		/* one datagram, or the ClientHello rebuilt from its fragments */
 	int in_len;
 	struct wh_chello ch;
-	int ch_done;			/* the ClientHello went to mbedTLS: later copies of its fragments are dropped */
+	int ch_done;			/* the ClientHello went to Mbed TLS: later copies of its fragments are dropped */
 	uint64_t t_int, t_fin;			/* DTLS retransmission timers (ms, 0 = off) */
 	uint8_t ms[48], cr[32], sr[32];
 	int have_keys, prf;
@@ -156,7 +158,7 @@ static int cert_init(void)
 	char kp[128], cp[128];
 	static char kpem[1024], cpem[1536];
 	mbedtls_x509write_cert w;
-	mbedtls_mpi serial;
+	unsigned char serial[3];
 	mbedtls_pk_context k;
 	unsigned char der[2];
 	int r;
@@ -164,7 +166,7 @@ static int cert_init(void)
 	snprintf(kp, sizeof kp, "%s/whep-key.pem", G.cdir);
 	snprintf(cp, sizeof cp, "%s/whep-cert.pem", G.cdir);
 	mbedtls_pk_init(&G.key); mbedtls_x509_crt_init(&G.crt);
-	if (!mbedtls_pk_parse_keyfile(&G.key, kp, NULL) && !mbedtls_x509_crt_parse_file(&G.crt, cp)) return 0;
+	if (!mbedtls_pk_parse_keyfile(&G.key, kp, NULL, mbedtls_ctr_drbg_random, &G.drbg) && !mbedtls_x509_crt_parse_file(&G.crt, cp)) return 0;
 	mbedtls_pk_free(&G.key); mbedtls_x509_crt_free(&G.crt);
 	mbedtls_pk_init(&G.key); mbedtls_x509_crt_init(&G.crt);
 	LOG("making the ECDSA P-256 certificate (once)");
@@ -174,25 +176,25 @@ static int cert_init(void)
 		LOG("key generation failed: -0x%x", -r); return -1;
 	}
 	mbedtls_x509write_crt_init(&w);
-	mbedtls_mpi_init(&serial);
 	rnd(der, 2);
-	mbedtls_mpi_lset(&serial, 0x10000 | (der[0] << 8 | der[1]));
+	serial[0] = 0x01; serial[1] = der[0]; serial[2] = der[1];	/* the value 0x10000 | random 16 bits, as before */
 	mbedtls_x509write_crt_set_md_alg(&w, MBEDTLS_MD_SHA256);
 	mbedtls_x509write_crt_set_subject_key(&w, &k);
 	mbedtls_x509write_crt_set_issuer_key(&w, &k);
 	mbedtls_x509write_crt_set_version(&w, MBEDTLS_X509_CRT_VERSION_3);
 	r = mbedtls_x509write_crt_set_subject_name(&w, "CN=tc100-whep") ||
 	    mbedtls_x509write_crt_set_issuer_name(&w, "CN=tc100-whep") ||
-	    mbedtls_x509write_crt_set_serial(&w, &serial) ||
+	    mbedtls_x509write_crt_set_serial_raw(&w, serial, sizeof serial) ||
 	    mbedtls_x509write_crt_set_validity(&w, "20200101000000", "20500101000000");	/* the clock may be wrong: browsers do not check it */
 	if (!r) r = mbedtls_x509write_crt_pem(&w, (unsigned char *)cpem, sizeof cpem, mbedtls_ctr_drbg_random, &G.drbg);
 	if (!r) r = mbedtls_pk_write_key_pem(&k, (unsigned char *)kpem, sizeof kpem);
-	mbedtls_x509write_crt_free(&w); mbedtls_mpi_free(&serial);
+	mbedtls_x509write_crt_free(&w);
 	if (r) { LOG("certificate failed: -0x%x", -r); mbedtls_pk_free(&k); return -1; }
 	if (write_secret(kp, kpem, 0600) || write_secret(cp, cpem, 0644))
 		LOG("cannot keep the certificate in %s (a new one is made at every start)", G.cdir);
 	mbedtls_pk_free(&k);
-	if (mbedtls_pk_parse_key(&G.key, (unsigned char *)kpem, strlen(kpem) + 1, NULL, 0) ||
+	if (mbedtls_pk_parse_key(&G.key, (unsigned char *)kpem, strlen(kpem) + 1, NULL, 0,
+				 mbedtls_ctr_drbg_random, &G.drbg) ||
 	    mbedtls_x509_crt_parse(&G.crt, (unsigned char *)cpem, strlen(cpem) + 1)) { LOG("made certificate does not parse"); return -1; }
 	return 0;
 }
@@ -245,15 +247,16 @@ static int timer_get(void *c)
 	return t >= s->t_fin ? 2 : t >= s->t_int ? 1 : 0;
 }
 
-static int export_keys(void *p, const unsigned char *ms, const unsigned char *kb, size_t maclen, size_t keylen,
-			size_t ivlen, const unsigned char cr[32], const unsigned char sr[32], mbedtls_tls_prf_types prf)
+/* Mbed TLS 3: mbedtls_ssl_set_export_keys_cb (the 2.x per-config ..._ext_cb gave the key block too, unused here); the
+ * callback returns nothing and gets the secret by type: only the DTLS 1.2 master secret (48 bytes) is kept */
+static void export_keys(void *p, mbedtls_ssl_key_export_type type, const unsigned char *ms, size_t mslen,
+			const unsigned char cr[32], const unsigned char sr[32], mbedtls_tls_prf_types prf)
 {
 	struct sess *s = p;
 
-	(void)kb; (void)maclen; (void)keylen; (void)ivlen;
+	if (type != MBEDTLS_SSL_KEY_EXPORT_TLS12_MASTER_SECRET || mslen != 48) return;
 	memcpy(s->ms, ms, 48); memcpy(s->cr, cr, 32); memcpy(s->sr, sr, 32);
 	s->prf = (int)prf; s->have_keys = 1;
-	return 0;
 }
 
 /* TLS 1.2 PRF with SHA-256 (RFC 5246 5): the one cipher suite we offer uses it */
@@ -507,7 +510,7 @@ static void dtls_done(struct sess *s)
 	uint8_t seed[64], km[60];
 
 	mbedtls_ssl_get_dtls_srtp_negotiation_result(&s->ssl, &info);
-	if (info.chosen_dtls_srtp_profile != MBEDTLS_TLS_SRTP_AES128_CM_HMAC_SHA1_80) { LOG("no SRTP profile agreed"); sess_free(s); return; }
+	if (info.MBEDTLS_PRIVATE(chosen_dtls_srtp_profile) != MBEDTLS_TLS_SRTP_AES128_CM_HMAC_SHA1_80) { LOG("no SRTP profile agreed"); sess_free(s); return; }
 	if (!pc) { LOG("the browser sent no certificate"); sess_free(s); return; }
 	fp_text(pc->raw.p, pc->raw.len, fp, sizeof fp);
 	if (strcasecmp(fp, s->ofp)) { LOG("DTLS certificate does not match the offer's fingerprint"); sess_free(s); return; }
@@ -672,13 +675,13 @@ static int ssl_prepare(struct sess *s)
 	mbedtls_ssl_conf_rng(&s->conf, mbedtls_ctr_drbg_random, &G.drbg);
 	if ((r = mbedtls_ssl_conf_own_cert(&s->conf, &G.crt, &G.key))) return r;
 	mbedtls_ssl_conf_authmode(&s->conf, MBEDTLS_SSL_VERIFY_OPTIONAL);	/* the browser's self-signed certificate is checked by fingerprint */
-	mbedtls_ssl_conf_min_version(&s->conf, MBEDTLS_SSL_MAJOR_VERSION_3, MBEDTLS_SSL_MINOR_VERSION_3);
+	mbedtls_ssl_conf_min_tls_version(&s->conf, MBEDTLS_SSL_VERSION_TLS1_2);
 	mbedtls_ssl_conf_ciphersuites(&s->conf, SUITES);
 	mbedtls_ssl_conf_dtls_cookies(&s->conf, NULL, NULL, NULL);		/* the address is already proved by the STUN checks */
 	mbedtls_ssl_conf_handshake_timeout(&s->conf, 500, 4000);
 	if ((r = mbedtls_ssl_conf_dtls_srtp_protection_profiles(&s->conf, PROFILES))) return r;
-	mbedtls_ssl_conf_export_keys_ext_cb(&s->conf, export_keys, s);
 	if ((r = mbedtls_ssl_setup(&s->ssl, &s->conf))) return r;
+	mbedtls_ssl_set_export_keys_cb(&s->ssl, export_keys, s);
 	mbedtls_ssl_set_bio(&s->ssl, s, bio_send, bio_recv, NULL);
 	mbedtls_ssl_set_timer_cb(&s->ssl, s, timer_set, timer_get);
 	mbedtls_ssl_set_mtu(&s->ssl, 1200);

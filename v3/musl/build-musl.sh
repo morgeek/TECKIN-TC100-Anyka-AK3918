@@ -1,17 +1,17 @@
 #!/bin/sh
 # build-musl.sh [DEST]   the musl C library of the camera's base system, for building our programs against it
 #
-# The 3.0 base system (Buildroot 2024.02, v3/buildroot) runs musl 1.2.4: /lib/ld-musl-arm.so.1 -> /lib/libc.so on the
-# camera ("musl libc (arm) Version 1.2.4"). Our daemons (tc100-mqttd, -onvifd, -supervisord, -logfwd, rwconf) and the
+# The 3.0 base system (Buildroot 2025.02, v3/buildroot) runs musl 1.2.6: /lib/ld-musl-arm.so.1 -> /lib/libc.so on the
+# camera ("musl libc (arm) Version 1.2.6"). Our daemons (tc100-mqttd, -onvifd, -supervisord, -logfwd, rwconf) and the
 # musl build of libnetacl are compiled with the headers and linked against the libc of that same version, dynamically,
 # so they use the camera's own libc and no longer the vendor uClibc runtime (2026-11-07).
 #
 # DEST (default build/musl in the repository) receives a sysroot: include/, lib/ (crt*.o, libc.so, libc.a) and
 # bin/musl-gcc, the wrapper that compiles with these headers (REALGCC = the cross compiler, arm-linux-gnueabi-gcc).
-# Source: the release tarball, checked against its SHA-256. Done once: DEST/.musl-1.2.4 marks a finished build.
+# Source: the release tarball, checked against its SHA-256. Done once: DEST/.musl-1.2.6 marks a finished build.
 set -e
-VER=1.2.4
-SHA=7a35eae33d5372a7c0da1188de798726f68825513b7ae3ebe97aaaa52114f039
+VER=1.2.6
+SHA=d585fd3b613c66151fc3249e8ed44f77020cb5e6c1e635a616d3f9f82460512a
 URL=${MUSL_URL:-https://musl.libc.org/releases/musl-$VER.tar.gz}
 CROSS=${CROSS:-arm-linux-gnueabi-}
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
