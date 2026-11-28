@@ -456,6 +456,34 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
   up: the 3.0.2-rc8 SD card with `tc100test/c66.img` (the SD kernel boots before the flash one), then Settings ->
   Install to flash, or the partition backups of the card; (3) last resort, the full flash backup of the card.
 - **Pass:** the camera runs 48 h on the flash with the UP32 checks green, then the second camera.
+- **Settings carry-over on the browser update 3.0.2-rc8 -> 3.2 (owner, 2026-11-28: the flash version must get back ALL
+  the camera's settings):** read on IPCAM1 from the code of both branches and from the camera's own flash, nothing written.
+  - **Path:** the rc8 updater (`update66.sh` of `main`) writes `stack`, `kernel`, `initrd` only; `cfga`/`cfgb` (settings)
+    and `vendor` (sensor tuning) are not touched. 3.2 then restores the newest slot at boot. `cfg-persist` differs from
+    `main` by one line (`update-keys/` never removed by a slot's delete list): **same slot format**
+    (`TC1CFG <seq> <bytes> <md5>` + gzip'ed tar). The restore runs `gunzip | tar xf -`, which works with BusyBox 1.37
+    (its `tar` has **no `-z`**: checked on the camera, `tar: option: z`).
+  - **What IPCAM1's flash holds (slot `cfgb` seq 225, 19343 of 36864 bytes, `cfga` seq 224 the same 44 files):** Wi-Fi
+    (`wpa_supplicant.conf`), web password (`user.pwd`), `rtspserver.conf`, `rtsp.env` (with `RTSP_NIGHT_KBPS=900`),
+    `rtsp.codec`, `mqtt.conf`, `boot.conf`, `daynight.conf`, `motion.conf`, `sound_detection.conf`, `isp_tune.conf`,
+    `awb.state`, `dns.conf`, `hostname.conf`, `network.lease`, `authorized_keys`, `dropbear_ed25519_host_key`,
+    `whep-cert.pem`/`whep-key.pem`, `wifi_rescue.psk`, `autostart/onvif` (ONVIF switched on), the wizard/migration
+    markers, `log/*`. Every one of them except `overclock.state` has a reader in the 3.2 code; every `autostart/`
+    entry has its `controlscripts/` script except `cpu-scaler` (a leftover of the `overclock` branch test, missing on
+    `main` too: not a 3.2 regression, but it should be ignored quietly or cleaned by a migration).
+  - **PRIVDROP with 3.0 settings:** an absent `PRIVDROP` key = on (`privdrop_enabled`); `secret_modes_fix` runs after the
+    restore and gives `user.pwd`/`rtspserver.conf` mode 640 group `tc100svc`, the other secrets 600 root; `tc100-whep`
+    reads `whep-key.pem` before it drops root (`tc100_whep.c` line 912). So ONVIF and WebRTC should keep working with
+    the flash's 600 files. To confirm on the camera after UP32-FLASH (`ls -ln /mnt/config`, ONVIF and live view).
+  - **Manifest for the after-check:** md5, mode and path of the 44 files of the slot saved on the tester's side
+    (`ipcam1-flash-settings-manifest-rc8.txt`, not in the repo: it covers secret files). **Pass of the carry-over:** after
+    the browser update to 3.2 every file of the manifest is present in `/mnt/config` with the same md5 (modes may change
+    only as `secret-modes.sh` says), the camera on the same Wi-Fi, the same web password, Frigate (RTSP and its
+    credentials), MQTT, ONVIF, the night ceiling 900, the same ssh host key and authorized keys, the same WebRTC
+    certificate, and `/vendor/isp.conf` the same 69548 bytes.
+  - **Found on the way, `to fix`:** `www/cgi-bin/supportbundle.cgi` line 94 runs `tar -czf`, which BusyBox 1.37 of 3.2
+    refuses: the web UI's support bundle will be empty or fail on 3.2 (use `tar cf - ... | gzip`, like `cfg-persist`).
+    Worth a grep of every `tar` call for `-z`/`z` options before the final (`git grep -n "tar .*z"`).
 - **Also (owner, 2026-11-28):** the fixes qualified on the SD trial (UP32-SD-ESSAI: `[up32-sd-vendor]`, the
   `wifi-rescue` gateway fix) are re-checked here on the flash, with the same commands as on the SD; a fix that works on
   the SD only does not pass.
