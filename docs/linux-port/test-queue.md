@@ -391,6 +391,13 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
     wifi for 10 min)` and no `gateway unreachable` line in `important.log` over at least one hour on a working Wi-Fi;
     and the rescue access point still comes up when the Wi-Fi is really gone (the feature must not be lost).
   - Anything else changed for the SD path (autorun, rtsp-launch, card config handling) gets the same pair of checks.
+- **2026-11-28 follow-up (`[wifi-rescue-gw]`, `to test`):** fixed `scripts/wifi-rescue.sh` `_wr_gw()` once for both SD
+  and flash modes: when `AP == STA` (Linux 6.6 single `wlan0`), it returns empty while `wr_ap_up` and matches
+  `$NF == "$STA"` instead of filtering `$NF != "$AP"`. Switch: `WIFI_RESCUE=0` in `boot.conf` disables the rescue
+  watcher as before. Test & pass (SD trial and after UP32-FLASH): keep booted > 60 min with `WIFI_RESCUE=1`;
+  `/tmp/wifi-rescue/state` reads `ap=0 link_bad_s=0 link_good_s>=3600` with no rescue AP or `net-guard` outage, and
+  cutting Wi-Fi still brings up the rescue AP after 10 min. *(Same bug exists in `scripts/wifi-rescue.sh` on `main`
+  for any camera with `WIFI_RESCUE=1`.)*
 
 ### UP32-FLASH 3.2.0-rc3 written to the flash of ONE camera (owner's decision of 2026-11-27) — `to test` (after the SD gate)
 - **What:** the web update `tc100-3.2.0-rc3-update.tar` of the CI artifact `tc100-3-release` of the rc3 run on

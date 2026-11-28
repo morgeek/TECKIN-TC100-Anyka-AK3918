@@ -245,5 +245,77 @@ wr_run
         self.assertNotIn('rtl871xdrv', code)
 
 
+class RescueLinkCheck(unittest.TestCase):
+    """scripts/wifi-rescue.sh: _wr_gw() must not filter out wlan0 when AP == STA (Linux 6.6)."""
+
+    def run_check(self, route_out, *, carrier='1', ping_rc=0, ap_up=False, ap='wlan0', sta='wlan0'):
+        with tempfile.TemporaryDirectory() as t:
+            d = Path(t)
+            run = d / 'run'; run.mkdir()
+            sys_net = d / 'sys'; (sys_net / sta).mkdir(parents=True)
+            (sys_net / sta / 'carrier').write_text(f'{carrier}\n')
+            route_bin = d / 'route.sh'
+            route_bin.write_text('#!/bin/sh\n' + '\n'.join(f"printf '%s\\n' '{line}'" for line in route_out) + '\n')
+            route_bin.chmod(0o755)
+            ping_bin = d / 'ping.sh'
+            ping_bin.write_text(f'#!/bin/sh\nexit {ping_rc}\n')
+            ping_bin.chmod(0o755)
+            if ap_up:
+                (run / 'hostapd.pid').write_text('12345\n')
+            ap_fn = 'wr_ap_up() { return 0; }\n' if ap_up else 'wr_ap_up() { return 1; }\n'
+            drv = d / 'drv.sh'
+            drv.write_text(
+                '. "$SCRIPT"\n'
+                + ap_fn
+                + 'printf "gw=%s\\n" "$(_wr_gw)"\n'
+                + 'wr_link_ok && echo link=ok || echo link=bad\n'
+            )
+            env = dict(
+                os.environ,
+                SCRIPT=str(ROOT / 'scripts/wifi-rescue.sh'),
+                WR_RUN=str(run),
+                WR_SYS_NET=str(sys_net),
+                WR_ROUTE=str(route_bin),
+                WR_PING=str(ping_bin),
+                WR_STA=sta,
+                WR_AP=ap,
+            )
+            r = subprocess.run(SHELL + [str(drv)], capture_output=True, text=True, env=env, check=True, timeout=30)
+            return dict(line.split('=', 1) for line in r.stdout.strip().splitlines())
+
+    def test_single_interface_station_finds_wlan0_gateway(self):
+        routes = [
+            'Kernel IP routing table',
+            'Destination     Gateway         Genmask         Flags Metric Ref    Use Iface',
+            '0.0.0.0         192.168.1.1     0.0.0.0         UG    0      0        0 wlan0',
+            '192.168.1.0     0.0.0.0         255.255.255.0   U     0      0        0 wlan0',
+        ]
+        res = self.run_check(routes)
+        self.assertEqual(res['gw'], '192.168.1.1')
+        self.assertEqual(res['link'], 'ok')
+
+    def test_single_interface_returns_empty_while_ap_is_up(self):
+        routes = ['0.0.0.0         192.168.1.1     0.0.0.0         UG    0      0        0 wlan0']
+        res = self.run_check(routes, ap_up=True)
+        self.assertEqual(res['gw'], '')
+        self.assertEqual(res['link'], 'bad')
+
+    def test_single_interface_fails_when_no_default_route_carrier_down_or_ping_fails(self):
+        no_default = ['192.168.1.0     0.0.0.0         255.255.255.0   U     0      0        0 wlan0']
+        self.assertEqual(self.run_check(no_default), {'gw': '', 'link': 'bad'})
+        default = ['0.0.0.0         192.168.1.1     0.0.0.0         UG    0      0        0 wlan0']
+        self.assertEqual(self.run_check(default, carrier='0')['link'], 'bad')
+        self.assertEqual(self.run_check(default, ping_rc=1), {'gw': '192.168.1.1', 'link': 'bad'})
+
+    def test_dual_interface_excludes_ap_iface(self):
+        routes = [
+            '0.0.0.0         10.42.0.1       0.0.0.0         UG    0      0        0 wlan1',
+            '0.0.0.0         192.168.1.1     0.0.0.0         UG    0      0        0 wlan0',
+        ]
+        res = self.run_check(routes, sta='wlan0', ap='wlan1')
+        self.assertEqual(res['gw'], '192.168.1.1')
+        self.assertEqual(res['link'], 'ok')
+
+
 if __name__ == '__main__':
     unittest.main()

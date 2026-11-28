@@ -80,7 +80,17 @@ wr_ssid()
 
 _wr_carrier() { _c=0; read -r _c < "$SYS_NET/$STA/carrier" 2>/dev/null; [ "$_c" = 1 ]; }
 
-_wr_gw() { route -n 2>/dev/null | awk '$1 == "0.0.0.0" && $NF != "'"$AP"'" { print $2; exit }'; }
+# Default gateway on the station interface. On Linux 6.6 the rescue AP shares wlan0 (AP == STA), so filtering
+# "$NF != AP" excluded wlan0 itself and made wr_link_ok() fail on every check (2026-11-28, UP32-SD-ESSAI).
+_wr_gw()
+{
+    if [ "$AP" = "$STA" ]; then
+        wr_ap_up && return 0
+        ${WR_ROUTE:-route} -n 2>/dev/null | awk '$1 == "0.0.0.0" && $NF == "'"$STA"'" { print $2; exit }'
+    else
+        ${WR_ROUTE:-route} -n 2>/dev/null | awk '$1 == "0.0.0.0" && $NF != "'"$AP"'" { print $2; exit }'
+    fi
+}
 
 # Link usable: associated and the gateway answers.
 wr_link_ok()
@@ -88,7 +98,7 @@ wr_link_ok()
     _wr_carrier || return 1
     _g="$(_wr_gw)"
     [ -n "$_g" ] || return 1
-    ping -c 1 -W 3 "$_g" >/dev/null 2>&1
+    ${WR_PING:-ping} -c 1 -W 3 "$_g" >/dev/null 2>&1
 }
 
 _wr_channel()
