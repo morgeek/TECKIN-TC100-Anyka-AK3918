@@ -27,6 +27,8 @@ def runtime_files():
         q = ROOT / p
         files = [q] if q.is_file() else sorted(f for f in q.rglob('*') if f.is_file() and not f.name.endswith('.gz'))
         for f in files:
+            if '__pycache__' in f.parts or f.suffix == '.pyc':
+                continue
             if f.relative_to(ROOT).as_posix() in skip:
                 continue
             try:

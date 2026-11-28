@@ -51,7 +51,8 @@ cp lib/libnetacl-musl.so "$T/lib/"	# the filter for the musl programs (busybox t
 cp "$PACK/tc100_rtsp" "$PACK/httpfront" "$PACK/tc100-mdnsd" "$PACK/tc100-mqttd" "$PACK/tc100-onvifd" "$T/tc100test/"
 [ -f "$PACK/tc100-supervisord" ] && cp "$PACK/tc100-supervisord" "$T/tc100test/"
 cp v3/linux66-sd/rtsp-launch.sh "$T/tc100test/"
-find "$T" \( -name '*.bak*' -o -name '*.orig' -o -name '._*' \) -exec rm -f {} +
+find "$T" \( -name '*.bak*' -o -name '*.orig' -o -name '._*' -o -name '*.pyc' \) -exec rm -f {} +
+find "$T" -type d -name '__pycache__' -exec rm -rf {} +
 # JavaScript and the inline <script>/<style> of the pages minified in this tree only (audit 2026-11-06 S5, owner: not
 # the shell, which stays readable over ssh; git keeps the readable files). src/webui/minify.mjs needs esbuild
 # (npm install --prefix src/webui): MINIFY_WWW=1 (the CI) makes it mandatory; otherwise a build without it ships the
