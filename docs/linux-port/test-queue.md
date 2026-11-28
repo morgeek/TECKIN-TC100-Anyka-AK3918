@@ -407,6 +407,37 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
     (`link_good_s>=3600`), the real Wi-Fi cut (rescue AP after 10 min, by the owner), the CI build of `f49aaed` instead of
     the hand copy, then the same on the flash (UP32-FLASH).
 
+### UP32-ONBOARD The SD package must be plug and play for a new user (owner's request of 2026-11-28) — `to do`
+- **Why:** on the SD trial of 28/11 the owner, who knows the camera, still needed several hand steps a new user would not
+  find. The SD path must work out of the card, then the same on the flash (UP32-SD-ESSAI rule: SD and flash).
+- **Found on IPCAM1 (SD trial, camera already on 3.0.2-rc8 in its flash):**
+  1. **No `wifi.txt` in `tc100-3.x-sd.zip`.** The README tells the user to create it; nobody did, and the camera booted
+     with no network (no clue on screen, the card only). A camera already on 3.0 in its flash does not reuse its flash
+     Wi-Fi on the SD trial (settings come from the card's `config/`, not from `cfga`/`cfgb`), so the file is mandatory
+     there, and the README line "a camera already on Wi-Fi (TECKIN app, or 2.x) keeps its network" is wrong for it.
+     **Owner: ship a `wifi.txt` in the build.** Constraints read in `scripts/wifi-txt.sh`: an empty `SSID=` makes it
+     "invalid" and renamed `wifi-invalid.txt` with a warning; a template must instead be skipped silently while untouched
+     (and keep comment lines if the template carries help text). Option on top: on the SD trial, read the Wi-Fi from the
+     flash settings slot read-only (like `[up32-sd-vendor]` does for `isp.conf`), the card's `wifi.txt` winning.
+  2. **Password on the SD trial = the card's default**, `config/user.pwd` identical to `user.pwd.dist` (md5 checked), so
+     the web login is `root` / `pass` (the owner's expectation for the SD, kept). Not written anywhere for a camera
+     already on 3.0: README line 40 only covers 2.x and stock. Say it in both readmes, and that the NVR (Frigate) with the
+     flash password is refused on the SD trial (`401`, `closed after 2 s, 0 frames`): expected, not a fault.
+  3. **ssh host key changes at every SD boot** (two different ED25519 fingerprints on two boots; `/etc/dropbear` in RAM,
+     no host key under the card's `config/`): every client warns "REMOTE HOST IDENTIFICATION HAS CHANGED". Keep it in
+     the card's `config/` as the flash keeps it in `cfga`/`cfgb`.
+  4. **The web page "not reachable"** for the owner: `httpfront` answers (`302` -> `/index.html`, `401` Basic auth = the
+     login prompt) whenever the camera is on the LAN; the misses were the 15-min rescue access point windows of the
+     `wifi-rescue` bug (fixed by `[wifi-rescue-gw]`). A new user would have seen a camera that vanishes every 25 min.
+  5. **Video black until `[up32-sd-vendor]`** (tuning file of the flash not read on the SD): fixed, PASS 28/11.
+  6. Smaller: `tc100-3/ADRESSE.txt` is written (good: point to it in the quick start, the user has no other way to find
+     the address); `ESSAI.txt` must be made by hand (fine, documented; a shipped `ESSAI.txt.example` would help); macOS
+     leaves `._*` files and a card pulled without ejecting gives `FAT-fs ... not properly unmounted` (say "eject the card").
+- **Check (SD, then flash):** a blank card, the zip copied as is plus only the user's Wi-Fi name and password typed in
+  the shipped `wifi.txt`: the camera joins the LAN, `ADRESSE.txt` gives its address, the web page asks for `root` /
+  `pass` (SD) and shows the video, no rescue access point while the Wi-Fi works, the same ssh host key after a reboot.
+- **Pass:** the check above without any other hand step.
+
 ### UP32-FLASH 3.2.0-rc3 written to the flash of ONE camera (owner's decision of 2026-11-27) — `to test` (after the SD gate)
 - **What:** the web update `tc100-3.2.0-rc3-update.tar` of the CI artifact `tc100-3-release` of the rc3 run on
   `upgrade-3.2` (same build as the SD test files). It writes `stack`, the kernel and the initramfs through `flashw`
