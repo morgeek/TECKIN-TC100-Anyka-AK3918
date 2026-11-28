@@ -331,6 +331,33 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
   6.6.163 has `CONFIG_FW_LOADER=y` direct filesystem loading (`fw_get_filesystem_firmware` -> `/lib/firmware/anyka/isp.conf`),
   so if `-2` still appears on the next SD trial run, capture `ls -la /lib/firmware/anyka/isp.conf /vendor/isp.conf` and
   `dmesg | grep -E 'ak39-vi|isp|firmware'` before concluding on firmware-loader fallback.
+- **2026-11-28 11:40, the network drops explained by the card's own logs (`log/important.log`, `log/reboot-history.log`,
+  `logs/boot-000N/`, copied on the tester's side before the card was rewritten) — `to fix` (owner asks the implementer):**
+  - **What happens:** from each SD boot, both `net-guard` and `wifi-rescue` decide the gateway is unreachable while the
+    camera is in fact on the LAN (ssh and ping from the LAN worked, and a `ping -c2 -W2 <gateway>` run by hand on the
+    camera at 09:07 got 0% loss). `net-guard` logs `gateway unreachable, reboot in 80 min if it stays so`, then
+    `no gateway for 9xx s: Wi-Fi reassociation`; `wifi-rescue` logs `access point TC100-CFDD up on channel 6 (no wifi
+    for 10 min)` about 10 min after boot or after the last return, takes `wlan0` for its access point (the station is
+    off: the camera leaves the LAN), then `access point down (station retry)` 15 min later, `Wi-Fi settings applied`,
+    `network back after 850-973 s`. Three full cycles on 28/11 (camera clock, UTC): AP up 09:16:51, 09:42:46, 10:08:40;
+    network back 09:33:39, 09:59:00, 10:25:19. That is the two "drops" of the SD gate entry above: not a Wi-Fi driver
+    fault, the rescue access point taking the radio on a false "no Wi-Fi" verdict. Left as is, `net-guard` would also
+    reboot the camera after 80 min.
+  - **Lead, not verified on the camera:** `scripts/wifi-rescue.sh` `_wr_gw` reads the gateway from `route -n` (BusyBox
+    `route` applet), `net-guard.sh` `_ng_gateway` from `/proc/net/route`; both then `ping -c 1 -W 3` it and check
+    `/sys/class/net/wlan0/carrier`. The scripts are the same as on `main`, where 3.0.2-rc8 never shows this, so the
+    difference is in the 3.2 base: BusyBox 1.37 applets/options (`route`, `ping -W`), the `carrier` value of rtl8xxxu on
+    6.6.163, or the rc3 "root-only `/tmp` with PRIVDROP" change touching the state files of these two watchers
+    (`/tmp/wifi-rescue/state`). To read on the next SD boot, within the first 10 min: `cat /sys/class/net/wlan0/carrier`,
+    `route -n`, `cat /proc/net/route`, `ping -c 1 -W 3 <gw>; echo $?`, `cat /tmp/wifi-rescue/state`, `ls -la /tmp/wifi-rescue`.
+  - **Workaround for a tester meanwhile:** none set by the tester (no setting changed on the card); the 10-min window
+    after each boot is enough for short checks.
+  - **Reboot history:** `reboot-history.log` lists two `UNEXPECTED (hardware watchdog, power loss or crash)` boots
+    (last alive at uptime 1256 s and 348 s, clock still 1970 = before NTP). Both match the owner's power cycles of the
+    session (adding `wifi.txt`, then the tester's key), so most likely power loss, not crashes; no oops in the kept `dmesg`.
+  - **Card rewritten with the `[up32-sd-vendor]` build (run 46133608677, sd.zip md5 06eee168e53de4e81fc55943614d0edf),**
+    301 files checked by md5 on the card, `ESSAI.txt`, the Wi-Fi settings and the tester's key kept. Note for testers:
+    `unzip -o` cannot replace files on a connected Mac folder where deleting is not allowed; copy in place (`cp -R`).
 
 ### UP32-FLASH 3.2.0-rc3 written to the flash of ONE camera (owner's decision of 2026-11-27) — `to test` (after the SD gate)
 - **What:** the web update `tc100-3.2.0-rc3-update.tar` of the CI artifact `tc100-3-release` of the rc3 run on
