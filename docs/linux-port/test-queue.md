@@ -411,6 +411,12 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
     the LAN the whole time (ssh sessions at 11:50, 11:58, the safe bench 11:59-12:12, checks 12:15 and 12:18), where the
     unfixed script had taken `wlan0` for its access point every ~26 min. Good sign, not the 60-min pass: on IPCAM1's flash
     `WIFI_RESCUE=0`, so the pass is to be read on a camera with the rescue switched on (SD package default, or Services).
+    **Confirmed by the card's own logs** (read on the tester's Mac after the session): `log/important.log` has no
+    `wifi-rescue` and no `net-guard` line after the fix went in (10:48 UTC) until the card was removed (11:36 UTC), only
+    `Wi-Fi country: FR` at 10:57; before the fix it had an AP-up / net-guard pair every ~26 min. `logs/boot-0005/meta.txt`
+    (3.2.0-rc3, periodic save at 11:32 UTC, uptime 3162 s): about 43 min of the fixed watcher on record without an event.
+    `reboot-history.log`: the boot before ended `UNEXPECTED ... uptime 4844s` at 10:27 UTC = the owner's power cut to
+    swap the card's package (power loss, no crash).
 
 - **2026-11-28 12:15, recette bench (safe checks, the bench of this branch) on the SD trial of IPCAM1 (`[up32-sd-vendor]`
   build, fixed `wifi-rescue.sh` copied by hand), no web password, no MQTT host:** `PASS 18 FAIL 3 SKIP 55`, 711 s.
