@@ -400,3 +400,9 @@ UPDATE_REQUIRE_SIG=0
 NR3D=1
 
 # Camera tampering / occlusion detection: config/tamper.conf (ENABLE, its one switch).
+
+# SD trial mode on a camera already running 3.0.x in flash (UP32-SD-ESSAI): mount the flash "vendor" partition
+# read-only at /vendor when /vendor/isp.conf is absent, so the camera's own sensor tuning is copied to
+# /lib/firmware/anyka/isp.conf before tc100_rtsp starts. Nothing is written to the flash; no-op on stock flash
+# (no "vendor" partition) and in flash mode (already mounted). 0 turns it off.
+SD_FLASH_VENDOR=1

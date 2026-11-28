@@ -254,12 +254,33 @@ TB=/mnt/tc100test
 if [ "$SAFE" = 1 ]; then
   echo "[tc100-v3] SAFE MODE ($(cat /tmp/safemode 2>/dev/null)): the video server is not started" > /dev/console
 elif [ -x $TB/tc100_rtsp ] && [ -c /dev/uio0 ]; then
+  if [ ! -s /vendor/isp.conf ]; then
+    case "${BC_SD_FLASH_VENDOR:-1}" in
+      0|no|off|false) ;;
+      *)
+        mkdir -p /vendor 2>/dev/null
+        for _vd in /sys/class/mtd/mtd[0-9]*; do
+          case $_vd in *ro) continue ;; esac
+          [ "$(cat "$_vd/name" 2>/dev/null)" = vendor ] && {
+            mount -t squashfs -o ro "/dev/mtdblock${_vd##*/mtd}" /vendor 2>/dev/null &&
+              echo "[tc100-v3] mounted flash vendor partition read-only at /vendor (SD trial)" > /dev/console
+            break
+          }
+        done ;;
+    esac
+  fi
   mkdir -p /lib/firmware/anyka
   # sensor tuning of this camera: the vendor partition (flash), else the card (copied there by the install hook)
   ISPN=$(sed -n 's/^ISP_CONF=//p' /tmp/board.conf 2>/dev/null | head -n 1)
+  _isp_src=
   for f in /vendor/isp.conf ${ISPN:+/mnt/config/$ISPN /mnt/sd/config/$ISPN} /mnt/config/isp_f23_mipi_2lane.conf /mnt/sd/config/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi2lane.conf /mnt/config/isp.conf; do
-    [ -f $f ] && { cp $f /lib/firmware/anyka/isp.conf; break; }
+    [ -s "$f" ] && { cp "$f" /lib/firmware/anyka/isp.conf && chmod 644 /lib/firmware/anyka/isp.conf 2>/dev/null; _isp_src=$f; break; }
   done
+  if [ -s /lib/firmware/anyka/isp.conf ]; then
+    echo "[tc100-v3] ISP tuning: $_isp_src ($(wc -c < /lib/firmware/anyka/isp.conf 2>/dev/null) bytes) -> /lib/firmware/anyka/isp.conf" > /dev/console
+  else
+    echo "[tc100-v3] ISP tuning missing (/lib/firmware/anyka/isp.conf): ISP will use defaults" > /dev/console
+  fi
   if [ -f /tmp/flashmode ]; then
     ln -sf $TB/tc100_rtsp /tmp/tc100_rtsp
   else

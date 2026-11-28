@@ -11,11 +11,27 @@ cmp -s $TB/tc100_rtsp /tmp/tc100_rtsp 2>/dev/null || { stop_rtsp; cp $TB/tc100_r
 # balance then has to correct on every frame). Checked before every start, not only at boot; in flash mode the copy
 # the install hook made may only be on the card (/mnt/sd/config).
 if [ ! -s /lib/firmware/anyka/isp.conf ]; then
+  if [ ! -s /vendor/isp.conf ]; then
+    _sd_fv=$(sed -n "s/^SD_FLASH_VENDOR=[\"']\{0,1\}\([^\"' 	#]*\).*\$/\1/p" /mnt/config/boot.conf 2>/dev/null | tail -n 1)
+    case "${_sd_fv:-1}" in
+      0|no|off|false) ;;
+      *)
+        mkdir -p /vendor 2>/dev/null
+        for _vd in /sys/class/mtd/mtd[0-9]*; do
+          case $_vd in *ro) continue ;; esac
+          [ "$(cat "$_vd/name" 2>/dev/null)" = vendor ] && {
+            mount -t squashfs -o ro "/dev/mtdblock${_vd##*/mtd}" /vendor 2>/dev/null &&
+              echo "rtsp-launch: mounted flash vendor partition read-only at /vendor" > /dev/console
+            break
+          }
+        done ;;
+    esac
+  fi
   mkdir -p /lib/firmware/anyka
   ISPN=$(sed -n 's/^ISP_CONF=//p' /tmp/board.conf 2>/dev/null | head -n 1)
   for f in /vendor/isp.conf ${ISPN:+/mnt/config/$ISPN /mnt/sd/config/$ISPN} /mnt/config/isp_f23_mipi_2lane.conf \
       $TB/isp_f23_mipi_2lane.conf $TB/isp_f23_mipi2lane.conf /mnt/config/isp.conf /mnt/sd/config/isp_f23_mipi_2lane.conf; do
-    [ -s "$f" ] && { cp "$f" /lib/firmware/anyka/isp.conf; break; }
+    [ -s "$f" ] && { cp "$f" /lib/firmware/anyka/isp.conf && chmod 644 /lib/firmware/anyka/isp.conf 2>/dev/null; break; }
   done
   [ -s /lib/firmware/anyka/isp.conf ] || echo "rtsp-launch: no sensor tuning file (isp.conf): the colours will be off" > /dev/console
 fi

@@ -10,7 +10,7 @@ web update with a 3.0 package, or the 3.0 SD card.
 |---|---|---|
 | Buildroot | 2024.02.9 (`d37527ba`) | **2025.02.20** (`2f9129e7909bff6d78ae8cfda3d0e73503dfcac6`; no 2025.02.21 exists on 2026-11-27) |
 | Mbed TLS (curl HTTPS, WebRTC DTLS) | 2.28.9 | **3.6.7** (SHA-256 `a7e8bcbe...d11f6`, equal to Buildroot's own `.hash`) |
-| musl in the image (Buildroot toolchain) | 1.2.4 | 1.2.6 (the Bootlin armv5-eabi musl stable toolchain of the new branch) |
+| musl in the image (Buildroot toolchain) | 1.2.4 | 1.2.5 (the Bootlin armv5-eabi musl stable 2024.05-1 toolchain of 2025.02.20; ABI-compatible with 1.2.6 below, verified across all 1,863 imported symbols) |
 | musl for the free programs (`v3/musl/build-musl.sh`) | 1.2.4 | **1.2.6** (SHA-256 `d585fd3b...0512a`, equal to Buildroot's `musl.hash`) |
 | BusyBox | 1.36.1 | 1.37.0 |
 | Dropbear | 2024.85 | 2026.93 |

@@ -324,6 +324,13 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
   cycling, back to 3.0.2-rc8. The card itself (config/, log/) now holds ESSAI-session artefacts (the tester's
   `authorized_keys`, `wifi-applied.txt`) — harmless to reuse, best wiped before a stock-camera ESSAI run.
 - **Pass:** blocked until the ISP tuning / firmware-load gap above is fixed; nothing else here should gate it by itself.
+- **2026-11-28 follow-up (`[up32-sd-vendor]`, `to test`):** SD trial mode (`v3/autorun-linux66.sh` step 4a and
+  `v3/linux66-sd/rtsp-launch.sh`) now mounts the SPI flash `vendor` partition read-only at `/vendor` (controlled by
+  `SD_FLASH_VENDOR=1` in `config/boot.conf.dist`, `0` to disable), copies `/vendor/isp.conf` as a `0644` regular file
+  to `/lib/firmware/anyka/isp.conf` before `tc100_rtsp` starts, and logs the loaded size on `/dev/console`. Linux
+  6.6.163 has `CONFIG_FW_LOADER=y` direct filesystem loading (`fw_get_filesystem_firmware` -> `/lib/firmware/anyka/isp.conf`),
+  so if `-2` still appears on the next SD trial run, capture `ls -la /lib/firmware/anyka/isp.conf /vendor/isp.conf` and
+  `dmesg | grep -E 'ak39-vi|isp|firmware'` before concluding on firmware-loader fallback.
 
 ### UP32-FLASH 3.2.0-rc3 written to the flash of ONE camera (owner's decision of 2026-11-27) — `to test` (after the SD gate)
 - **What:** the web update `tc100-3.2.0-rc3-update.tar` of the CI artifact `tc100-3-release` of the rc3 run on

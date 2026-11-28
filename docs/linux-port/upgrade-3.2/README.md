@@ -6,9 +6,10 @@ Owner's request of 2026-11-27: prepare the major upgrade of
 `pack66/boot66b.sh`, nothing written to the flash). `main` stays the 3.0.2 line until 3.0.2 final; this branch is
 merged into `main` only on the owner's word, after the camera rounds.
 
-The CI runs on this branch (`ci.yml` and `build-kernel-linux66.yml` list `upgrade-3.2`). The artifacts of a run are
-the ones of `main`: `tc100-linux66-cma16-kernel` (`tc100test/c66.img`, `c66rd.gz` for the SD test loop),
-`tc100-3-release` (SD zip and update tar), `tc100-linux66-symbols`, `tc100-base-rootfs`.
+The CI runs on this branch (`ci.yml` and `build-kernel-linux66.yml` list `upgrade-3.2`). The artifacts of a run are:
+`tc100-linux66-cma16-kernel` (`oipc.img`, `tc100test/oipcrd66.gz`),
+`tc100-3-release` (`tc100-<ver>-sd.zip` containing `tc100test/c66.img` / `c66rd.gz` for the SD test loop, and `tc100-<ver>-update.tar`),
+`tc100-linux66-symbols`, `tc100-base-rootfs`.
 
 ## Work streams
 
