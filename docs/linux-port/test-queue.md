@@ -2114,3 +2114,15 @@ Historical dated reports (2026-10-30 onward) were archived to [test-queue-archiv
   in the log, switch row `kbps_set` 1600, `night_kbps` 0. No `md_enc`, counters 0. (First time the `(day)` line is read in a log.)
 - The sample cadence of `nightceil.csv` is irregular (IPCAM2: 36 rows in 7 h, gaps up to ~1 h), not a stop: noted for the implementer.
 - NIGHT-KBPS-DEFAULT: night part passes on IPCAM2; verdict once its return to 1600 by day is read.
+
+### 2026-11-28 09:35 NIGHT-KBPS-DEFAULT verdict (rc8)
+- **PASS.** IPCAM2 (key absent): night 00:30 -> 07:31 (camera clock), 36 night `sample` rows mean 784 kbit/s (681-871, ceiling 900 applied by default), the line
+  `night setting (night): main bit rate 1600 -> 900 kbit/s` copied at 02:00; return to day 07:31: switch row `kbps_set` 1600, `night_kbps` 0; no `md_enc`, counters 0.
+  The `night setting (day)` line was not found in the two log files (rotated again after ~1 h of STAT lines); the CSV carries it. IPCAM1 (key present) passed the same night
+  with the `(day)` line read. The rc8 default is validated on both cameras.
+
+### 2026-11-28 09:10 UP32 SD gate attempt, IPCAM1 (3.2.0-rc3 SD package, `ESSAI.txt` trial mode)
+- Card prepared on the tester's Mac (302 files, md5 identical to the zip, `c66.img` md5 c2607f51...). The card was inserted in IPCAM1 while it was running (card seen as
+  `mmcblk0`, not used, camera still on the flash kernel 6.6.0+, uptime 21 h), then a soft `reboot` over ssh. **Result: no answer to ping or ssh 20+ minutes after the
+  reboot** (the other camera answers). Owner informed: look at the LEDs, remove the card and power cycle to get back to the flash rc8. No flash write was possible
+  (trial mode). Cause not known yet: SD kernel hang, or no Wi-Fi association; a serial console log or the card's `tc100-3/STATUS.txt` would tell.
