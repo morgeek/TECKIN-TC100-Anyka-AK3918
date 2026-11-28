@@ -6,11 +6,15 @@ FRANCAIS
 1. Carte microSD de 32 Go maximum, formatee en FAT32 (une carte plus grande est en exFAT : la reformater
    en FAT32 avec Rufus ou guiformat sous Windows, Utilitaire de disque "MS-DOS (FAT)" sur Mac).
 2. Copier TOUT le contenu de ce zip A LA RACINE de la carte. La carte doit montrer directement :
-       wifitest\   tc100test\   tc100-3\   www\   ...   00-LISEZ-MOI-READ-ME.txt
+       wifitest\   tc100test\   tc100-3\   www\   wifi.txt   00-LISEZ-MOI-READ-ME.txt
    et PAS un dossier "tc100-...-sd\" qui les contiendrait (Windows "Extraire tout" en propose un : l'enlever).
-3. Camera jamais connectee au Wi-Fi ? Ajouter a la racine un fichier wifi.txt de deux lignes :
+3. Pour configurer le Wi-Fi (camera neuve, ou pour changer de reseau) : ouvrir wifi.txt deja present a la racine
+   et renseigner deux lignes :
        SSID=nom de votre reseau
        PASSWORD=son mot de passe
+   (Laisse vide, wifi.txt est ignore. En mode essai sur une camera deja en 3.0.x, la carte reprend le Wi-Fi de la
+   flash en lecture seule si aucun wifi.txt / wpa_supplicant.conf n'est present.)
+   Toujours EJECTER la carte proprement avant de la retirer du PC/Mac.
 4. Carte dans la camera eteinte, puis l'allumer. Ne pas la debrancher pendant 15 minutes, rien d'autre a faire.
    - LED bleue qui clignote (2 min environ) : copie de toute la memoire de la camera sur la carte (le retour
      arriere), puis redemarrage sur le nouveau firmware depuis la carte.
@@ -19,9 +23,10 @@ FRANCAIS
    - Un petit son : la camera fonctionne depuis sa memoire ; la carte ne sert plus qu'aux enregistrements.
    - LED rouge fixe : arret, la raison est dans tc100-3\STATUS.txt sur la carte. La memoire de la camera
      n'a pas ete modifiee (au pire elle fonctionne depuis la carte).
-   Pour seulement ESSAYER sans installer : mettre un fichier vide ESSAI.txt a la racine de la carte avant.
-5. Ouvrir http://tc100/ (ou l'adresse donnee par votre box, aussi ecrite dans tc100-3\ADRESSE.txt),
-   utilisateur root, mot de passe "pass" (ou celui de votre camera 2.x). L'assistant demande un nouveau mot
+   Pour seulement ESSAYER sans installer : renommer ESSAI.txt.example en ESSAI.txt a la racine avant.
+5. Ouvrir http://tc100/ (ou l'adresse IP ecrite dans tc100-3\ADRESSE.txt, ou donnee par votre box),
+   utilisateur root, mot de passe "pass" (ou celui de votre camera 2.x ; en mode essai ESSAI.txt sur une camera
+   deja en 3.0.x, la carte garde le mot de passe par defaut "pass", pas celui de la flash). L'assistant demande un nouveau mot
    de passe.
    Pas de page au bout de 15 minutes ? La camera ouvre son propre Wi-Fi de secours
    (nom : TC100-<MAC>, mot de passe par defaut : tc100rescue). S'y connecter et ouvrir http://10.42.0.1/.
@@ -34,11 +39,14 @@ ENGLISH
 1. microSD card of 32 GB or less, formatted FAT32 (bigger cards come as exFAT: format them FAT32 with Rufus
    or guiformat on Windows, Disk Utility "MS-DOS (FAT)" on macOS).
 2. Copy EVERYTHING in this zip TO THE ROOT of the card. The card must show directly:
-       wifitest\   tc100test\   tc100-3\   www\   ...   00-LISEZ-MOI-READ-ME.txt
+       wifitest\   tc100test\   tc100-3\   www\   wifi.txt   00-LISEZ-MOI-READ-ME.txt
    and NOT a "tc100-...-sd\" folder holding them (Windows "Extract all" proposes one: remove it).
-3. Camera never connected to Wi-Fi? Add a file wifi.txt at the root with two lines:
+3. To set Wi-Fi (new camera, or new network): open wifi.txt already at the root and fill in:
        SSID=your network name
        PASSWORD=its password
+   (Left empty, wifi.txt is ignored. In SD trial mode on an existing 3.0.x camera, flash Wi-Fi is read-only
+   used as a fallback when no wifi.txt / wpa_supplicant.conf is present.)
+   Always EJECT the card safely before unplugging it from your PC/Mac.
 4. Card in the camera while it is off, then power it on. Do not unplug it during 15 minutes; nothing else to do.
    - Blue LED blinking (about 2 min): a copy of the camera's whole memory goes to the card (the way back), then
      it restarts on the new firmware from the card.
@@ -47,9 +55,10 @@ ENGLISH
    - A short chime: the camera runs from its memory; the card is now only for recordings.
    - Red LED on: stopped, the reason is in tc100-3\STATUS.txt on the card. The camera's memory was not
      changed (at worst it runs from the card).
-   To only TRY it without installing: put an empty file ESSAI.txt (or TRIAL.txt) at the root of the card first.
-5. Open http://tc100/ (or the address your router shows, also written to tc100-3\ADRESSE.txt), user root,
-   password "pass" (or the one of your 2.x camera). The wizard asks for a new password.
+   To only TRY it without installing: rename ESSAI.txt.example to ESSAI.txt (or TRIAL.txt) at the root first.
+5. Open http://tc100/ (or the IP written in tc100-3\ADRESSE.txt, or shown by your router), user root,
+   password "pass" (or the one of your 2.x camera; in SD trial ESSAI.txt on an existing 3.0.x camera, the card
+   uses its default password "pass", not the flash password). The wizard asks for a new password.
    No page after 15 minutes? The camera opens its rescue Wi-Fi (name: TC100-<MAC>,
    default password: tc100rescue). Connect to it and open http://10.42.0.1/.
 Keep the card (and tc100-3\backup\flash-stock.bin, never publish it): it is the way back.

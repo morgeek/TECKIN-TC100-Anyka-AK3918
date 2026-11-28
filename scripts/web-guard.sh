@@ -135,6 +135,10 @@ wg_hk_net()
 }
 wg_hk_sd()
 {
+    if [ ! -f /tmp/flashmode ] && [ -s /etc/dropbear/dropbear_ed25519_host_key ] && [ -d /mnt/config ] && [ ! -s /mnt/config/dropbear_ed25519_host_key ]; then
+        cp /etc/dropbear/dropbear_ed25519_host_key /mnt/config/dropbear_ed25519_host_key 2>/dev/null
+        chmod 600 /mnt/config/dropbear_ed25519_host_key 2>/dev/null
+    fi
     _wg_sdsig
     if [ "$_wg_sig" != "$_wgs_prev" ] || [ $((_wgs_i % 10)) -eq 0 ]; then
         hk_bg sdinfo sh "${WG_SDINFO:-/mnt/v3/linux66-sd/sdinfo-sd.sh}" && _wgs_prev=$_wg_sig

@@ -1,0 +1,15 @@
+# TC100 Wi-Fi configuration / Configuration Wi-Fi TC100
+#
+# Fill in your 2.4 GHz Wi-Fi name and password below, save the file, then
+# insert the card into the camera (powered off) and power it on.
+# Once applied, this file is replaced by wifi-applied.txt (password removed).
+# Leave PASSWORD= empty for an open network.
+# Untouched (both values empty), this template is ignored without error.
+#
+# Renseignez ci-dessous le nom de votre reseau Wi-Fi 2,4 GHz et son mot de passe,
+# enregistrez le fichier, puis inserez la carte dans la camera eteinte et allumez-la.
+# Une fois applique, ce fichier est remplace par wifi-applied.txt (sans mot de passe).
+# Laissez PASSWORD= vide pour un reseau ouvert.
+# Laisse vide, ce modele est ignore sans erreur.
+SSID=
+PASSWORD=

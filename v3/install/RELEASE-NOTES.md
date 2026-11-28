@@ -2,6 +2,13 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
+## What is new in 3.2.0-rc4 (test build, branch upgrade-3.2: SD gate then UP32-FLASH)
+Everything of 3.2.0-rc3, plus:
+- **SD trial video (`SD_FLASH_VENDOR=1`):** loads the camera's own `isp.conf` read-only from the flash `vendor` partition on SD trial boots of 3.0.x cameras.
+- **Stable Wi-Fi link monitoring:** fixes `wifi-rescue` gateway detection on Linux 6.6 (`[wifi-rescue-gw]`) so the camera does not open a spurious rescue AP every 25 minutes.
+- **Support bundle on BusyBox 1.37:** uses `tar cf - | gzip -9` instead of `tar -czf`.
+- **Plug-and-play SD package (`UP32-ONBOARD`):** ships a `wifi.txt` template (silently skipped while empty) and `ESSAI.txt.example`, falls back read-only to flash Wi-Fi slots (`SD_FLASH_WIFI=1`) in SD trial mode, persists the SSH host key on the SD card, and updates the SD readmes (`tc100-3/ADRESSE.txt`, `pass` in SD trial mode, safe eject).
+
 ## What is new in 3.2.0-rc3 (test build, branch upgrade-3.2: try it from the SD card only)
 Everything of 3.0.2-rc8, plus the major upgrade:
 - **Up-to-date kernel:** Linux 6.6.163 (three years of stable fixes).

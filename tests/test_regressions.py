@@ -1670,6 +1670,33 @@ class WifiTxt(unittest.TestCase):
             self.assertEqual(self.apply(d, 'SSID=Open net\n'), 0)
             self.assertIn('key_mgmt=NONE', (d / 'wpa.conf').read_text())
 
+    def test_untouched_template_is_ignored_silently(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / 'sd').mkdir()
+            tpl = (ROOT / 'v3/install/wifi.txt.dist').read_text(encoding='utf-8')
+            wtxt = d / 'sd' / 'wifi.txt'
+            wtxt.write_text(tpl, encoding='utf-8')
+            r = subprocess.run(
+                ['sh', str(ROOT / 'scripts/wifi-txt.sh'), 'apply', str(wtxt), str(d / 'wpa.conf')],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(r.returncode, 1)
+            self.assertEqual(r.stdout, '')
+            self.assertEqual(r.stderr, '')
+            self.assertTrue(wtxt.exists())
+            self.assertFalse((d / 'sd' / 'wifi-invalid.txt').exists())
+            self.assertFalse((d / 'wpa.conf').exists())
+            # Password without SSID must still be flagged as invalid
+            self.assertEqual(self.apply(d, 'SSID=\nPASSWORD=secret123\n'), 2)
+            self.assertTrue((d / 'sd' / 'wifi-invalid.txt').exists())
+            # Filling in the template applies cleanly and removes wifi.txt
+            filled = tpl.replace('SSID=\n', 'SSID=MyCam\n').replace('PASSWORD=\n', 'PASSWORD=secret123\n')
+            self.assertEqual(self.apply(d, filled), 0)
+            self.assertIn('ssid="MyCam"', (d / 'wpa.conf').read_text())
+            self.assertFalse(wtxt.exists())
+            self.assertTrue((d / 'sd' / 'wifi-applied.txt').exists())
+
 
 class CameraPanel(unittest.TestCase):
     """camcontrols.cgi panel/set/mode (camera controls under the picture) and

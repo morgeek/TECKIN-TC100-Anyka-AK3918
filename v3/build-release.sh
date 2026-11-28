@@ -42,6 +42,9 @@ cp "$E" "$C/tc100-3/envtool"; cp "$REPO/v3/install/known-stock.txt" "$C/tc100-3/
 cp "$S/stack.sqfs" "$S/stack.sqfs.md5" "$C/tc100-3/"
 cp "$REPO/v3/install/README-SD.txt" "$C/README-3.0.txt"
 cp "$REPO/v3/install/LISEZ-MOI.txt" "$C/00-LISEZ-MOI-READ-ME.txt"	# first in the listing: card layout, LEDs, address
+cp "$REPO/v3/install/wifi.txt.dist" "$C/wifi.txt"
+printf '%s\n' "Rename this file to ESSAI.txt to try 3.2 from the SD card without writing to flash." \
+	"Renommer en ESSAI.txt pour essayer 3.2 depuis la carte SD sans ecrire en flash." > "$C/ESSAI.txt.example"
 chmod 755 "$C/wifitest/wifi_test.sh" "$C/tc100-3/envtool"
 rm -f "$OUT/tc100-$VER-sd.zip"; mkzip "$C" "$OUT/tc100-$VER-sd.zip"
 

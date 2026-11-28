@@ -62,6 +62,78 @@ class Up32SdVendorTest(unittest.TestCase):
                 r = subprocess.run(['sh', '-c', script], capture_output=True, text=True, check=True)
                 self.assertEqual(r.stdout.strip(), expected, f'content={content!r}')
 
+    def test_onboard_packaging_and_config_switches(self):
+        bc = (ROOT / 'config/boot.conf.dist').read_text()
+        self.assertIn('SD_FLASH_WIFI=1', bc)
+        tpl = ROOT / 'v3/install/wifi.txt.dist'
+        self.assertTrue(tpl.is_file())
+        tpl_txt = tpl.read_text()
+        self.assertIn('SSID=\n', tpl_txt)
+        self.assertIn('PASSWORD=\n', tpl_txt)
+        br = (ROOT / 'v3/build-release.sh').read_text()
+        self.assertIn('v3/install/wifi.txt.dist', br)
+        self.assertIn('ESSAI.txt.example', br)
+        bs = (ROOT / 'v3/build-stack.sh').read_text()
+        self.assertIn('v3/install/wifi.txt.dist', bs)
+
+    def test_sd_flash_wifi_fallback_and_ssh_key_persistence(self):
+        s39 = (ROOT / 'v3/S39tc100-linux66').read_text()
+        s50 = (ROOT / 'v3/S50dropbear-linux66').read_text()
+        wg = (ROOT / 'scripts/web-guard.sh').read_text()
+        for rel in ('v3/S39tc100-linux66', 'v3/S50dropbear-linux66', 'scripts/web-guard.sh'):
+            r = subprocess.run(['sh', '-n', str(ROOT / rel)], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, f'{rel}: {r.stderr}')
+        self.assertIn('SD_FLASH_WIFI', s39)
+        self.assertIn('$RS settings /tmp/sd-flash-cfg', s39)
+        self.assertIn('rm -rf /tmp/sd-flash-cfg', s39)
+        self.assertIn('/mnt/sd/config/dropbear_ed25519_host_key', s39)
+        self.assertIn('dropbearkey', s50)
+        self.assertIn('/mnt/config/dropbear_ed25519_host_key', wg)
+
+        # Exercise the S39tc100 WF fallback snippet with a stubbed initrd-rescue
+        a = s39.index('WF=\n')
+        b = s39.index('H=$(grep')
+        snippet = s39[a:b]
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            (d / 'sd' / 'config').mkdir(parents=True)
+            (d / 'sd' / 'tc100test').mkdir(parents=True)
+            (d / 'flashcfg' / 'config').mkdir(parents=True)
+            (d / 'flashcfg' / 'config' / 'wpa_supplicant.conf').write_text('network={\n\tssid="FlashNet"\n}\n')
+            rs = d / 'rs'
+            rs.write_text(f'#!/bin/sh\n[ "$1" = settings ] && mkdir -p "$2" && cp -r {d / "flashcfg/config"} "$2/"\n')
+            rs.chmod(0o755)
+
+            def run_wf(boot_conf='', card_wpa=False):
+                out_wpa = d / 'out_wpa.conf'
+                if out_wpa.exists():
+                    out_wpa.unlink()
+                cwpa = d / 'sd' / 'config' / 'wpa_supplicant.conf'
+                if card_wpa:
+                    cwpa.write_text('network={\n\tssid="CardNet"\n}\n')
+                elif cwpa.exists():
+                    cwpa.unlink()
+                (d / 'sd' / 'config' / 'boot.conf').write_text(boot_conf)
+                code = snippet
+                for old, new in (
+                    ('/mnt/sd', str(d / 'sd')),
+                    ('/etc/wpa_supplicant.conf', str(out_wpa)),
+                    ('/tmp/sd-flash-cfg', str(d / 'tmp_sfc')),
+                ):
+                    code = code.replace(old, new)
+                script = (
+                    f'FM=0; RESCUE=; CFGD={d / "sd" / "config"}; RS={rs}\n'
+                    'log() { :; }\n'
+                    + code
+                )
+                subprocess.run(['sh', '-c', script], check=True)
+                return out_wpa.read_text() if out_wpa.exists() else None
+
+            self.assertIn('ssid="FlashNet"', run_wf(''))
+            self.assertFalse((d / 'tmp_sfc').exists())
+            self.assertIsNone(run_wf('SD_FLASH_WIFI=0\n'))
+            self.assertIn('ssid="CardNet"', run_wf('', card_wpa=True))
+
 
 if __name__ == '__main__':
     unittest.main()

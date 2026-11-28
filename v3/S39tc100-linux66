@@ -10,6 +10,10 @@ if [ "$1" = stop ]; then
   killall -TERM tc100_rtsp 2>/dev/null
   i=0; while pidof tc100_rtsp >/dev/null 2>&1 && [ $i -lt 10 ]; do sleep 0.5; i=$((i + 1)); done
   killall -9 tc100_rtsp 2>/dev/null
+  if [ ! -f /tmp/flashmode ] && [ -s /etc/dropbear/dropbear_ed25519_host_key ] && [ -d /mnt/sd/config ] && [ ! -s /mnt/sd/config/dropbear_ed25519_host_key ]; then
+    cp /etc/dropbear/dropbear_ed25519_host_key /mnt/sd/config/dropbear_ed25519_host_key 2>/dev/null
+    chmod 600 /mnt/sd/config/dropbear_ed25519_host_key 2>/dev/null
+  fi
   sync
   if grep -qE ' /mnt/sd (vfat|exfat) rw' /proc/mounts; then
     if ! mount -o remount,ro /mnt/sd 2>/dev/null; then
@@ -140,11 +144,24 @@ WF=
 for f in $CFGD/wpa_supplicant.conf /mnt/sd/wpa_supplicant.conf /mnt/sd/tc100test/wpa_supplicant.conf; do
   [ -f "$f" ] && { WF=$f; case "$f" in /mnt/sd/*) log "Wi-Fi settings from the SD card" ;; *) log "Wi-Fi settings from the saved settings" ;; esac; break; }
 done
+if [ -z "$WF" ] && [ "$FM" = 0 ] && [ -z "$RESCUE" ] && [ -x "$RS" ]; then
+  _sd_fw=$(sed -n "s/^[[:space:]]*SD_FLASH_WIFI=[\"']\{0,1\}\([^\"'#[:space:]]*\).*/\1/p" "$CFGD/boot.conf" 2>/dev/null | tail -n 1)
+  case "${_sd_fw:-1}" in
+    0|no|off|false) ;;
+    *)
+      if $RS settings /tmp/sd-flash-cfg 2>/dev/null && [ -s /tmp/sd-flash-cfg/config/wpa_supplicant.conf ]; then
+        WF=/tmp/sd-flash-cfg/config/wpa_supplicant.conf
+        log "Wi-Fi settings from the flash slots (read-only, SD fallback)"
+      fi
+      ;;
+  esac
+fi
 if [ -n "$WF" ]; then
   WC=$(sed -n 's/^WIFI_COUNTRY="\{0,1\}\([A-Z][A-Z]\)"\{0,1\}$/\1/p' $CFGD/boot.conf 2>/dev/null | tail -n 1)
   ( umask 077; { [ -n "$WC" ] && echo "country=$WC"; grep -v '^[[:space:]]*country=' "$WF"; } > /etc/wpa_supplicant.conf )
   chmod 600 /etc/wpa_supplicant.conf
 fi
+rm -rf /tmp/sd-flash-cfg
 H=$(grep -v '^#' $CFGD/hostname.conf 2>/dev/null | grep -v '^[[:space:]]*$' | head -n 1 | tr -cd 'A-Za-z0-9-')
 case "$H" in ''|TC100-CAMERA) H=tc100 ;; esac
 hostname "$H"

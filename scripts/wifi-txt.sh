@@ -38,6 +38,8 @@ wt_apply()
             PASSWORD|PSK|PASS|KEY) _psk="$_v"; _have_psk=1 ;;
         esac
     done < "$_src"
+    # Shipped empty template: ignore silently until the user enters an SSID or password.
+    [ -z "$_ssid" ] && [ -z "$_psk" ] && return 1
     _why=""
     _sl=${#_ssid}; _pl=${#_psk}
     if [ "$_sl" -lt 1 ] || [ "$_sl" -gt 32 ]; then _why="SSID must be 1-32 characters"

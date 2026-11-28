@@ -406,3 +406,8 @@ NR3D=1
 # /lib/firmware/anyka/isp.conf before tc100_rtsp starts. Nothing is written to the flash; no-op on stock flash
 # (no "vendor" partition) and in flash mode (already mounted). 0 turns it off.
 SD_FLASH_VENDOR=1
+
+# SD trial mode on a camera already running 3.0.x in flash (UP32-ONBOARD): when the SD card has no
+# wpa_supplicant.conf, read the flash settings slot (cfga/cfgb) read-only at boot for Wi-Fi credentials.
+# Card's wifi.txt / wpa_supplicant.conf always wins. 0 turns it off.
+SD_FLASH_WIFI=1

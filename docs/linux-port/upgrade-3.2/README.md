@@ -30,7 +30,13 @@ Rules for every stream (on top of `AGENTS.md`):
 - No U-Boot or environment write, no flash write from any test; camera tests of this branch run from the SD card in RAM
   until the owner decides otherwise.
 
-## State on 2026-11-27 evening (hand-off)
+## State on 2026-11-28 (hand-off)
+
+**3.2.0-rc4** (`[up32-rc4]`): bundles the fixes for the rc3 SD trial findings (`[up32-sd-vendor]` read-only flash `vendor`
+tuning, `[wifi-rescue-gw]` `_wr_gw()` fix excluding `wlan0` default routes, `supportbundle.cgi` `tar | gzip` for
+BusyBox 1.37) plus `UP32-ONBOARD` (shipped `wifi.txt` template + `ESSAI.txt.example`, read-only flash Wi-Fi fallback
+`SD_FLASH_WIFI=1`, SD SSH host key persistence, updated `README-SD.txt` / `LISEZ-MOI.txt`) and replaces rc3 for the
+SD gate and `UP32-FLASH`.
 
 **3.2.0-rc3** (second audit: root-only `/tmp` with PRIVDROP, restore re-check, CI hardened; `65f0bc9`) replaces
 rc2 for the camera tests: build run 46073514675 and CI run 46073514679 green, no initramfs size warning; artifacts

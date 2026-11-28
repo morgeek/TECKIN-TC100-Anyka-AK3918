@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [3.2.0-rc4] - 2026-11-28 (branch `upgrade-3.2`; rc3 plus SD trial fixes, wifi-rescue-gw, UP32-ONBOARD and supportbundle fix)
+
+### Fixed
+- **SD trial video on existing 3.0.x cameras (`[up32-sd-vendor]`):** `SD_FLASH_VENDOR=1` in `config/boot.conf.dist` mounts the flash `vendor` partition read-only and copies `/vendor/isp.conf` (`0644`) to `/lib/firmware/anyka/isp.conf` before `tc100_rtsp` starts, so SD trial boots on an already-flashed camera load their sensor tuning instead of stalling with black video.
+- **Rescue AP false trigger on Linux 6.6 (`[wifi-rescue-gw]`):** `scripts/wifi-rescue.sh` `_wr_gw()` excludes `wlan0`'s default route so gateway reachability works when STA and rescue AP share `wlan0`, preventing periodic 15-minute rescue AP interruptions.
+- **Support bundle on BusyBox 1.37 (`www/cgi-bin/supportbundle.cgi`):** replaced `tar -czf` with `tar cf - . | gzip -9` (BusyBox 1.37 removed the `-z` applet flag).
+
+### Changed
+- **Plug-and-play SD onboarding (`UP32-ONBOARD`):**
+  - Ship `wifi.txt` template (`v3/install/wifi.txt.dist`, excluded from `stack.sqfs`) and `ESSAI.txt.example` in the SD release zip; `scripts/wifi-txt.sh` silently skips an untouched template when both `SSID` and `PASSWORD` are empty.
+  - `SD_FLASH_WIFI=1` in `config/boot.conf.dist` (`v3/S39tc100-linux66`): in SD trial mode on an existing 3.0.x camera without card Wi-Fi config, read flash settings slots (`cfga`/`cfgb`) read-only at boot for `wpa_supplicant.conf` (`wifi.txt` / card config always wins).
+  - Persist `dropbear_ed25519_host_key` to `config/` (`0600`) in SD mode (`v3/S50dropbear-linux66`, `v3/S39tc100-linux66`, `scripts/web-guard.sh`) so the SSH host fingerprint stays constant across SD reboots.
+  - Updated `v3/install/README-SD.txt` and `v3/install/LISEZ-MOI.txt` (`tc100-3/ADRESSE.txt`, SD default `pass` vs flash password in trial mode, `ESSAI.txt.example`, safe card eject).
+
 ## [3.2.0-rc3] - 2026-11-27 (branch `upgrade-3.2`; rc2 plus the fixes of the second audit)
 
 ### Security

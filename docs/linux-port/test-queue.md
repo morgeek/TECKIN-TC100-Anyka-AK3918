@@ -407,48 +407,39 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
     (`link_good_s>=3600`), the real Wi-Fi cut (rescue AP after 10 min, by the owner), the CI build of `f49aaed` instead of
     the hand copy, then the same on the flash (UP32-FLASH).
 
-### UP32-ONBOARD The SD package must be plug and play for a new user (owner's request of 2026-11-28) — `to do`
+### UP32-ONBOARD The SD package must be plug and play for a new user (owner's request of 2026-11-28) — `to test (rc4)`
 - **Why:** on the SD trial of 28/11 the owner, who knows the camera, still needed several hand steps a new user would not
   find. The SD path must work out of the card, then the same on the flash (UP32-SD-ESSAI rule: SD and flash).
-- **Found on IPCAM1 (SD trial, camera already on 3.0.2-rc8 in its flash):**
-  1. **No `wifi.txt` in `tc100-3.x-sd.zip`.** The README tells the user to create it; nobody did, and the camera booted
-     with no network (no clue on screen, the card only). A camera already on 3.0 in its flash does not reuse its flash
-     Wi-Fi on the SD trial (settings come from the card's `config/`, not from `cfga`/`cfgb`), so the file is mandatory
-     there, and the README line "a camera already on Wi-Fi (TECKIN app, or 2.x) keeps its network" is wrong for it.
-     **Owner: ship a `wifi.txt` in the build.** Constraints read in `scripts/wifi-txt.sh`: an empty `SSID=` makes it
-     "invalid" and renamed `wifi-invalid.txt` with a warning; a template must instead be skipped silently while untouched
-     (and keep comment lines if the template carries help text). Option on top: on the SD trial, read the Wi-Fi from the
-     flash settings slot read-only (like `[up32-sd-vendor]` does for `isp.conf`), the card's `wifi.txt` winning.
-  2. **Password on the SD trial = the card's default**, `config/user.pwd` identical to `user.pwd.dist` (md5 checked), so
-     the web login is `root` / `pass` (the owner's expectation for the SD, kept). Not written anywhere for a camera
-     already on 3.0: README line 40 only covers 2.x and stock. Say it in both readmes, and that the NVR (Frigate) with the
-     flash password is refused on the SD trial (`401`, `closed after 2 s, 0 frames`): expected, not a fault.
-  3. **ssh host key changes at every SD boot** (two different ED25519 fingerprints on two boots; `/etc/dropbear` in RAM,
-     no host key under the card's `config/`): every client warns "REMOTE HOST IDENTIFICATION HAS CHANGED". Keep it in
-     the card's `config/` as the flash keeps it in `cfga`/`cfgb`.
-  4. **The web page "not reachable"** for the owner: `httpfront` answers (`302` -> `/index.html`, `401` Basic auth = the
-     login prompt) whenever the camera is on the LAN; the misses were the 15-min rescue access point windows of the
-     `wifi-rescue` bug (fixed by `[wifi-rescue-gw]`). A new user would have seen a camera that vanishes every 25 min.
-  5. **Video black until `[up32-sd-vendor]`** (tuning file of the flash not read on the SD): fixed, PASS 28/11.
-  6. Smaller: `tc100-3/ADRESSE.txt` is written (good: point to it in the quick start, the user has no other way to find
-     the address); `ESSAI.txt` must be made by hand (fine, documented; a shipped `ESSAI.txt.example` would help); macOS
-     leaves `._*` files and a card pulled without ejecting gives `FAT-fs ... not properly unmounted` (say "eject the card").
+- **Done in `3.2.0-rc4` (`[up32-rc4]`):**
+  1. Shipped `wifi.txt` template (`v3/install/wifi.txt.dist`, excluded from `stack.sqfs` in `v3/build-stack.sh`) and
+     `ESSAI.txt.example` at the root of the SD zip (`v3/build-release.sh`); `scripts/wifi-txt.sh` silently returns `1`
+     when untouched (empty `SSID` and `PASSWORD`) without creating `wifi-invalid.txt`.
+  2. `SD_FLASH_WIFI=1` in `config/boot.conf.dist` + `v3/S39tc100-linux66`: in SD trial mode on an existing 3.0.x camera
+     without card Wi-Fi config, extracts `cfga`/`cfgb` read-only at boot via `initrd-rescue settings` for
+     `wpa_supplicant.conf` (`wifi.txt` / card `wpa_supplicant.conf` always wins; `SD_FLASH_WIFI=0` turns it off).
+  3. SD SSH host key persistence (`v3/S50dropbear-linux66`, `v3/S39tc100-linux66 stop`, `scripts/web-guard.sh` `wg_hk_sd`):
+     restores `$CFG/dropbear_ed25519_host_key` at boot and persists the generated key to `config/` (`0600`) in SD mode.
+  4. Updated `v3/install/README-SD.txt` and `v3/install/LISEZ-MOI.txt` (`tc100-3/ADRESSE.txt`, SD default `pass` vs
+     flash password in trial mode, `ESSAI.txt.example`, safe card eject).
+  5. Earlier in rc4: `[up32-sd-vendor]` (flash `vendor` read-only mount for `isp.conf`) and `[wifi-rescue-gw]` (`_wr_gw`
+     fix preventing 15-min rescue AP dropouts).
 - **Check (SD, then flash):** a blank card, the zip copied as is plus only the user's Wi-Fi name and password typed in
-  the shipped `wifi.txt`: the camera joins the LAN, `ADRESSE.txt` gives its address, the web page asks for `root` /
-  `pass` (SD) and shows the video, no rescue access point while the Wi-Fi works, the same ssh host key after a reboot.
+  the shipped `wifi.txt` (or blank `wifi.txt` on a camera already in 3.0.x flash via `SD_FLASH_WIFI=1`): the camera joins
+  the LAN, `tc100-3/ADRESSE.txt` gives its address, the web page asks for `root` / `pass` (SD) and shows the video, no
+  rescue access point while the Wi-Fi works, the same ssh host key after a reboot.
 - **Pass:** the check above without any other hand step.
 
-### UP32-FLASH 3.2.0-rc3 written to the flash of ONE camera (owner's decision of 2026-11-27) — `to test` (after the SD gate)
-- **What:** the web update `tc100-3.2.0-rc3-update.tar` of the CI artifact `tc100-3-release` of the rc3 run on
+### UP32-FLASH 3.2.0-rc4 written to the flash of ONE camera (owner's decision of 2026-11-27) — `to test` (after the rc4 SD gate)
+- **What:** the web update `tc100-3.2.0-rc4-update.tar` of the CI artifact `tc100-3-release` of the rc4 run on
   `upgrade-3.2` (same build as the SD test files). It writes `stack`, the kernel and the initramfs through `flashw`
   (read back, md5); U-Boot, `boot`, `mac` and the U-Boot environment are not touched.
 - **Gate before flashing (a flashed kernel that does not boot never reaches the rescue initramfs, AGENTS.md):** the
-  same rc3 booted from the SD card in RAM on that camera first, at least: UP32-KERNEL boot checks (`/proc/cmdline`
+  same rc4 booted from the SD card in RAM on that camera first, at least: UP32-KERNEL boot checks (`/proc/cmdline`
   complete, `uname -r` 6.6.163, video 1080p and 720p, audio, Wi-Fi signal close to the flash kernel's, clean `dmesg`)
-  and one hour of streaming, and UP32-BASE steps Wi-Fi join, ssh and web UI. Owner near the camera; the SD card in it
+  and one hour of streaming, and UP32-BASE steps Wi-Fi join, ssh and web UI + `UP32-ONBOARD`. Owner near the camera; the SD card in it
   (the update saves each partition to the card first, `flashw -b`; no card = only with "install without a backup").
 - **Install:** web UI, Settings -> Update & backup, upload the tar. The 3.0.2-rc8 updater of the camera installs it
-  (it ignores the new `SHA256SUMS`). Expected: version 3.2.0-rc3 after the reboot, settings kept.
+  (it ignores the new `SHA256SUMS`). Expected: version 3.2.0-rc4 after the reboot, settings kept.
 - **Switch:** none: the way back is a write of the previous package (below). Each partition is written only after the
   owner confirms it at the time of the update (AGENTS.md: explicit agreement per partition write).
 - **Ways back:** (1) web update with `tc100-3.0.2-rc8-update.tar` (the 3.2 updater accepts an unsigned package at
@@ -481,9 +472,9 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
     only as `secret-modes.sh` says), the camera on the same Wi-Fi, the same web password, Frigate (RTSP and its
     credentials), MQTT, ONVIF, the night ceiling 900, the same ssh host key and authorized keys, the same WebRTC
     certificate, and `/vendor/isp.conf` the same 69548 bytes.
-  - **Found on the way, `to fix`:** `www/cgi-bin/supportbundle.cgi` line 94 runs `tar -czf`, which BusyBox 1.37 of 3.2
-    refuses: the web UI's support bundle will be empty or fail on 3.2 (use `tar cf - ... | gzip`, like `cfg-persist`).
-    Worth a grep of every `tar` call for `-z`/`z` options before the final (`git grep -n "tar .*z"`).
+  - **Found on the way, fixed in `3.2.0-rc4` (`[up32-rc4]`):** `www/cgi-bin/supportbundle.cgi` ran `tar -czf`, which
+    BusyBox 1.37 refuses (`tar cf - . | gzip -9` used instead; audited runtime scripts — no other `tar` `-z` calls
+    outside host `v3/musl/build-musl.sh`). Still confirm the web UI's support bundle download on `3.2.0-rc4`.
 - **Also (owner, 2026-11-28):** the fixes qualified on the SD trial (UP32-SD-ESSAI: `[up32-sd-vendor]`, the
   `wifi-rescue` gateway fix) are re-checked here on the flash, with the same commands as on the SD; a fix that works on
   the SD only does not pass.

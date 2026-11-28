@@ -44,6 +44,13 @@ start() {
 	if [ -s "$CFG/dropbear_ed25519_host_key" ]; then
 		cp "$CFG/dropbear_ed25519_host_key" /etc/dropbear/dropbear_ed25519_host_key 2>/dev/null
 		chmod 600 /etc/dropbear/dropbear_ed25519_host_key 2>/dev/null
+	elif [ ! -s /etc/dropbear/dropbear_ed25519_host_key ] && [ -x "${DB%/*}/dropbearkey" ]; then
+		"${DB%/*}/dropbearkey" -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key >/dev/null 2>&1
+		chmod 600 /etc/dropbear/dropbear_ed25519_host_key 2>/dev/null
+		if [ -s /etc/dropbear/dropbear_ed25519_host_key ] && [ -d "$CFG" ]; then
+			cp /etc/dropbear/dropbear_ed25519_host_key "$CFG/dropbear_ed25519_host_key" 2>/dev/null
+			chmod 600 "$CFG/dropbear_ed25519_host_key" 2>/dev/null
+		fi
 	fi
 	if [ -s "$CFG/authorized_keys" ]; then
 		mkdir -p /root/.ssh 2>/dev/null

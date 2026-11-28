@@ -91,7 +91,7 @@ for _sb_cfg in "$SB_CONFIG_DIR"/*.conf; do
 done
 
 ARCHIVE_NAME="tc100-support-$(date +%Y%m%d-%H%M%S).tar.gz"
-tar -czf "$ARCHIVE_PATH" -C "$W" . 2>/dev/null
+( cd "$W" && tar cf - . 2>/dev/null ) | gzip -9 > "$ARCHIVE_PATH"
 
 printf 'Content-Type: application/gzip\r\n'
 printf 'Cache-Control: no-store\r\n'

@@ -211,6 +211,13 @@ class SupportBundleTests(unittest.TestCase):
         # Temp workdir and tarball must be cleaned up on exit
         self.assertEqual(list(self.tdir.glob('support.*')), [])
 
+    def test_uses_tar_pipe_gzip_for_busybox_137(self):
+        script = (ROOT / 'www/cgi-bin/supportbundle.cgi').read_text(encoding='utf-8')
+        self.assertNotIn('tar -czf', script)
+        self.assertNotIn('tar -z', script)
+        self.assertIn('tar cf - .', script)
+        self.assertIn('gzip -9', script)
+
 
 if __name__ == '__main__':
     unittest.main()
