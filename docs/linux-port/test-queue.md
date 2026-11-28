@@ -512,6 +512,27 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
   `wifi-rescue` gateway fix) are re-checked here on the flash, with the same commands as on the SD; a fix that works on
   the SD only does not pass.
 
+- **2026-11-28 12:40, 3.2.0-rc4 written to the flash of IPCAM1 by the owner through the browser** (from 3.0.2-rc8 on the
+  flash, no SD card in the camera: "install without a backup"; update tar md5 a6708af528502caaa975b019e34eb8e5, build of
+  2d4e58d). Up again on its own in under 2 minutes, `/mnt/VERSION` 3.2.0-rc4, `uname -r` 6.6.163+, **same ssh host key**
+  (the tester's known_hosts of the rc8 flash accepted it).
+  - **Settings carry-over: PASS.** The 89 files of `/mnt/config` saved (md5 + mode) just before the update: 85 identical,
+    `boot.conf.dist` new (expected, it ships with the package), `log/boot-milestones.log` and `log/reboot-history.log`
+    grown (expected); none missing. `/vendor/isp.conf` md5 identical. Modes changed only as `secret-modes.sh` says:
+    `user.pwd` and `rtspserver.conf` 600 -> 640 group 1001 (`tc100svc`), `mqtt.conf`/`wpa_supplicant.conf` still 600
+    root. `rtsp.env` still has `RTSP_NIGHT_KBPS=900`.
+  - **Running, 2 min after boot:** `tc100_rtsp` counters 0, the LAN NVR connected again with the flash credentials
+    (`clients 2`), main and sub stream encoded (`cap/enc/sub_enc` 108-111 per 5 s); no `ISP tuning not loaded` in
+    `dmesg`, `/lib/firmware/anyka/isp.conf` 69548 bytes. PRIVDROP on (key absent from the 3.0 `boot.conf` = on):
+    `tc100-onvifd` uid 1001, `tc100-mdnsd` and `tc100-logfwd` uid 1002; `httpfront`, `tc100-mqttd`, `tc100_rtsp`,
+    `dropbear` root as designed; `/tmp` 0755. Wi-Fi -59 dBm, default route on `wlan0`. `dmesg` clean.
+  - **Answer to the `[wifi-rescue-gw]` open question:** this camera's flash `boot.conf` has `WIFI_RESCUE=0` (and no
+    `autostart` entry for it), while the SD package's default is on: that is why 3.0.2-rc8 on the flash never showed the
+    false rescue AP. The fix is therefore not exercised on this flash; to check it on the flash, switch the rescue on
+    (Services) and read `/tmp/wifi-rescue/state` for an hour.
+  - Still to do: the owner's web login, Frigate picture, MQTT/Home Assistant, ONVIF, WebRTC live view, a day/night
+    switch, 48 h on the flash (pass of UP32-FLASH), then IPCAM2.
+
 ### UP32-SBOM SBOM and CVE report in every build (`[up-sbom]`) — `CI only` (nothing on the camera)
 - **What / notes:** [upgrade-3.2/sbom.md](upgrade-3.2/sbom.md). `sbom.cdx.json`, `sbom.md`, `cve-report.md/.json` in the
   `tc100-3-release` artifact; the CVE step is non-blocking, its NVD data cached per ISO week.
