@@ -379,6 +379,18 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
     (`/proc/net/route`). Open question for the implementer: the script is the same on `main`, so why 3.0.2-rc8 on the
     flash does not show it (is `wifi-rescue` started on a flash boot, or does `route -n` print a different last column
     there?) — worth a `route -n` and `/tmp/wifi-rescue/state` read on a rc8 camera before fixing.
+- **Owner's requirement (2026-11-28): every fix found on the SD trial must work in BOTH boot modes, SD and flash.**
+  The SD trial only qualifies the build; the target is the flash. So each fix of this entry is done once for both
+  paths and checked on both:
+  - `[up32-sd-vendor]`: on a flash boot `/vendor` is already mounted by the flash user space, so the new SD step must
+    be a no-op there (no second mount, no error) and `/lib/firmware/anyka/isp.conf` must still come from `/vendor`.
+    Check after UP32-FLASH: `dmesg` without `ISP tuning not loaded`, `STAT cap` at the frame rate, the console line
+    `ISP tuning: /vendor/isp.conf (69548 bytes)`.
+  - `wifi-rescue` gateway filter (and `net-guard`): one fix for both modes, not an SD-only branch. Check on the SD
+    trial AND after UP32-FLASH: `/tmp/wifi-rescue/state` shows `link_good_s` counting up, no `access point ... up (no
+    wifi for 10 min)` and no `gateway unreachable` line in `important.log` over at least one hour on a working Wi-Fi;
+    and the rescue access point still comes up when the Wi-Fi is really gone (the feature must not be lost).
+  - Anything else changed for the SD path (autorun, rtsp-launch, card config handling) gets the same pair of checks.
 
 ### UP32-FLASH 3.2.0-rc3 written to the flash of ONE camera (owner's decision of 2026-11-27) — `to test` (after the SD gate)
 - **What:** the web update `tc100-3.2.0-rc3-update.tar` of the CI artifact `tc100-3-release` of the rc3 run on
@@ -398,6 +410,9 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
   up: the 3.0.2-rc8 SD card with `tc100test/c66.img` (the SD kernel boots before the flash one), then Settings ->
   Install to flash, or the partition backups of the card; (3) last resort, the full flash backup of the card.
 - **Pass:** the camera runs 48 h on the flash with the UP32 checks green, then the second camera.
+- **Also (owner, 2026-11-28):** the fixes qualified on the SD trial (UP32-SD-ESSAI: `[up32-sd-vendor]`, the
+  `wifi-rescue` gateway fix) are re-checked here on the flash, with the same commands as on the SD; a fix that works on
+  the SD only does not pass.
 
 ### UP32-SBOM SBOM and CVE report in every build (`[up-sbom]`) — `CI only` (nothing on the camera)
 - **What / notes:** [upgrade-3.2/sbom.md](upgrade-3.2/sbom.md). `sbom.cdx.json`, `sbom.md`, `cve-report.md/.json` in the
