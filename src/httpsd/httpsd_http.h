@@ -263,7 +263,7 @@ static inline int httpsd_rewrite_req(const char *buf, size_t hdr_len, const char
 		for (lend = pos; lend + 1 < hdr_len; lend++) {
 			if (buf[lend] == '\r' && buf[lend + 1] == '\n') break;
 		}
-		if (lend == pos) break;
+		if (lend == pos || lend + 2 > hdr_len) break;
 		for (i = pos; i < lend; i++) if (buf[i] == ':') { colon = i; break; }
 		if (colon > pos &&
 		    !httpsd_ieq_n(buf + pos, colon - pos, "Connection") &&
@@ -374,7 +374,7 @@ static inline int httpsd_rewrite_resp(const char *buf, size_t hdr_len, int req_i
 		for (lend = pos; lend + 1 < hdr_len; lend++) {
 			if (buf[lend] == '\r' && buf[lend + 1] == '\n') break;
 		}
-		if (lend == pos) break;
+		if (lend == pos || lend + 2 > hdr_len) break;
 		for (i = pos; i < lend; i++) if (buf[i] == ':') { colon = i; break; }
 		if (colon > pos &&
 		    !httpsd_ieq_n(buf + pos, colon - pos, "Connection") &&
@@ -420,7 +420,8 @@ static inline void httpsd_nets_parse(struct httpsd_nets *nets, const char *s)
 		}
 		end = sl ? sl : s;
 		if (httpsd_parse_u32_ipv4(tok, (size_t)(end - tok), &a) == 0) {
-			int bits = 32, ok = 1;
+			unsigned bits = 32u;
+			int ok = 1;
 
 			if (sl) {
 				const char *p = sl + 1;
@@ -428,12 +429,12 @@ static inline void httpsd_nets_parse(struct httpsd_nets *nets, const char *s)
 				bits = 0;
 				for (; p < s; p++) {
 					if (*p < '0' || *p > '9') { ok = 0; break; }
-					bits = bits * 10 + (*p - '0');
+					bits = bits * 10u + (unsigned)(*p - '0');
+					if (bits > 32u) { ok = 0; break; }
 				}
-				if (bits < 0 || bits > 32) ok = 0;
 			}
 			if (ok) {
-				mask = (bits == 0) ? 0u : (0xffffffffu << (32 - bits));
+				mask = (bits == 0u) ? 0u : (0xffffffffu << (32u - bits));
 				nets->a[nets->n].net = a & mask;
 				nets->a[nets->n].mask = mask;
 				nets->n++;
@@ -569,6 +570,7 @@ static inline int httpsd_build_san_der(const char *host, const char *ip_str, uin
 		inner[ilen++] = (uint8_t)(ip4 >> 8);
 		inner[ilen++] = (uint8_t)(ip4);
 	}
+	if (ilen > 255) return -1;
 	hdr_sz = (ilen < 128) ? 2 : 3;
 	if (hdr_sz + ilen > out_cap) return -1;
 	out[0] = 0x30;

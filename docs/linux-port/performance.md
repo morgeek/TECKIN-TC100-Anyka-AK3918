@@ -4,8 +4,7 @@ Every optimisation is measured on a camera before it is kept, and stays behind a
 
 ## Tools
 
-- `scripts/cpu-profile.sh [seconds] [threads]`: CPU per process or thread, from `/proc` (pure shell). On the camera:
-  `http://<camera>/cgi-bin/cpuprofile.cgi?sec=10&threads=1`.
+- `scripts/cpu-profile.sh [seconds] [threads]`: CPU per process or thread, from `/proc` (pure shell). Run over SSH on the camera (`sh /mnt/scripts/cpu-profile.sh 10 threads`).
 - The `STAT` line of `tc100_rtsp`, every 5 s in `/tmp/logs/tc100_rtsp.log`: frames captured and encoded, bytes,
   `enc_ms` (hardware encoder calls), `snd_ms` (network), `pp_ms` (main picture: copy, colour tables, overlay, black and
   white), `sub_ms` (640x360 sub picture). Milliseconds spent in each step over the last 5 s: 5000 is one full core.

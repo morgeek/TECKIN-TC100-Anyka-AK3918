@@ -193,7 +193,7 @@ static int bio_recv(void *ctx, unsigned char *buf, size_t len)
 
 static int write_atomic(const char *path, const char *data, mode_t mode)
 {
-	char tmp[160];
+	char tmp[200];
 	int fd;
 	size_t n = strlen(data);
 
@@ -873,7 +873,7 @@ int main(int argc, char **argv)
 		LOG("cannot drop root (-D %s): stopping", drop);
 		return 1;
 	}
-	if (G.nice_val != 0) (void)nice(G.nice_val);
+	if (G.nice_val != 0 && nice(G.nice_val) < 0) {}
 	LOG("ready on :%u -> 127.0.0.1:%u (max=%d, lockout=%d, nice=%d)", G.port, G.be_port, G.max_conns, G.lockout_on, G.nice_val);
 
 	while (!G.quit) {

@@ -15,6 +15,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Persistent self-signed ECDSA P-256 certificate (`/mnt/config/https-cert.pem` `0644`, `/mnt/config/https-key.pem` `0600`) with SAN (`tc100`, hostname, `.local`, LAN IPv4), downloadable from **Diagnostics → HTTPS Cert (.pem)** (`www/cgi-bin/httpscert.cgi`).
   - Privilege drop (`privdrop_opt net` -> `tc100net` 1002:1002), `NET_LAN_ONLY` / `TC100_NET_ALLOW` ACL, optional `WEB_LOCKOUT`, and `HTTPS=1` / `HTTPS_PORT=443` toggles in `config/boot.conf.dist` + `controlscripts/https-server` + `scripts/service-switch.sh`.
 - **Tests, fuzzing, and CI:** `src/httpsd/httpsd_test.c` C unit tests, `tests/test_httpsd.py`, `tests/httpsd_interop.py` (live TLS/Keep-Alive/resumption in `whep-interop`), and `tests/fuzz/fuzz_httpsd.c` + corpus seeds in CI.
+- **Web UI 3.2 visibility, SD-trial badge & cleanup:**
+  - Clickable **SD trial · Install** navbar pill when running in SD trial mode, jumping directly to *Update & backup → Install to flash* ([index.html](www/index.html)).
+  - Read-only **Security & 3.2 runtime status** card in *Diagnostics* (`PRIVDROP`, `UPDATE_REQUIRE_SIG`, `.pub` key count, HTTPS proxy status, boot mode) and interactive **Security & update policy** card + **Support Bundle** / **HTTPS Cert (.pem)** quick links in *Settings → Update & backup* backed by `security_status` and CSRF-protected `set_update_sig_policy` in `action.cgi`.
+  - Removed unused `www/cgi-bin/cpuprofile.cgi` (`scripts/cpu-profile.sh` remains available over SSH).
 
 ## [3.2.0] — Major upgrade summary (jump from 3.0.2, in testing on `upgrade-3.2`)
 

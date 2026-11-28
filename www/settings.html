@@ -844,7 +844,28 @@
                     <div class="buttons">
                         <button class="button is-info is-small" type="button" id="btnFwuUpload" disabled>Upload &amp; check</button>
                         <button class="button is-warning is-small" type="button" id="btnFwuInstall" style="display:none">Install &amp; reboot</button>
+                        <a class="button is-small is-light" href="cgi-bin/supportbundle.cgi" download>Support Bundle</a>
+                        <a class="button is-small is-light" href="cgi-bin/httpscert.cgi" download>HTTPS Cert (.pem)</a>
                     </div>
+                </div>
+            </div>
+            <div class='card status_card mb-4' id="secPolicyCard">
+                <header class='card-header'><p class='card-header-title' id="sec32_card_title">Security &amp; update policy</p></header>
+                <div class='card-content'>
+                    <p class="is-size-7 mb-2" id="sec32Summary">Loading security status…</p>
+                    <form id="secSigForm" action="cgi-bin/action.cgi?cmd=set_update_sig_policy" method="post" aria-labelledby="sec32_card_title">
+                        <div class="field">
+                            <label class="checkbox is-size-7" for="sec_require_sig">
+                                <input type="checkbox" switch id="sec_require_sig" name="require_sig" value="1" aria-describedby="sec_require_sig_help">
+                                <span>Require Ed25519 signature for firmware updates</span>
+                            </label>
+                            <p id="sec_require_sig_help" class="help">Controls UPDATE_REQUIRE_SIG in boot.conf. Unsigned packages are refused only when at least one .pub key is installed.</p>
+                        </div>
+                        <div class="buttons">
+                            <button type="submit" class="button is-small is-primary" id="btnSaveSigPolicy">Save policy</button>
+                        </div>
+                        <p id="secPolicyMsg" class="help" role="status" aria-live="polite"></p>
+                    </form>
                 </div>
             </div>
             <div class='card status_card mb-4' id="flashInstallCard" style="display:none">
@@ -994,7 +1015,7 @@
             });
             if (targetId === 'tab-integrations') { initHAStatus(); }
             if (targetId === 'tab-network') { loadWifiSsid(); loadSlot('network_settings_slot'); }
-            if (targetId === 'tab-backup') { loadSlot('backup_slot'); }
+            if (targetId === 'tab-backup') { loadSlot('backup_slot'); if (window.tcSecLoad) window.tcSecLoad(); }
             if (targetId === 'tab-memory' && window.tcMemLoad) { window.tcMemLoad(); }
             if (targetId === 'tab-daynight' && EliteUI.initDayNight) { EliteUI.initDayNight(); }
             if ((targetId === 'tab-detect' || targetId === 'tab-record') && EliteUI.initServiceToggles) {
@@ -1593,6 +1614,58 @@
                     'Install the uploaded firmware and reboot the camera?', 'Installing.');
             });
             refresh();
+        })();
+
+        (function initSecurityPolicy() {
+            var card = document.getElementById('secPolicyCard');
+            var sum = document.getElementById('sec32Summary');
+            var form = document.getElementById('secSigForm');
+            var chk = document.getElementById('sec_require_sig');
+            var btn = document.getElementById('btnSaveSigPolicy');
+            var msg = document.getElementById('secPolicyMsg');
+            if (!card || !form || !chk || !btn) return;
+            var T = window.tc100T || function (s) { return s; };
+            var cf = window.EliteUI && window.EliteUI.csrfFetch ? window.EliteUI.csrfFetch : fetch;
+            function render(d) {
+                if (!d || !d.ok) { if (sum) sum.textContent = T('Security status unavailable.'); return; }
+                chk.checked = d.update_require_sig === 1;
+                if (sum) {
+                    sum.textContent = T('Privilege drop:') + ' ' + (d.privdrop ? T('On') : T('Off')) + ' · ' +
+                        T('Signing keys:') + ' ' + (d.sig_keys || 0) + (d.sig_key_ids ? ' (' + d.sig_key_ids + ')' : '') + ' · ' +
+                        T('HTTPS proxy:') + ' ' + (d.https_enabled ? (':' + (d.https_port || 443)) : T('Off'));
+                }
+            }
+            function load() {
+                fetch('cgi-bin/action.cgi?cmd=security_status&format=json', { cache: 'no-store' })
+                    .then(function (r) { return r.json(); })
+                    .then(render)
+                    .catch(function () { if (sum) sum.textContent = T('Security status unavailable.'); });
+            }
+            window.tcSecLoad = load;
+            form.addEventListener('submit', function (e) {
+                e.preventDefault();
+                btn.disabled = true;
+                btn.classList.add('is-loading');
+                if (msg) msg.textContent = T('Saving…');
+                cf('cgi-bin/action.cgi?cmd=set_update_sig_policy&format=json', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'require_sig=' + (chk.checked ? '1' : '0')
+                })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        if (!d || !d.ok) throw new Error((d && (d.message || d.error)) || 'refused');
+                        if (msg) {
+                            msg.textContent = d.update_require_sig
+                                ? (d.effective ? T('Saved: signed updates are now required.') : T('Saved (will enforce once a .pub signing key is installed).'))
+                                : T('Saved: unsigned updates allowed (with warning).');
+                        }
+                        load();
+                    })
+                    .catch(function (err) { if (msg) msg.textContent = T('Error:') + ' ' + err.message; })
+                    .then(function () { btn.disabled = false; btn.classList.remove('is-loading'); });
+            });
+            load();
         })();
 
         (function initWifiRescueInfo() {

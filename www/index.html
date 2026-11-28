@@ -22,8 +22,8 @@
     <!-- The look of the interface: Pico CSS (item 50; the Classic look, Bulma, was removed in rc32, owner 2026-11-06).
          css/ui.pico.min.css = css/pico-2.0.6.min.css + css/pico-shim.css (the Bulma classes of the pages drawn with
          Pico) + css/ui.css, built by src/webui/build-css.sh, which stamps the ?v=. Edit the sources, not the bundle. -->
-    <link href="css/ui.pico.min.css?v=adcd49fd" rel="stylesheet">
-    <script src="scripts/i18n.js?v=b903d13e"></script>
+    <link href="css/ui.pico.min.css?v=8e3880d0" rel="stylesheet">
+    <script src="scripts/i18n.js?v=31512ba0"></script>
     <script src="scripts/tzlist.js?v=dd72b6b1"></script>
     <link href="icomoon/style.css" rel="stylesheet">
     <!-- Prefer lightweight bundles; global jQuery removed to lower client CPU and memory -->
@@ -172,6 +172,7 @@
 
                 <div class="navbar-end">
                     <span class="navbar-item storage-badge" id="storage_badge" title="The firmware runs from the camera's flash memory: no SD card needed" hidden>Flash</span>
+                    <a id="sd_trial_badge" class="navbar-item storage-badge sd-trial-badge onpage" href="#tab-backup" data-target="settings.html" data-tab="tab-backup" title="Running from the SD card (trial mode). Open Update &amp; backup to install to flash." hidden>SD trial · Install</a>
                     <span class="navbar-item storage-badge cfgsave-badge" id="cfgsave_badge" title="The settings could not be saved to the flash." hidden>Settings not saved</span>
                     <a class="navbar-item lang-toggle" id="lang_toggle" href="#" translate="no">FR</a>
                     <a class="navbar-item" id="theme_toggle" href="#" role="button" title="Toggle Light/Dark Mode" aria-label="Toggle Light/Dark Mode">
@@ -315,7 +316,7 @@
     </section>
 
     <!-- Prefer lightweight bundled scripts to reduce CPU and allow caching -->
-    <script src="scripts/index.bundle.min.js?v=b6b4ca66" type="text/javascript" defer></script>
+    <script src="scripts/index.bundle.min.js?v=7af21e58" type="text/javascript" defer></script>
     <script>
         (function () {
             var loading = false;

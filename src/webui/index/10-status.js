@@ -260,6 +260,8 @@
     }
     var sb = byId("storage_badge");
     if (sb) sb.hidden = st.storage !== "flash";
+    var sdt = byId("sd_trial_badge");
+    if (sdt) sdt.hidden = st.storage === "flash" || !st.storage;
     // owner 2026-11-06: the recording entries only when a card is mounted (from the SD card, the card is /mnt). Settings ->
     // Recording also shows while a card is in but not mounted: its page is where it is mounted or formatted.
     var sdMounted = st.storage !== "flash" || (typeof st.sd_total_kb === "number" && st.sd_total_kb > 0);

@@ -599,4 +599,86 @@
             fi
         fi
     ;;
+
+    security_status)
+      _sec_cfg="${TC100_BOOT_CONF:-/mnt/config/boot.conf}"
+      _sec_vkeys="${TC100_VENDOR_KEYS:-/mnt/v3/install/update-keys}"
+      _sec_ckeys="${TC100_USER_KEYS:-/mnt/config/update-keys}"
+      _sec_cert="${HTTPS_CERT_FILE:-/mnt/config/https-cert.pem}"
+      _sec_flash="${TC100_FLASHMODE_FILE:-/tmp/flashmode}"
+      _sec_pd=1; _sec_req=0; _sec_https=1; _sec_hport=443
+      if [ -r "$_sec_cfg" ]; then
+        _sv=$(sed -n "s/^[[:space:]]*PRIVDROP=[\"']\{0,1\}\([^\"' 	#]*\).*\$/\1/p" "$_sec_cfg" 2>/dev/null | tail -n 1)
+        case "$_sv" in 0|no|off|false) _sec_pd=0 ;; esac
+        _sv=$(sed -n "s/^[[:space:]]*UPDATE_REQUIRE_SIG=[\"']\{0,1\}\([^\"' 	#]*\).*\$/\1/p" "$_sec_cfg" 2>/dev/null | tail -n 1)
+        case "$_sv" in ''|0|no|off|false) _sec_req=0 ;; *) _sec_req=1 ;; esac
+        _sv=$(sed -n "s/^[[:space:]]*HTTPS=[\"']\{0,1\}\([^\"' 	#]*\).*\$/\1/p" "$_sec_cfg" 2>/dev/null | tail -n 1)
+        case "$_sv" in 0|no|off|false) _sec_https=0 ;; esac
+        _sv=$(sed -n "s/^[[:space:]]*HTTPS_PORT=[\"']\{0,1\}\([^\"' 	#]*\).*\$/\1/p" "$_sec_cfg" 2>/dev/null | tail -n 1)
+        case "$_sv" in ''|*[!0-9]*) ;; *) [ "$_sv" -ge 1 ] && [ "$_sv" -le 65535 ] && _sec_hport="$_sv" ;; esac
+      fi
+      _sec_kcnt=0; _sec_kids=""
+      for _sec_kd in "$_sec_vkeys" "$_sec_ckeys"; do
+        [ -d "$_sec_kd" ] || continue
+        for _sec_kf in "$_sec_kd"/*.pub; do
+          [ -s "$_sec_kf" ] || continue
+          _sec_kcnt=$((_sec_kcnt + 1))
+          _sec_kn="${_sec_kf##*/}"; _sec_kn="${_sec_kn%.pub}"
+          case "$_sec_kn" in *[!A-Za-z0-9_.-]*) _sec_kn="key" ;; esac
+          _sec_kids="${_sec_kids:+${_sec_kids},}${_sec_kn}"
+        done
+      done
+      _sec_hr=0; command -v pidof >/dev/null 2>&1 && pidof tc100-httpsd >/dev/null 2>&1 && _sec_hr=1
+      _sec_hc=0; [ -s "$_sec_cert" ] && _sec_hc=1
+      _sec_fm=0; [ -f "$_sec_flash" ] && _sec_fm=1
+      _sec_eff=0; [ "$_sec_req" = 1 ] && [ "$_sec_kcnt" -gt 0 ] && _sec_eff=1
+      if wants_json_response; then
+        printf '{"ok":true,"status":"success","privdrop":%s,"update_require_sig":%s,"effective":%s,"sig_keys":%s,"sig_key_ids":"%s","https_enabled":%s,"https_port":%s,"https_running":%s,"https_cert":%s,"flashmode":%s}\n' \
+          "$_sec_pd" "$_sec_req" "$_sec_eff" "$_sec_kcnt" "$_sec_kids" "$_sec_https" "$_sec_hport" "$_sec_hr" "$_sec_hc" "$_sec_fm"
+      else
+        echo "PRIVDROP=$_sec_pd UPDATE_REQUIRE_SIG=$_sec_req SIG_KEYS=$_sec_kcnt HTTPS=$_sec_https HTTPS_PORT=$_sec_hport"
+      fi
+    ;;
+
+    set_update_sig_policy)
+      _sec_cfg="${TC100_BOOT_CONF:-/mnt/config/boot.conf}"
+      _sec_vkeys="${TC100_VENDOR_KEYS:-/mnt/v3/install/update-keys}"
+      _sec_ckeys="${TC100_USER_KEYS:-/mnt/config/update-keys}"
+      _sec_req="${F_require_sig:-}"
+      case "$_sec_req" in
+        0|1) ;;
+        *)
+          if wants_json_response; then
+            json_body_err "INVALID_VALUE" "require_sig must be 0 or 1"
+          else
+            echo "ERROR: require_sig must be 0 or 1"
+          fi
+          exit 0 ;;
+      esac
+      [ -f "$_sec_cfg" ] || install_config "$_sec_cfg" 2>/dev/null || true
+      if [ ! -f "$_sec_cfg" ]; then
+        if ! : > "$_sec_cfg" 2>/dev/null; then
+          if wants_json_response; then json_body_err "WRITE_ERROR" "Cannot create boot.conf"; else echo "ERROR: Cannot create boot.conf"; fi
+          exit 0
+        fi
+      fi
+      if ! rewrite_config "$_sec_cfg" UPDATE_REQUIRE_SIG "$_sec_req"; then
+        if wants_json_response; then json_body_err "WRITE_ERROR" "Cannot write boot.conf"; else echo "ERROR: Cannot write boot.conf"; fi
+        exit 0
+      fi
+      _sec_kcnt=0
+      for _sec_kd in "$_sec_vkeys" "$_sec_ckeys"; do
+        [ -d "$_sec_kd" ] || continue
+        for _sec_kf in "$_sec_kd"/*.pub; do
+          [ -s "$_sec_kf" ] && _sec_kcnt=$((_sec_kcnt + 1))
+        done
+      done
+      _sec_eff=0; [ "$_sec_req" = 1 ] && [ "$_sec_kcnt" -gt 0 ] && _sec_eff=1
+      if wants_json_response; then
+        printf '{"ok":true,"status":"success","update_require_sig":%s,"sig_keys":%s,"effective":%s}\n' \
+          "$_sec_req" "$_sec_kcnt" "$_sec_eff"
+      else
+        echo "UPDATE_REQUIRE_SIG=$_sec_req (keys=$_sec_kcnt, effective=$_sec_eff)"
+      fi
+    ;;
   esac

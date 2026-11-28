@@ -30,7 +30,7 @@ esac
 # changes something and needs a POST with the CSRF token: a GET ?cmd=reboot from an image tag on another site, with
 # the browser's saved login, used to pass (review 2026-11-11, C3). No REQUEST_METHOD = not a web request (scripts,
 # tests): unchanged.
-ACTION_GET_READS="events_info get_ptt_status get_ptt_vol ha_discovery_info hw_state local_rec_status md_zones_info mem_budget motion_heatmap nvr_latency presence_info rtsp_server_info sd_card_info showlog wifi_country_info wifi_get_ssid wifi_rescue_info wifi_scan"
+ACTION_GET_READS="events_info get_ptt_status get_ptt_vol ha_discovery_info hw_state local_rec_status md_zones_info mem_budget motion_heatmap nvr_latency presence_info rtsp_server_info sd_card_info security_status showlog wifi_country_info wifi_get_ssid wifi_rescue_info wifi_scan"
 case "${REQUEST_METHOD:-}" in
   GET|HEAD)
     case " $ACTION_GET_READS " in
@@ -1168,7 +1168,7 @@ if [ -n "$F_cmd" ]; then
   esac
   # Enforce CSRF for all state-changing commands. Read-only queries are whitelisted.
   case "$F_cmd" in
-    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|wifi_rescue_info|wifi_country_info|local_rec_status|sd_card_info|md_zones_info|motion_heatmap|rtsp_server_info|events_info|hw_state|mem_budget|ha_discovery_info|presence_info) ;;
+    showlog|get_ptt_vol|get_ptt_status|wifi_scan|wifi_get_ssid|wifi_rescue_info|wifi_country_info|local_rec_status|sd_card_info|md_zones_info|motion_heatmap|rtsp_server_info|events_info|hw_state|mem_budget|security_status|ha_discovery_info|presence_info) ;;
     *) csrf_check ;;
   esac
   # Polled read-only queries with no per-request arguments share a short-lived RAM
@@ -1252,7 +1252,7 @@ if [ -n "$F_cmd" ]; then
       _action_group=detection ;;
     hw_state|front_led_on|front_led_off|red_led_on|red_led_off|ir_led_on|ir_led_off|ir_cut_on|ir_cut_off|auto_night_mode_start|auto_night_mode_stop|night-mode-on|night-mode-off|set_led_config)
       _action_group=hardware ;;
-    mem_budget|reboot|shutdown|clear_mem|set_telnet|set_ftp|settz|set_http_password|set_all_password|service_trim_on|service_trim_off|set_performance_profile|set_reboot_schedule|set_telegram_config|set_syslog_config|save_preset|delete_preset)
+    mem_budget|reboot|shutdown|clear_mem|set_telnet|set_ftp|settz|set_http_password|set_all_password|service_trim_on|service_trim_off|set_performance_profile|set_reboot_schedule|set_telegram_config|set_syslog_config|save_preset|delete_preset|security_status|set_update_sig_policy)
       _action_group=system ;;
     set_network|conf_dns|conf_static_ip|wifi_scan|wifi_get_ssid|wifi_rescue_info|wifi_country_info|wifi_set_country|wifi_set_config|nvr_latency)
       _action_group=network ;;

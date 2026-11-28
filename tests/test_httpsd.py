@@ -1,5 +1,6 @@
 """Unit, static-hardening, packaging, and shell-control tests for tc100-httpsd (3.2.1 HTTPS proxy)."""
 from pathlib import Path
+import json
 import os
 import shutil
 import subprocess
@@ -147,6 +148,88 @@ class HttpsdShellBehaviorTests(unittest.TestCase):
         finally:
             subprocess.run(SH + [cs, 'stop'], capture_output=True, env=env)
             self.assertFalse(pidf.exists())
+
+
+class WebUi32ImprovementsTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix='webui32-'))
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_cpuprofile_cgi_removed(self):
+        self.assertFalse((ROOT / 'www/cgi-bin/cpuprofile.cgi').exists())
+        self.assertNotIn('/cgi-bin/cpuprofile.cgi', read('docs/api.md'))
+        self.assertNotIn('cpuprofile.cgi', read('docs/linux-port/performance.md'))
+
+    def test_ui_security_sd_trial_and_support_bundle_links(self):
+        idx = read('www/index.html')
+        self.assertIn('id="sd_trial_badge"', idx)
+        self.assertIn('data-tab="tab-backup"', idx)
+        self.assertIn('sdt.hidden = st.storage === "flash"', read('src/webui/index/10-status.js'))
+        diag = read('www/diagnostics.html')
+        self.assertIn('id="sec32_diag_facts"', diag)
+        self.assertIn('cmd=security_status&format=json', diag)
+        sett = read('www/settings.html')
+        self.assertIn('href="cgi-bin/supportbundle.cgi"', sett)
+        self.assertIn('href="cgi-bin/httpscert.cgi"', sett)
+        self.assertIn('id="secSigForm"', sett)
+        self.assertIn('name="require_sig"', sett)
+        self.assertEqual(sett.count('initSecurityPolicy'), 1)
+
+    def test_i18n_complete_after_ui_changes(self):
+        r = subprocess.run(['python3', str(ROOT / 'src/webui/i18n-strings.py'), '--missing'], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), '', f'missing French i18n keys:\n{r.stdout}')
+
+    def test_security_status_and_policy_handlers(self):
+        action_cgi = read('www/cgi-bin/action.cgi')
+        self.assertIn('security_status', action_cgi.split('ACTION_GET_READS="')[1].split('"')[0].split())
+        self.assertNotIn('set_update_sig_policy', action_cgi.split('ACTION_GET_READS="')[1].split('"')[0].split())
+
+        sys_sh = read('scripts/action.d/system.sh')
+        sec_block = sys_sh[sys_sh.index('    security_status)'):sys_sh.rindex('  esac')]
+        boot = self.tmp / 'boot.conf'
+        boot.write_text('PRIVDROP=1\nUPDATE_REQUIRE_SIG=0\nHTTPS=1\nHTTPS_PORT=8443\n')
+        vkeys = self.tmp / 'vkeys'
+        vkeys.mkdir()
+        (vkeys / 'owner.pub').write_text('00' * 32)
+        ckeys = self.tmp / 'ckeys'
+        ckeys.mkdir()
+        cert = self.tmp / 'https-cert.pem'
+        cert.write_text('CERT')
+        flash = self.tmp / 'flashmode'
+        flash.write_text('1')
+
+        helpers = (
+            'wants_json_response() { return 0; }\n'
+            'json_body_ok() { printf \'{"ok":true,"message":"%s"}\\n\' "$1"; }\n'
+            'json_body_err() { printf \'{"ok":false,"error":"%s","message":"%s"}\\n\' "$1" "$2"; }\n'
+            'install_config() { :; }\n'
+            'rewrite_config() { grep -q "^$2=" "$1" && sed -i.bak "s/^$2=.*/$2=$3/" "$1" || echo "$2=$3" >> "$1"; }\n'
+        )
+        env = dict(
+            os.environ,
+            TC100_BOOT_CONF=str(boot),
+            TC100_VENDOR_KEYS=str(vkeys),
+            TC100_USER_KEYS=str(ckeys),
+            HTTPS_CERT_FILE=str(cert),
+            TC100_FLASHMODE_FILE=str(flash),
+        )
+        st_cmd = f'{helpers}case "security_status" in\n{sec_block}\nesac\n'
+        r1 = subprocess.run(SH + ['-c', st_cmd], capture_output=True, text=True, env=env)
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        d1 = json.loads(r1.stdout)
+        self.assertEqual((d1['privdrop'], d1['update_require_sig'], d1['sig_keys'], d1['https_port'], d1['https_cert'], d1['flashmode']),
+                         (1, 0, 1, 8443, 1, 1))
+        self.assertEqual(d1['sig_key_ids'], 'owner')
+
+        set_cmd = f'{helpers}F_require_sig=1\ncase "set_update_sig_policy" in\n{sec_block}\nesac\n'
+        r2 = subprocess.run(SH + ['-c', set_cmd], capture_output=True, text=True, env=env)
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        d2 = json.loads(r2.stdout)
+        self.assertEqual((d2['ok'], d2['update_require_sig'], d2['sig_keys'], d2['effective']), (True, 1, 1, 1))
+        self.assertIn('UPDATE_REQUIRE_SIG=1', boot.read_text())
 
 
 if __name__ == '__main__':

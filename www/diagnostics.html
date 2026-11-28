@@ -40,6 +40,17 @@
                 <pre id="frigate_preview">Loading configuration…</pre>
             </div>
         </div>
+        <section class="card status_card mt-4" aria-labelledby="sec32_diag_title">
+            <header class="card-header"><p class="card-header-title" id="sec32_diag_title">Security &amp; 3.2 runtime status</p></header>
+            <div class="card-content">
+                <dl class="sec32-facts" id="sec32_diag_facts">
+                    <div><dt>Boot mode</dt><dd id="sec32_mode">…</dd></div>
+                    <div><dt>Privilege drop</dt><dd id="sec32_privdrop">…</dd></div>
+                    <div><dt>Signed updates</dt><dd id="sec32_sig">…</dd></div>
+                    <div><dt>HTTPS proxy</dt><dd id="sec32_https">…</dd></div>
+                </dl>
+            </div>
+        </section>
     </div>
     <div class="diag-panel" id="diag_device" data-src="cgi-bin/devinfo.cgi" hidden></div>
     <div class="diag-panel" id="diag_storage" data-src="cgi-bin/disk.cgi" hidden></div>
@@ -102,7 +113,8 @@
             Promise.all([
                 fetch("cgi-bin/health.cgi", {cache:"no-store"}).then(function(r){return r.json();}),
                 fetch("cgi-bin/stability.cgi", {cache:"no-store"}).then(function(r){return r.text();}),
-                fetch("cgi-bin/state.cgi?cmd=frigateyaml&redact=1", {cache:"no-store"}).then(function(r){return r.text();})
+                fetch("cgi-bin/state.cgi?cmd=frigateyaml&redact=1", {cache:"no-store"}).then(function(r){return r.text();}),
+                fetch("cgi-bin/action.cgi?cmd=security_status&format=json", {cache:"no-store"}).then(function(r){return r.json();}).catch(function(){return null;})
             ]).then(function(data) {
                 var health = data[0] || {}, services = health.services || {}, bad = 0;
                 Object.keys(services).forEach(function(k){ if (services[k] === "unhealthy" || services[k] === "error") bad++; });
@@ -110,6 +122,16 @@
                 var preview = document.getElementById("frigate_preview");
                 if (preview) preview.textContent = data[2];
                 drawStabilityChart(data[1], health.system ? health.system.mem_total_kb : 0);
+                var sec = data[3];
+                if (sec && sec.ok) {
+                    var T = window.tc100T || function (s) { return s; };
+                    var m = document.getElementById("sec32_mode"), pd = document.getElementById("sec32_privdrop"),
+                        sg = document.getElementById("sec32_sig"), ht = document.getElementById("sec32_https");
+                    if (m) m.textContent = sec.flashmode ? T("Flash") : T("SD trial (RAM)");
+                    if (pd) pd.textContent = sec.privdrop ? T("Enabled (tc100svc / tc100net)") : T("Disabled (root)");
+                    if (sg) sg.textContent = (sec.update_require_sig ? T("Required") : T("Optional")) + " (" + (sec.sig_keys || 0) + " " + T("key(s)") + ")";
+                    if (ht) ht.textContent = sec.https_enabled ? ((sec.https_running ? T("Active") : T("Enabled")) + " :" + (sec.https_port || 443)) : T("Disabled");
+                }
             }).catch(function() {
                 if (summary) summary.textContent = "Diagnostics unavailable";
             });

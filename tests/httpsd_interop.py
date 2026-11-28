@@ -158,7 +158,7 @@ class HttpsdInteropTests(unittest.TestCase):
 
         # 1. Single TLS socket handles fixed CL + CGI without CL (chunked) + POST body via Keep-Alive
         with socket.create_connection(('127.0.0.1', self.tls_port), timeout=5) as raw:
-            with ctx.wrap_socket(raw, server_hostname='127.0.0.1') as s:
+            with ctx.wrap_socket(raw, server_hostname='camtest.local') as s:
                 cipher = s.cipher()
                 self.assertIn(cipher[1], ('TLSv1.2', 'TLSv1.3'))
                 s.sendall(b'GET /index.html HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n')

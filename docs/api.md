@@ -2516,12 +2516,6 @@ Installs the card system to the flash (Settings, Update & backup, Install to fla
 | `GET ?cmd=status` | `{"ok":true,"linux66":1,"state":"flash\|ready66\|blocked\|running\|installed","running":0,"log":"..."}` |
 | `POST ?cmd=install` | runs `v3/install/install66.sh` in the background; the camera restarts from its flash at the end. Errors: `busy`, `state` (the check failed), `csrf_invalid` |
 
-### GET /cgi-bin/cpuprofile.cgi?sec=10[&threads=1]
-
-Manual diagnostic tool, not used by the web pages: `text/plain` report of where the CPU goes
-(`scripts/cpu-profile.sh`), `sec` 3-30 s (default 10), `threads=1` per thread. One run at a time ("a profile is
-already running"). Read-only.
-
 ### Response format selection
 
 All endpoints that support both HTML and JSON responses check whether the request includes `Accept: application/json`. If so, they return JSON. Otherwise they return HTML fragments (suitable for injection into the dashboard UI). The curl examples above use `-H "Accept: application/json"` where applicable.
