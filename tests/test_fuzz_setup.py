@@ -70,7 +70,7 @@ class Seeds(unittest.TestCase):
         spec.loader.exec_module(gen)
         with tempfile.TemporaryDirectory() as d:
             gen.CORPUS = d
-            for fn in (gen.rtsp_seeds, gen.http_seeds, gen.onvif_seeds, gen.mqtt_seeds, gen.mdns_seeds, gen.whep_seeds):
+            for fn in (gen.rtsp_seeds, gen.http_seeds, gen.onvif_seeds, gen.mqtt_seeds, gen.mdns_seeds, gen.whep_seeds, gen.httpsd_seeds):
                 fn()
             made = {}
             for dp, _, files in os.walk(d):

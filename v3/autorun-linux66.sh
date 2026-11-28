@@ -510,9 +510,12 @@ for n in sound-detection syslog-forward memory-guard wifi-rescue telegram-bot; d
   sh $CS/$n start </dev/null >/dev/null 2>&1 &
   sleep 0.2 2>/dev/null || usleep 200000 2>/dev/null || true   # light spacing between backgrounded starts
 done
+if [ "$SAFE" != 1 ] && svc_on https-server && [ -f $CS/https-server ]; then
+  sh $CS/https-server start </dev/null >/dev/null 2>&1 &
+fi
 for f in /mnt/config/autostart/*; do
   n=${f##*/}
-  case "$n" in [0-9]*|\*|cpu-scaler|web-server|rtsp-h26x|onvif|auto-night-detection|mqtt-bridge|motion-detection|recording|front-led|red-led|sound-detection|syslog-forward|memory-guard|wifi-rescue|telegram-bot) continue ;; esac
+  case "$n" in [0-9]*|\*|cpu-scaler|web-server|rtsp-h26x|onvif|auto-night-detection|mqtt-bridge|motion-detection|recording|front-led|red-led|sound-detection|syslog-forward|memory-guard|wifi-rescue|telegram-bot|https-server) continue ;; esac
   svc_switch $n && continue	# its settings key decides (loop above)
   # safe mode: only what keeps the camera reachable
   [ "$SAFE" = 1 ] && case "$n" in ssh-server|telnet-server|button-actions) ;; *) continue ;; esac

@@ -1,1 +1,2 @@
 source "$BR2_EXTERNAL_TC100_PATH/package/tc100-whep/Config.in"
+source "$BR2_EXTERNAL_TC100_PATH/package/tc100-httpsd/Config.in"

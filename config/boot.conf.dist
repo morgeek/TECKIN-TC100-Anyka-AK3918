@@ -411,3 +411,7 @@ SD_FLASH_VENDOR=1
 # wpa_supplicant.conf, read the flash settings slot (cfga/cfgb) read-only at boot for Wi-Fi credentials.
 # Card's wifi.txt / wpa_supplicant.conf always wins. 0 turns it off.
 SD_FLASH_WIFI=1
+
+# Native low-CPU HTTPS reverse proxy (tc100-httpsd on :443 -> httpfront :80; TLS 1.2+, session tickets)
+HTTPS=1
+HTTPS_PORT=443

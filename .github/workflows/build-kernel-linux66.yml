@@ -2,7 +2,7 @@ name: Build Linux 6.6 LTS Kernel with CMA 16MB for TECKIN TC100
 
 on:
   push:
-    branches: [ main, v3-linux66, v3-on-main, upgrade-3.2 ]
+    branches: [ main, v3-linux66, v3-on-main, upgrade-3.2, upgrade-3.2.1 ]
     # a tag v3... also publishes the GitHub release (path filters do not apply to tags)
     tags: [ 'v3*' ]
     paths:
@@ -29,6 +29,7 @@ on:
       - 'src/musl.mk'
       - 'src/ssp-freestanding.h'
       - 'src/whep/**'
+      - 'src/httpsd/**'
       - 'bin/**'
       - 'lib/**'
       - 'src/jpegenc/**'

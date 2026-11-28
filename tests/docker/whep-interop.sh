@@ -26,8 +26,15 @@ gcc -Os -Wall -Wextra -Werror -I "mbedtls-$MB/include" -o tc100-whep "$REPO/src/
 	-L "mbedtls-$MB/library" -lmbedtls -lmbedx509 -lmbedcrypto
 strip tc100-whep
 echo "tc100-whep (host build, stripped, bytes): $(wc -c < tc100-whep)"
+gcc -O2 -Wall -Wextra -Werror -Wno-unused-function -o httpsd_test "$REPO/src/httpsd/httpsd_test.c"
+./httpsd_test
+gcc -Os -Wall -Wextra -Werror -I "mbedtls-$MB/include" -o tc100-httpsd "$REPO/src/httpsd/tc100_httpsd.c" \
+	-L "mbedtls-$MB/library" -lmbedtls -lmbedx509 -lmbedcrypto
+strip tc100-httpsd
+echo "tc100-httpsd (host build, stripped, bytes): $(wc -c < tc100-httpsd)"
 # hash-pinned (every package and its dependencies): tests/docker/requirements-whep-interop.txt, made from the .in file with
 # pip-compile --generate-hashes
 pip install -q --require-hashes -r "$REPO/tests/docker/requirements-whep-interop.txt" 2>&1 | tail -2
 cd "$REPO"
 WHEP_DEBUG="${WHEP_DEBUG:-}" WHEP_BIN="$W/tc100-whep" LD_LIBRARY_PATH="$W/mbedtls-$MB/library" python3 tests/whep_interop.py -v
+HTTPSD_BIN="$W/tc100-httpsd" LD_LIBRARY_PATH="$W/mbedtls-$MB/library" python3 tests/httpsd_interop.py -v

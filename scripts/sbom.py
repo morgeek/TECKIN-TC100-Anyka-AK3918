@@ -42,6 +42,7 @@ FREE_PROGRAMS = {
     'ispflip':    ('isp_flip', 'application', 'stack: bin/isp_flip', 'image flip helper (freestanding)'),
     'libakuio':   ('libakuio', 'library', 'linked into tc100_rtsp', 'user-space access to the encoder kernel driver'),
     'whep':       ('tc100-whep', 'application', 'base image: /usr/bin/tc100-whep', 'WebRTC (WHEP) gateway, built by Buildroot'),
+    'httpsd':     ('tc100-httpsd', 'application', 'base image: /usr/bin/tc100-httpsd', 'Low-CPU native HTTPS reverse proxy, built by Buildroot'),
 }
 
 SPDX_ID = re.compile(r'^[A-Za-z0-9][A-Za-z0-9.+-]*$')

@@ -101,6 +101,9 @@ done
 [ -f usr/bin/tc100-whep ] || { echo "build-stack: usr/bin/tc100-whep missing from base (rebuild with BR2_PACKAGE_TC100_WHEP=y)" >&2; exit 1; }
 cp -L usr/bin/tc100-whep "$T/ext/bin/"
 echo usr/bin/tc100-whep >> "$W/todo"
+[ -f usr/bin/tc100-httpsd ] || { echo "build-stack: usr/bin/tc100-httpsd missing from base (rebuild with BR2_PACKAGE_TC100_HTTPSD=y)" >&2; exit 1; }
+cp -L usr/bin/tc100-httpsd "$T/ext/bin/"
+echo usr/bin/tc100-httpsd >> "$W/todo"
 while [ -s "$W/todo" ]; do
 	f=$(head -n 1 "$W/todo"); sed -i 1d "$W/todo"
 	for n in $($READELF -d "$f" 2>/dev/null | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p'); do

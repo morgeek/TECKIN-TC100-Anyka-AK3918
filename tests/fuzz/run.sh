@@ -35,7 +35,8 @@ rtsp_talk|tests/fuzz/fuzz_rtsp.c $RTSRC|-DMODE_TALK $RTF -ldl -lpthread -lm|
 onvif_soap|tests/fuzz/fuzz_onvif.c|-DMODE_SOAP|onvif
 onvif_http|tests/fuzz/fuzz_onvif.c|-DMODE_HTTP|onvif
 onvif_wsd|tests/fuzz/fuzz_onvif.c|-DMODE_WSD|onvif
-httpfront|tests/fuzz/fuzz_httpfront.c||http"
+httpfront|tests/fuzz/fuzz_httpfront.c||http
+httpsd|tests/fuzz/fuzz_httpsd.c|-Isrc/httpsd|http"
 
 want() { [ $# -eq 0 ] && return 0; for w in $WANT; do [ "$w" = "$1" ] && return 0; done; return 1; }
 WANT="$*"

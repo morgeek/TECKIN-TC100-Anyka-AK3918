@@ -9,7 +9,7 @@
 # with the modes right changes nothing that cfg-persist could see (it compares content and mtimes, not modes).
 # A missing file is skipped; a chmod that fails (a FAT card has no modes) is ignored.
 # The list: every file of config/ that holds a password, a token or a Wi-Fi key. Add a name here, nowhere else.
-SECRET_FILES="user.pwd rtspserver.conf mqtt.conf wpa_supplicant.conf telegram.conf notify.conf"
+SECRET_FILES="user.pwd rtspserver.conf mqtt.conf wpa_supplicant.conf telegram.conf notify.conf https-key.pem"
 
 # The service users (PRIVDROP=1, config/boot.conf.dist), uid and gid fixed (v3/buildroot/board/tc100/users.table has the
 # same numbers; the daemons are started with the numbers, so a base image without the users still works, only without the

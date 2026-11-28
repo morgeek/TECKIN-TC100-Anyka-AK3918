@@ -1,0 +1,9 @@
+config BR2_PACKAGE_TC100_HTTPSD
+	bool "tc100-httpsd"
+	depends on BR2_PACKAGE_MBEDTLS
+	help
+	  Low-CPU native HTTPS reverse proxy for BusyBox httpd + httpfront
+	  (src/httpsd of this source tree): single-process non-blocking poll()
+	  event loop, TLS 1.2+ with ChaCha20-Poly1305 and X25519 preferred,
+	  HTTP/1.1 Keep-Alive, TLS session tickets and server session cache,
+	  and persistent ECDSA P-256 certificate in /mnt/config.

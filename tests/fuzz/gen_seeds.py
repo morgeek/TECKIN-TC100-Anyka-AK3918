@@ -404,6 +404,15 @@ def whep_seeds():
     put('whep_misc', 'net-allow', b'192.168.1.0/24 10.0.0.0/8 172.16.5.4 junk 1.2.3.4/33 300.1.1.1')
 
 
+def httpsd_seeds():
+    put('httpsd', 'get-keepalive', b'GET /cgi-bin/state.cgi HTTP/1.1\r\nHost: cam.local\r\n\r\n')
+    put('httpsd', 'post-cl', b'POST /cgi-bin/webui.cgi HTTP/1.1\r\nHost: 192.168.1.24\r\nContent-Length: 4\r\n\r\ntest')
+    put('httpsd', 'smuggle-cl-te', b'POST / HTTP/1.1\r\nHost: cam\r\nContent-Length: 5\r\nTransfer-Encoding: chunked\r\n\r\n')
+    put('httpsd', 'resp-no-cl', b'HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n{"ok":true}')
+    put('httpsd', 'resp-head', b'HTTP/1.1 200 OK\r\nContent-Length: 123\r\nConnection: close\r\n\r\n')
+    put('httpsd', 'san-host', b'cam-bedroom-01')
+
+
 # ---------------------------------------------------------------------------------------------------------- main
 if __name__ == '__main__':
     rtsp_seeds()
@@ -412,5 +421,6 @@ if __name__ == '__main__':
     mqtt_seeds()
     mdns_seeds()
     whep_seeds()
+    httpsd_seeds()
     n = sum(len(f) for _, _, f in os.walk(CORPUS))
     print('seeds written:', n)

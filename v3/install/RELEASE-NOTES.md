@@ -2,6 +2,11 @@ Free firmware for the **TECKIN TC100** camera: Linux 6.6, RTSP H.264 / H.265 for
 Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 [README](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918#is-it-safe) first.
 
+## What is new in 3.2.1-rc1 (test build, branch upgrade-3.2.1: native low-CPU HTTPS)
+Everything of 3.2.0-rc5, plus:
+- **Native low-CPU HTTPS (`https://<camera-ip>/`, port 443):** `tc100-httpsd` proxies TLS 1.2+ to `httpfront` with `ChaCha20-Poly1305` + `X25519` preferred for ARM9 without AES hardware, HTTP/1.1 `Keep-Alive` + chunked CGI framing (one handshake per tab), TLS session tickets, persistent ECDSA P-256 certificate in `/mnt/config/https-cert.pem`, and `tc100net` privilege drop. Controlled via `HTTPS=1` / `HTTPS_PORT=443` in `boot.conf`.
+- **Certificate download:** one-click **HTTPS Cert (.pem)** download button added on the **Diagnostics** page (`cgi-bin/httpscert.cgi`).
+
 ## What is new in 3.2.0-rc5 (test build, branch upgrade-3.2: ready for 3.0.2 -> 3.2 flash update)
 Everything of 3.2.0-rc4, plus:
 - **Updated acceptance checks (`tests/camera/recette.sh`):** `c_ssh_maps` checks Dropbear 2026.93 listener processes (`-2` session children re-exec without `LD_PRELOAD`), and `c_pwd_file` verifies `0640` group `1001` (`PRIVDROP=1`) / `0600` (`PRIVDROP=0`) in flash mode while skipping `vfat` SD trials.

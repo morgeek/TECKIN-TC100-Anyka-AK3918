@@ -21,6 +21,7 @@ svc_switch()
     mqtt-bridge)      SW_FILE=$_sw_d/mqtt.conf; SW_KEY=MQTT_ENABLE; SW_DEF=0 ;;
     telegram-bot)     SW_FILE=$_sw_d/telegram.conf; SW_KEY=TELEGRAM_ENABLE; SW_DEF=0 ;;
     motion-detection) SW_FILE=$_sw_d/rtspserver.conf; SW_KEY=mdenabled; SW_DEF=0 ;;
+    https-server) SW_FILE=$_sw_d/boot.conf; SW_KEY=HTTPS; SW_DEF=1 ;;
     *) return 1 ;;
   esac
   return 0

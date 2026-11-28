@@ -24,7 +24,7 @@ jobs:
           path: |
             br-out/images/rootfs.cpio.gz
             br-out/show-info.json
-          key: base-rootfs-${{ hashFiles('v3/buildroot/**', 'src/whep/**', '.github/workflows/build-base-rootfs.yml', '.github/ci-pins.sh') }}
+          key: base-rootfs-${{ hashFiles('v3/buildroot/**', 'src/whep/**', 'src/httpsd/**', '.github/workflows/build-base-rootfs.yml', '.github/ci-pins.sh') }}
 
       - name: Build dependencies
         if: steps.base.outputs.cache-hit != 'true'
@@ -62,6 +62,7 @@ jobs:
           ls -l br-out/images/
           # item 35: the WebRTC gateway is a Buildroot package (v3/buildroot/package/tc100-whep): it must be in the image
           ls -l br-out/target/usr/bin/tc100-whep
+          ls -l br-out/target/usr/bin/tc100-httpsd
           # [up-sbom] the package list of this build (name, version, licence, sources): the SBOM of the release is made from it
           make -s --no-print-directory -C buildroot-src BR2_EXTERNAL=$PWD/v3/buildroot BR2_DL_DIR=$PWD/dl O=$PWD/br-out show-info > br-out/show-info.json
           test -s br-out/show-info.json

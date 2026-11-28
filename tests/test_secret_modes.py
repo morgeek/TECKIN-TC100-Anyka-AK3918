@@ -12,7 +12,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SH = ['busybox', 'ash'] if shutil.which('busybox') else ['sh']
 LIB = ROOT / 'scripts' / 'secret-modes.sh'
-SECRETS = ['user.pwd', 'rtspserver.conf', 'mqtt.conf', 'wpa_supplicant.conf', 'telegram.conf', 'notify.conf']
+SECRETS = ['user.pwd', 'rtspserver.conf', 'mqtt.conf', 'wpa_supplicant.conf', 'telegram.conf', 'notify.conf', 'https-key.pem']
 
 
 def text(p):
