@@ -542,6 +542,16 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
     false rescue AP. The fix is therefore not exercised on this flash; to check it on the flash, switch the rescue on
     (Services) and read `/tmp/wifi-rescue/state` for an hour.
   - **Owner, 12:44: web login OK, Frigate OK, Home Assistant (MQTT) OK** on 3.2.0-rc4 from the flash.
+  - **Tester over ssh, 12:45 (no password used):** ONVIF answers on 8081 from the LAN (`GetSystemDateAndTime` returns
+    the camera time; the bench's `onvif-no-auth`: `GetDeviceInformation` without a token -> `NotAuthorized`, PASS),
+    served by `tc100-onvifd` as uid 1001; `tc100-mqttd` holds an ESTABLISHED connection to the broker on 1883;
+    `ntpd` running, clock right; `tc100-logfwd` forwards syslog to the LAN log host as uid 1002; `tc100_rtsp` (`-a 1`)
+    has the microphone open (`/dev/snd/pcmC0D0c` in its fds); day/night watcher running (day); `supportbundle.cgi` now
+    `tar cf - . | gzip -9` and that pipeline works on the camera's BusyBox; `httpfront` answers 431 to a 5000-byte
+    header. WebRTC (`tc100-whep`) starts on demand only (first offer from the page): to be seen by the owner's live view.
+    `/proc/asound/card0` shows only `id` on this kernel (no verbose procfs): the PCM state cannot be read there.
+  - **Safe recette bench on the flash** started 12:45 (camera folder `/tmp/recette-20261128-114518`): not read yet —
+    the tester's link to the Mac dropped before the reading; results stay in the camera's RAM until its next reboot.
   - Still to do: ONVIF, WebRTC live view, a day/night
     switch, 48 h on the flash (pass of UP32-FLASH), then IPCAM2.
 
