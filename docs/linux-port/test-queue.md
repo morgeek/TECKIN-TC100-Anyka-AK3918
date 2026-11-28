@@ -406,6 +406,11 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
     and no `net-guard` line in `important.log`. **Early PASS on the SD**; still to do: the 60-min reading
     (`link_good_s>=3600`), the real Wi-Fi cut (rescue AP after 10 min, by the owner), the CI build of `f49aaed` instead of
     the hand copy, then the same on the flash (UP32-FLASH).
+  - **2026-11-28 12:46, the 60-min reading could not be taken:** the owner removed the card at 12:36 to update the flash
+    (state in RAM, gone). Evidence over the ~48 min the fixed script ran (11:48-12:36): the camera stayed reachable from
+    the LAN the whole time (ssh sessions at 11:50, 11:58, the safe bench 11:59-12:12, checks 12:15 and 12:18), where the
+    unfixed script had taken `wlan0` for its access point every ~26 min. Good sign, not the 60-min pass: on IPCAM1's flash
+    `WIFI_RESCUE=0`, so the pass is to be read on a camera with the rescue switched on (SD package default, or Services).
 
 - **2026-11-28 12:15, recette bench (safe checks, the bench of this branch) on the SD trial of IPCAM1 (`[up32-sd-vendor]`
   build, fixed `wifi-rescue.sh` copied by hand), no web password, no MQTT host:** `PASS 18 FAIL 3 SKIP 55`, 711 s.
