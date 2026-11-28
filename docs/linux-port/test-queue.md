@@ -282,6 +282,49 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
   through (it uses `/tmp`); `grep step_0c /tmp/boot-trace.txt` finds the step.
 - **Pass:** all of the above.
 
+### UP32-SD-ESSAI First SD gate attempt, 3.2.0-rc3 on IPCAM1 (one already running 3.0.2-rc8, trial mode) — 2026-11-28, `blocked`
+- **Setup:** `tc100-3.2.0-rc3-sd.zip` of the rc3 run, unzipped at the root of a blank FAT32 card plus an empty `ESSAI.txt`
+  (trial: nothing in the flash) and a `wifi.txt` (SSID/PASSWORD) since the card had no prior Wi-Fi state. Card put in
+  IPCAM1 (already on 3.0.2-rc8) while it was running, then a soft `reboot` over ssh to switch it to the SD kernel.
+- **Boot and Wi-Fi: PASS.** `uname -r` 6.6.163+, full `/proc/cmdline`, dropbear up (a one-off `config/authorized_keys`
+  with the tester's key was added to the card since the ESSAI card had none — no `RECETTE_PASS`, no stock-firmware
+  password involved), `httpfront` on :80, `wifi-applied.txt` on the card confirms the join. No oops/panic/stack-smashing
+  in `dmesg`. BusyBox 1.37.0, Buildroot 2025.02.20 as documented. USB host sees the Realtek Wi-Fi chip; ALSA sees the
+  `Ak AD/DA` card (not exercised further).
+- **PRIVDROP: as documented, partially exercised.** `PRIVDROP=1` by default. `tc100-mdnsd` runs as `tc100net` (1002),
+  `httpfront` and `tc100_rtsp` stay root, matching `boot.conf.dist`'s own comment (not a gap). `tc100-onvifd` and
+  `tc100-mqttd` are off by default (`onvif.conf`/`mqtt.conf` disabled): their own privilege drop was not exercised.
+- **Video: FAIL, blocks the SD gate.** `tc100_rtsp` runs but captures nothing (`STAT cap 0 enc 0 bytes 0` on every line;
+  `starts`/`cap_stall`/`exit3` climb together as the supervisor keeps restarting it, never recovering). `dmesg`:
+  `ak39-vi 8000000.video-input: Direct firmware load for anyka/isp.conf failed with error -2` / `ISP tuning not loaded
+  (-2), using defaults` on every open.
+  - **Root cause found:** this camera's own sensor tuning file (`isp.conf`, 69548 bytes, two 34774-byte day/night
+    sections as in `vendor-re-findings.md`) is real and intact — read-only mounted from the camera's own flash `vendor`
+    partition to check (`mount -t squashfs -o ro /dev/mtdblock6`, nothing written, unmounted after). The **SD ESSAI boot
+    never reads that flash partition**: it runs fully from the card, whose own `config/` only has the shipped `.dist`
+    defaults (no per-camera tuning file, nothing on an SD trial card can hold one since it isn't part of the zip).
+  - **Not a quick fix:** copying the camera's `isp.conf` straight into `/lib/firmware/anyka/isp.conf` on the running SD
+    system and restarting `tc100_rtsp` did **not** clear the error — the kernel still answered -2, so this build's
+    firmware loader has no direct-filesystem fallback active (or no mdev/udev firmware-request trigger in this
+    initramfs); dropping the file at the expected path is not enough on its own.
+  - **For the implementer:** either make the SD ESSAI boot mount the flash `vendor` partition read-only and point the
+    firmware search path at it (so a camera already on project firmware keeps its tuning on an SD trial, the way
+    `install66.sh` / `flashmode-prep.sh` already do for a flash boot), or carry the direct-fs firmware fallback /
+    mdev trigger so a file placed under `/lib/firmware/anyka/` is actually loaded. The `wifitest` stock-extraction
+    step (installed `isp_f23*mipi*.conf` to `config/`) does not apply here: a camera already on 3.0.x has no stock
+    firmware left to extract it from, so the SD ESSAI path needs its own way to carry an already-migrated camera's
+    tuning file.
+- **Network: two unexplained drops**, several minutes each, ping and ssh both unreachable, no reboot in between (uptime
+  kept counting across the first one: 21 min before, 35 min after). Not tied to a specific action on the tester's side;
+  may be the repeated capture-restart loop, may be the Wi-Fi chip under `ESSAI`/no-tuning conditions. Needs a serial
+  console capture to tell apart from a Wi-Fi driver issue.
+- **Not reached** (time cut short by the network drops and the video blocker): `UPDATE_REQUIRE_SIG` / signed-update
+  check, Wi-Fi signal dBm vs the flash 6.6.0 kernel, a 1 h soak, ONVIF/MQTT with their own user once enabled, rescue AP.
+- **State after the test:** nothing written to the flash (trial mode). The owner reverts by removing the card and power
+  cycling, back to 3.0.2-rc8. The card itself (config/, log/) now holds ESSAI-session artefacts (the tester's
+  `authorized_keys`, `wifi-applied.txt`) — harmless to reuse, best wiped before a stock-camera ESSAI run.
+- **Pass:** blocked until the ISP tuning / firmware-load gap above is fixed; nothing else here should gate it by itself.
+
 ### UP32-FLASH 3.2.0-rc3 written to the flash of ONE camera (owner's decision of 2026-11-27) — `to test` (after the SD gate)
 - **What:** the web update `tc100-3.2.0-rc3-update.tar` of the CI artifact `tc100-3-release` of the rc3 run on
   `upgrade-3.2` (same build as the SD test files). It writes `stack`, the kernel and the initramfs through `flashw`
