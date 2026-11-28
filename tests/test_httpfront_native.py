@@ -243,8 +243,16 @@ class Native(unittest.TestCase):
                     for f in (fa, fb):
                         (f / 'proc/uptime').write_text('86430.55 80000.10\n')
                         (f / 'proc/stat').write_text('cpu  4400 10 1900 90900 300 20 70 0 0 0\nbtime 1700000000\n')
+                st0 = os.statvfs(fa)
                 body = cgi_json(fa)
                 resp = self.native_json()
+                st1 = os.statvfs(fa)
+                u0 = (st0.f_blocks - st0.f_bfree) * st0.f_frsize // 1024
+                u1 = (st1.f_blocks - st1.f_bfree) * st1.f_frsize // 1024
+                p0 = round((st0.f_blocks - st0.f_bfree) * 100 / st0.f_blocks) if st0.f_blocks else 0
+                p1 = round((st1.f_blocks - st1.f_bfree) * 100 / st1.f_blocks) if st1.f_blocks else 0
+                drift_kb = abs(u1 - u0)
+                drift_pct = abs(p1 - p0)
                 head, _, nbody = resp.partition(b'\r\n\r\n')
                 self.assertTrue(head.startswith(b'HTTP/1.0 200 OK\r\n'), (name, step, resp[:200]))
                 self.assertIn(b'Content-Type: application/json\r\n', head)
@@ -254,10 +262,10 @@ class Native(unittest.TestCase):
                 kc = json.loads(body, object_pairs_hook=list)
                 dn, dc = dict(kn), dict(kc)
                 # the card is a live filesystem: its used space moves between the two reads (the files of this very
-                # test), the rest is exact
+                # test plus concurrent /tmp writes during CI), so allow measured statvfs drift around the baseline 512 KB
                 self.assertEqual(dn['sd_total_kb'], dc['sd_total_kb'], (name, step))
-                self.assertLessEqual(abs(dn['sd_used_kb'] - dc['sd_used_kb']), 512, (name, step))
-                self.assertLessEqual(abs(dn['sd_percent'] - dc['sd_percent']), 1, (name, step))
+                self.assertLessEqual(abs(dn['sd_used_kb'] - dc['sd_used_kb']), 512 + drift_kb, (name, step))
+                self.assertLessEqual(abs(dn['sd_percent'] - dc['sd_percent']), 1 + drift_pct, (name, step))
                 for d in (kn, kc, dn, dc):
                     for k in ('sd_used_kb', 'sd_percent'):
                         if isinstance(d, dict):

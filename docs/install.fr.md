@@ -31,22 +31,20 @@ Sommaire : [1. Ce qu'il faut](#1-ce-quil-faut) · [2. Télécharger et préparer
 ## 2. Télécharger et préparer la carte
 
 1. **Téléchargez** `tc100-<version>-sd.zip` depuis la
-   [page des versions](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/releases) (`MD5SUMS.txt` donne les sommes de
-   contrôle). La version contient aussi `tc100-<version>-update.tar` (pour les mises à jour ultérieures depuis la page web)
+   [page des versions](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/releases) (`MD5SUMS.txt` et `SHA256SUMS.txt`
+   donnent les sommes de contrôle). La version contient aussi `tc100-<version>-update.tar` (pour les mises à jour ultérieures depuis la page web)
    et `tc100-<version>-inventory.zip` (ne fait que lire de quoi est faite votre caméra).
 2. **Formatez la carte en FAT32** (voir l'étape 1).
 3. **Décompressez le paquet à la racine de la carte.** Sous Windows, « Extraire tout » propose un nom de dossier : enlevez-le.
-4. **Caméra jamais configurée en Wi-Fi ?** Créez à la racine de la carte un fichier texte `wifi.txt` de deux lignes :
-   ```
-   SSID=nom de votre réseau
-   PASSWORD=son mot de passe
-   ```
-   Une caméra qui connaît déjà votre Wi-Fi (application TECKIN, ou une version précédente de ce firmware) garde son réseau.
-5. **Mode essai (conseillé la première fois) :** créez un fichier **vide** nommé `ESSAI.txt` (ou `TRIAL.txt`) à la racine
-   de la carte.
+4. **Configurer le Wi-Fi (si besoin) :** le fichier `wifi.txt` est déjà présent à la racine de la carte. Remplissez-y
+   `SSID=` et `PASSWORD=` si la caméra n'a jamais connu votre Wi-Fi ou pour changer de réseau (laissé vide, il est ignoré).
+   Une caméra qui connaît déjà votre Wi-Fi (application TECKIN, ou version précédente) garde son réseau (en mode essai SD sur
+   une caméra déjà en 3.0.x, la carte relit le Wi-Fi de la flash en lecture seule si `wifi.txt` est laissé vide).
+5. **Mode essai (conseillé la première fois) :** renommez `ESSAI.txt.example` en `ESSAI.txt` (ou créez un fichier vide
+   `TRIAL.txt`) à la racine de la carte. **Éjectez toujours la carte proprement** avant de la retirer de l'ordinateur.
 
-**Ce que vous devez voir :** la carte montre directement les dossiers `wifitest`, `tc100test`, `tc100-3`, `www`... et le
-fichier `00-LISEZ-MOI-READ-ME.txt` (les mêmes étapes en français et en anglais).
+**Ce que vous devez voir :** la carte montre directement les dossiers `wifitest`, `tc100test`, `tc100-3`, `www`... ainsi que
+`wifi.txt`, `ESSAI.txt.example` et `00-LISEZ-MOI-READ-ME.txt` (les mêmes étapes en français et en anglais).
 
 **Sinon :** si vous voyez un seul dossier (par exemple `tc100-...-sd`) qui les contient, remontez son contenu à la racine
 de la carte. Un doute sur la compatibilité de la caméra ? Utilisez plutôt `tc100-<version>-inventory.zip` (mêmes étapes ;
@@ -80,7 +78,8 @@ il n'écrit que `tc100-inventory.txt` sur la carte) et envoyez ce fichier dans u
 1. Ouvrez **http://tc100/** dans un navigateur du même réseau. Si ça ne marche pas, prenez l'adresse de la caméra dans la
    liste des appareils de votre box ; elle est aussi écrite dans `tc100-3/ADRESSE.txt` sur la carte.
 2. Connectez-vous avec l'utilisateur `root`. Le **mot de passe par défaut est public ; il figure dans le premier fichier du
-   zip** (`00-LISEZ-MOI-READ-ME.txt`) et dans les notes de version.
+   zip** (`00-LISEZ-MOI-READ-ME.txt`) et dans les notes de version (en mode essai SD sur une caméra déjà en 3.0.x, la
+   carte garde ce mot de passe par défaut tant qu'il n'est pas changé, et non celui de la mémoire flash).
 3. L'**assistant de configuration** démarre. Ses étapes :
    - **Langue et Wi-Fi** : garder le Wi-Fi actuel ou en indiquer un autre.
    - **Profil d'intégration** : *Autonome*, ou *Frigate + Home Assistant* (recommandé si vous les utilisez).
@@ -149,9 +148,11 @@ d'installation comme retour arrière et utilisez une deuxième carte pour les en
 caméra éteinte : une carte insérée pendant que la caméra fonctionne n'est pas détectée.
 
 **Mettre à jour plus tard (sans carte SD) :**
-1. Téléchargez `tc100-<version>-update.tar` depuis la [page des versions](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/releases).
+1. Téléchargez `tc100-<version>-update.tar` depuis la [page des versions](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/releases)
+   (`SHA256SUMS.txt` et `MD5SUMS.txt` donnent les empreintes des paquets).
 2. Ouvrez **Réglages → Mise à jour et sauvegarde → Mise à jour du firmware**, appuyez sur **Choisir…**, prenez le
-   fichier, puis **Envoyer et vérifier**.
+   fichier, puis **Envoyer et vérifier** (la page affiche l'état de signature du paquet : *Signé*, *Non signé :
+   accepté (avertissement)* ou *Refusé*).
 3. Quand la vérification est bonne, appuyez sur **Installer et redémarrer**. Attendez le redémarrage de la caméra
    (plusieurs minutes). Ne la débranchez pas.
 

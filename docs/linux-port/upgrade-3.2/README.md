@@ -61,9 +61,9 @@ Open, in order:
    ([sign.md](sign.md) "Remaining before 3.2 final").
 3. `tc100_rtsp` without root (device nodes by group, [privdrop.md](privdrop.md)); `httpfront` and `tc100-mqttd` keep
    root by design.
-4. Flaky host tests seen only under Docker load: `test_httpfront_native` (`sd_used_kb` compares two real `df` reads,
-   limit 512 KB) and `test_supervisord ... agree_in_real_time` (button timing). Both pass on a quiet machine and on
-   GitHub; make the first use a fixture `df` if it fails on GitHub.
+4. Flaky host tests seen only under Docker load: `test_supervisord ... agree_in_real_time` (button timing) — passes
+   on a quiet machine and on GitHub (`test_httpfront_native` `sd_used_kb` now adds measured `os.statvfs` `/tmp` drift
+   around the 512 KB window in `[up32-harden]`).
 5. Merge into `main` only on the owner's word, after the camera rounds (`main` is the 3.0.2 line).
 
 Traps met on this branch:

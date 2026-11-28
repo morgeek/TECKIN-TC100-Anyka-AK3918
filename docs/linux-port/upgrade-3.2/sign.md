@@ -174,5 +174,6 @@ qemu (`tests/test_musl_programs_qemu.py`). Local CI: `sh tests/docker/local-ci.s
 - Switch the default to `UPDATE_REQUIRE_SIG=1` in `config/boot.conf.dist` (cameras already installed keep the value of
   their `boot.conf`; the key must be in the image first, otherwise `1` falls back to `0` with a warning).
 - Camera round of the section above; then `CHANGELOG.md`, `test-queue.md` and the release notes (the main session).
-- The CI could publish the SHA-256 of the artifact in the run summary, so the owner can compare before signing (not done).
+- CI publishes `SHA256SUMS.txt` in the release artifact and the SHA-256 table in the workflow run summary
+  (`$GITHUB_STEP_SUMMARY`) so the owner can verify the `.tar` before signing (`[up32-harden]`).
 - Not covered by design: the boot chain (U-Boot is never written, no secure boot), and the SD-card install.

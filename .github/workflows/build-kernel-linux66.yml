@@ -287,6 +287,22 @@ jobs:
           sudo apt-get install -y -qq python3-aiohttp python3-ijson >/dev/null 2>&1 || echo "::warning::cve-report: python3-aiohttp / python3-ijson not installed"
           sh scripts/cve-report.sh output/release/sbom.cdx.json output/release/cve-report || true
 
+      - name: Release checksums (SHA-256 summary)
+        run: |
+          cd output/release
+          sha256sum *.zip *.tar > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            V=$(head -n 1 "$GITHUB_WORKSPACE/VERSION" | tr -d '\r')
+            S=$(echo "$GITHUB_SHA" | cut -c1-8)
+            {
+              echo "### Release package SHA-256 (\`$V\` / \`$S\`)"
+              echo '```'
+              cat SHA256SUMS.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Upload the 3.0 release
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
@@ -294,6 +310,7 @@ jobs:
           path: |
             output/release/*.zip
             output/release/*.tar
+            output/release/SHA256SUMS.txt
             output/release/sbom.cdx.json
             output/release/sbom.md
             output/release/cve-report.md
@@ -321,10 +338,11 @@ jobs:
           [ "$r" = "completed success" ] || { echo "no passed CI run for $GITHUB_SHA (last seen: $r)"; exit 1; }
           cd output/release
           md5sum *.zip *.tar > MD5SUMS.txt
+          [ -s SHA256SUMS.txt ] || sha256sum *.zip *.tar > SHA256SUMS.txt
           # [up-sbom] the SBOM and the CVE report go with the release (the CVE ones may be missing: the step is non-blocking)
           EXTRA=; for f in sbom.cdx.json sbom.md cve-report.md cve-report.json; do [ -f "$f" ] && EXTRA="$EXTRA $f"; done
           PRE=; case "$GITHUB_REF_NAME" in *-rc*|*-beta*|*-alpha*) PRE=--prerelease ;; esac
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" $PRE             --title "TC100 firmware $GITHUB_REF_NAME" --notes-file "$GITHUB_WORKSPACE/v3/install/RELEASE-NOTES.md"             *.zip *.tar MD5SUMS.txt $EXTRA
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" $PRE             --title "TC100 firmware $GITHUB_REF_NAME" --notes-file "$GITHUB_WORKSPACE/v3/install/RELEASE-NOTES.md"             *.zip *.tar MD5SUMS.txt SHA256SUMS.txt $EXTRA
 
       - name: Upload Kernel Artifact
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

@@ -30,22 +30,20 @@ Contents: [1. What you need](#1-what-you-need) · [2. Download and prepare the c
 ## 2. Download and prepare the card
 
 1. **Download** `tc100-<version>-sd.zip` from the
-   [releases page](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/releases) (`MD5SUMS.txt` lists the checksums). The
-   release also holds `tc100-<version>-update.tar` (for later updates from the web page) and
+   [releases page](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/releases) (`MD5SUMS.txt` and `SHA256SUMS.txt`
+   list the checksums). The release also holds `tc100-<version>-update.tar` (for later updates from the web page) and
    `tc100-<version>-inventory.zip` (only reads what your camera is made of).
 2. **Format the card FAT32** (see step 1).
 3. **Unzip the package into the root of the card.** On Windows, "Extract all" proposes a folder name: remove it.
-4. **Camera never set up on Wi-Fi?** Create a text file named `wifi.txt` at the root of the card with two lines:
-   ```
-   SSID=your network name
-   PASSWORD=its password
-   ```
-   A camera that already knows your Wi-Fi (TECKIN app, or an earlier version of this firmware) keeps its network.
-5. **Trial mode (recommended for the first time):** create an **empty** file named `ESSAI.txt` (or `TRIAL.txt`) at the
-   root of the card.
+4. **Set up Wi-Fi (if needed):** `wifi.txt` is already shipped at the root of the card. Fill in `SSID=` and `PASSWORD=`
+   if the camera has never joined your Wi-Fi or to switch networks (left untouched with empty values, it is ignored).
+   A camera that already knows your Wi-Fi (TECKIN app, or a previous version) keeps its network (in SD trial mode on a
+   camera already running 3.0.x, the card falls back read-only to the flash Wi-Fi when `wifi.txt` is left empty).
+5. **Trial mode (recommended for the first time):** rename `ESSAI.txt.example` to `ESSAI.txt` (or create an empty file
+   named `TRIAL.txt`) at the root of the card. **Always safely eject the card** before removing it from your computer.
 
-**What you should see:** the card shows directly the folders `wifitest`, `tc100test`, `tc100-3`, `www`... and the file
-`00-LISEZ-MOI-READ-ME.txt` (the same steps in French and English).
+**What you should see:** the card shows directly the folders `wifitest`, `tc100test`, `tc100-3`, `www`... along with
+`wifi.txt`, `ESSAI.txt.example`, and `00-LISEZ-MOI-READ-ME.txt` (the same steps in French and English).
 
 **If not:** if you see one folder (for example `tc100-...-sd`) holding them, move its content up to the root of the card.
 Not sure the camera is supported? Use `tc100-<version>-inventory.zip` instead (same steps; it only writes
@@ -77,7 +75,8 @@ Not sure the camera is supported? Use `tc100-<version>-inventory.zip` instead (s
 1. Open **http://tc100/** in a browser on the same network. If that does not work, use the camera's address from your
    router's device list; it is also written in `tc100-3/ADRESSE.txt` on the card.
 2. Sign in as user `root`. The **default password is public and is given in the first file of the zip**
-   (`00-LISEZ-MOI-READ-ME.txt`) and in the release notes.
+   (`00-LISEZ-MOI-READ-ME.txt`) and in the release notes (in SD trial mode on a camera already running 3.0.x, the
+   card uses this default password until changed, not the flash password).
 3. The **setup wizard** starts. Its steps:
    - **Language and Wi-Fi**: keep the current Wi-Fi or give another network.
    - **Integration profile**: *Standalone*, or *Frigate + Home Assistant* (recommended if you use them).
@@ -142,8 +141,10 @@ card for recordings (FAT32 or exFAT). Insert it with the camera switched off: a 
 detected.
 
 **Updating later (no SD card needed):**
-1. Download `tc100-<version>-update.tar` from the [releases page](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/releases).
-2. Open **Settings → Update & backup → Firmware update**, press **Choose...**, pick the file, then **Upload & check**.
+1. Download `tc100-<version>-update.tar` from the [releases page](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/releases)
+   (`SHA256SUMS.txt` and `MD5SUMS.txt` list the package checksums).
+2. Open **Settings → Update & backup → Firmware update**, press **Choose...**, pick the file, then **Upload & check**
+   (the page shows the package signature status: *Signed*, *Unsigned: accepted (warning)*, or *Refused*).
 3. When the check passes, press **Install & reboot**. Wait for the camera to restart (several minutes). Do not unplug it.
 
 Your settings are kept. Take a **Full backup** (same page) before big changes.
