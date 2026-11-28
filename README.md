@@ -15,8 +15,10 @@ the camera.
 **Guides:** [Installation guide](docs/install.md) · [Guide d'installation (français)](docs/install.fr.md) ·
 [Known issues](docs/known-issues.md) · [Changelog](CHANGELOG.md)
 
-**Current release:** [3.0.1](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/releases) (2026-11-15). 3.0.2 is in
-test builds on `main`; what it changes is in the [changelog](CHANGELOG.md).
+**Current release:** [3.0.1](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/releases) (2026-11-15). `3.0.2` is in
+test builds on `main`, and **`3.2`** (`upgrade-3.2`, currently `3.2.0-rc5`) prepares the major upgrade from `3.0.2`:
+Linux 6.6.163 LTS, Buildroot 2025.02 + Mbed TLS 3.6 LTS, Ed25519 signed updates, non-root network daemons (`PRIVDROP`),
+SBOM/CVE reports and plug-and-play SD onboarding — details in the [changelog](CHANGELOG.md).
 
 ---
 
@@ -37,6 +39,9 @@ test builds on `main`; what it changes is in the [changelog](CHANGELOG.md).
 - **Recording on the microSD card** (off until you switch it on): MP4 files with sound, by default only while Frigate is
   not receiving the video (a backup for network cuts), or all the time, or on motion.
 - **Day and night** with IR LEDs, privacy masks, motion zones, live image tuning.
+- **Hardened 3.2 security & maintenance**: Linux 6.6.163 LTS kernel, Buildroot 2025.02.20 (`BusyBox 1.37`, `Dropbear 2026.93`,
+  `Mbed TLS 3.6.7 LTS`, `musl 1.2.6`), Ed25519-signed updates (`tc100-sigcheck`), non-root network daemons (`PRIVDROP=1`),
+  libFuzzer CI harnesses, CycloneDX SBOM and CVE reports.
 - **Easy to run**: setup wizard, English and French, light and dark theme, phone layout, **updates from the web page**
   (no SD card needed), backups, diagnostics, Wi-Fi rescue access point, safe mode after repeated crashes.
 
@@ -59,12 +64,13 @@ each step, in the **[installation guide](docs/install.md)** ([en français](docs
 1. **Download** `tc100-<version>-sd.zip` from the
    [releases](https://github.com/morgeek/TECKIN-TC100-Anyka-AK3918/releases).
 2. **Format the card FAT32** and **unzip the package to the root of the card** (the folders `wifitest`, `tc100test`,
-   `tc100-3`... must be visible directly on the card). A camera never set up on Wi-Fi also needs a `wifi.txt` file.
-3. **Try it first (recommended):** add an empty file `ESSAI.txt` (or `TRIAL.txt`) at the root of the card. The firmware
+   `tc100-3`... must be visible directly on the card). Edit the shipped `wifi.txt` at the root if needed (left untouched
+   with empty values, it is ignored). Always eject the card cleanly before removing it.
+3. **Try it first (recommended):** rename `ESSAI.txt.example` to `ESSAI.txt` (or create an empty `TRIAL.txt`) at the root of the card. The firmware
    then runs from the card only; take the card out and the camera is as before.
 4. **Card in the switched-off camera, power on, wait.** Blue LED blinking = working; red LED on = stopped, the reason is
    in `tc100-3/STATUS.txt` on the card.
-5. **Open http://tc100/** (or the address your router shows) and follow the **setup wizard**. It asks you to choose a new
+5. **Open http://tc100/** (or the address written to `tc100-3/ADRESSE.txt` / shown by your router) and follow the **setup wizard**. It asks you to choose a new
    password: the default one is public.
 6. **Install into the camera** (without `ESSAI.txt` the card does it by itself; in trial mode use Settings → Update &
    backup → *Install to flash*). From then on the camera runs without the card and updates from the web page.

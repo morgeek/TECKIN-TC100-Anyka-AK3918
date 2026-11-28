@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [3.2.0] — Major upgrade summary (jump from 3.0.2, in testing on `upgrade-3.2`)
+
+### Kernel & Base System
+- **Linux 6.6.0 → 6.6.163 LTS (`[up-kernel]`):** all 25 board/driver patches rebased onto the latest upstream 6.6.y LTS release (`oipc.img` ~1.81 MiB, keeping margin inside the 2 MiB flash partition).
+- **Buildroot 2024.02.9 → 2025.02.20 (`[up-base]`):** upgraded BusyBox (`1.37`), Dropbear (`2026.93`), `wpa_supplicant` / `hostapd` (`2.12`), and `curl` (`8.23`); custom free C daemons upgraded from `musl 1.2.4` to `1.2.6`, with build-time shared-library verification (`check-needed.sh`).
+- **Mbed TLS 2.28.9 → 3.6.7 LTS:** replaced the unmaintained 2.28 TLS branch and ported the WebRTC gateway (`src/whep/tc100_whep.c`) DTLS-SRTP glue to the 3.6 API.
+
+### Security & Supply Chain
+- **Ed25519 signed updates (`[up-sign]`):** `tc100-sigcheck` (Monocypher 4.0.2) + `scripts/sign_update.py` + `SHA256SUMS.txt` CI summary (`$GITHUB_STEP_SUMMARY`). `update66.sh` verifies `SHA256SUMS.sig` and `SHA256SUMS` before stopping services or touching flash; policy controlled by `UPDATE_REQUIRE_SIG` in `boot.conf` (`0` during RC testing, never weakened/bypassed by settings restore).
+- **Privilege drop (`[up-privdrop]`, `PRIVDROP=1` by default):** `tc100-onvifd` and `tc100-whep` run as `tc100svc` (`1001`, reading shared `user.pwd` and `rtspserver.conf` with mode `0640` group `1001`), while `tc100-mdnsd` and `tc100-logfwd` run as `tc100net` (`1002`, no secret access). `/tmp` and `/dev/shm` are hardened to `0755` root-only with kernel symlink/hardlink/fifo/regular protections enabled; `onvifd` and `whep` fail closed on credential read errors. `httpfront`, `tc100-mqttd`, and `tc100_rtsp` stay root by design.
+- **Continuous fuzzing (`[up-fuzz]`):** 13 `libFuzzer` harnesses across the RTSP, HTTP, ONVIF, MQTT, WHEP/STUN/SDP, and mDNS C parsers run in CI (caught and fixed an integer overflow on long ONVIF ISO 8601 durations such as `PT999999H`).
+- **SBOM & CVE tracking (`[up-sbom]`):** CycloneDX 1.5 SBOM (`sbom.cdx.json` / `sbom.md`) and non-blocking Buildroot/kernel CVE report (`cve-report.md/.json`) attached to every release build.
+
+### Onboarding, Reliability & Packaging
+- **Plug-and-play SD experience (`UP32-ONBOARD`, `[up32-sd-vendor]`):** shipped `wifi.txt` template (`v3/install/wifi.txt.dist`, silently ignored while empty) and `ESSAI.txt.example`; read-only flash `vendor` (`isp.conf`) mount (`SD_FLASH_VENDOR=1`) and read-only flash `cfga`/`cfgb` Wi-Fi fallback (`SD_FLASH_WIFI=1`) for SD trials on existing 3.0.x cameras; persistent SD `dropbear_ed25519_host_key`; updated FR/EN quick-start guides (`tc100-3/ADRESSE.txt`, SD default login in trial mode, safe card eject).
+- **Wi-Fi & tooling fixes:** `[wifi-rescue-gw]` fixes `_wr_gw()` on Linux 6.6 so `wlan0` default routes are excluded during AP/STA sharing; `supportbundle.cgi` uses `tar cf - . | gzip -9` for BusyBox 1.37; `tests/camera/recette.sh` handles Dropbear `2026.93` `-2` re-exec sessions and `PRIVDROP` modes; host/CI scripts, dev sources, CSS sources, and 1 kHz bench tones are excluded from `stack.sqfs` and the SD zip (`[up32-clean]`).
+
+### Upgrading from 3.0.2
+- Direct browser upgrade from `3.0.2-rc8` (`Settings -> Update & backup -> Firmware update` with `tc100-3.2.0-rcX-update.tar`) updates `stack`, `kernel`, and `initrd` while preserving all `cfga`/`cfgb` settings, logs, SSH keys, WebRTC certs, and `/vendor/isp.conf`. `PRIVDROP=1` activates automatically (adjusting `user.pwd` and `rtspserver.conf` to `0640` group `1001`). Clean rollback via `tc100-3.0.2-rc8-update.tar` (`UPDATE_REQUIRE_SIG=0`) or booting a `3.0.2` SD card remains available.
+
+---
+
 ## [3.2.0-rc5] - 2026-11-28 (branch `upgrade-3.2`; ready to flash from 3.0.2)
 
 ### Fixed
