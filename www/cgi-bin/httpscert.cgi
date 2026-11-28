@@ -8,7 +8,7 @@ if [ ! -r "$CERT_PATH" ] || [ ! -s "$CERT_PATH" ]; then
   printf 'Status: 404 Not Found\r\n'
   printf 'Content-Type: text/plain\r\n'
   printf 'Cache-Control: no-store\r\n\r\n'
-  printf 'HTTPS certificate not generated yet (enable HTTPS=1 or start https-server).\n'
+  printf 'HTTPS certificate not generated yet (HTTPS is off by default: switch it on in Services, or HTTPS=1 in boot.conf).\n'
   exit 0
 fi
 

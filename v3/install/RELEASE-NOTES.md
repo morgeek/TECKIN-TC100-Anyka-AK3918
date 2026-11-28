@@ -4,7 +4,7 @@ Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 
 ## What is new in 3.2.1-rc1 (test build, branch upgrade-3.2.1: native low-CPU HTTPS)
 Everything of 3.2.0-rc5, plus:
-- **Native low-CPU HTTPS (`https://<camera-ip>/`, port 443):** `tc100-httpsd` proxies TLS 1.2+ to `httpfront` with `ChaCha20-Poly1305` + `X25519` preferred for ARM9 without AES hardware, HTTP/1.1 `Keep-Alive` + chunked CGI framing (one handshake per tab), TLS session tickets, persistent ECDSA P-256 certificate in `/mnt/config/https-cert.pem`, and `tc100net` privilege drop. Controlled via `HTTPS=1` / `HTTPS_PORT=443` in `boot.conf`.
+- **Native low-CPU HTTPS (`https://<camera-ip>/`, port 443), off by default (switch it on in Services, or `HTTPS=1`):** `tc100-httpsd` proxies TLS 1.2+ to `httpfront` with `ChaCha20-Poly1305` + `X25519` preferred for ARM9 without AES hardware, HTTP/1.1 `Keep-Alive` + chunked CGI framing (one handshake per tab), TLS session tickets, persistent ECDSA P-256 certificate in `/mnt/config/https-cert.pem`, and `tc100net` privilege drop. Controlled via `HTTPS=1` / `HTTPS_PORT=443` in `boot.conf`.
 - **Certificate download:** one-click **HTTPS Cert (.pem)** download button added on the **Diagnostics** page (`cgi-bin/httpscert.cgi`).
 - **Web UI 3.2 security visibility & SD-trial badge:** clickable **SD trial · Install** navbar pill when booted from SD card, **Security & 3.2 runtime status** card in Diagnostics, interactive **Security & update policy** switch (`UPDATE_REQUIRE_SIG`) + Support Bundle shortcut in *Settings → Update & backup*, and removal of unused `cpuprofile.cgi`.
 

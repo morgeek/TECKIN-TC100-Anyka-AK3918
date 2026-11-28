@@ -68,7 +68,7 @@ class HttpsdPackagingAndWiringTests(unittest.TestCase):
 
     def test_runtime_config_and_boot_wiring(self):
         boot_dist = read('config/boot.conf.dist')
-        self.assertIn('HTTPS=1', boot_dist)
+        self.assertRegex(boot_dist, r'(?m)^HTTPS=0$')          # off by default (owner 2026-11-28)
         self.assertIn('HTTPS_PORT=443', boot_dist)
         self.assertIn('https-server)', read('scripts/service-switch.sh'))
         self.assertIn('https-key.pem', read('scripts/secret-modes.sh'))

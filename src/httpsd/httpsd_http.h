@@ -542,11 +542,13 @@ static inline int httpsd_build_san_der(const char *host, const char *ip_str, uin
 	if (host && host[0]) {
 		n = strlen(host);
 		if (n < 64) {
-			if (n > 6 && httpsd_ieq_n(host + n - 6, 6, ".local")) {
-				snprintf(host_local, sizeof host_local, "%s", host);
-			} else {
-				snprintf(host_local, sizeof host_local, "%s.local", host);
-			}
+			/* n < 64 and ".local" + NUL is 7 bytes: always fits in 80. Copied by length (not snprintf "%s.local"):
+			 * GCC cannot see the bound through %s and -Werror=format-truncation stopped the build (3.2.1-rc1 CI) */
+			memcpy(host_local, host, n);
+			if (n > 6 && httpsd_ieq_n(host + n - 6, 6, ".local"))
+				host_local[n] = 0;
+			else
+				memcpy(host_local + n, ".local", 7);
 		}
 	}
 	cands[0] = (host && host[0]) ? host : NULL;

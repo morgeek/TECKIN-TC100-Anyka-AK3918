@@ -217,10 +217,10 @@ Branch `upgrade-3.2` (docs/linux-port/upgrade-3.2/README.md), not `main`. Every 
 `tc100-linux66-cma16-kernel` of a run on `upgrade-3.2`); nothing is written to the flash, U-Boot and its environment are
 not touched, the way back is a power cycle (the flash firmware boots). Flash writes of this branch wait for the owner.
 
-### UP321-HTTPS Native low-CPU HTTPS reverse proxy (`tc100-httpsd`, branch `upgrade-3.2.1`, `[up321-https]`, `HTTPS=1`) — `to test` (SD / flash)
+### UP321-HTTPS Native low-CPU HTTPS reverse proxy (`tc100-httpsd`, branch `upgrade-3.2.1`, `[up321-https]`, off by default: `HTTPS=0`) — `to test` (SD / flash)
 - **What / notes:** [upgrade-3.2/https.md](upgrade-3.2/https.md): `tc100-httpsd` (`src/httpsd/tc100_httpsd.c`) on `:443 -> 127.0.0.1:80` using Mbed TLS 3.6.7 (ChaCha20-Poly1305 + X25519 preferred, TLS session tickets + 32-entry cache, HTTP/1.1 Keep-Alive + chunked CGI wrapping, `HTTPSD_MAX_HS=2`, `nice(+5)`, drops root to `tc100net` 1002:1002), persistent ECDSA P-256 cert (`/mnt/config/https-cert.pem`), `cgi-bin/httpscert.cgi` button in Diagnostics.
 - **Switch:** `HTTPS=0` in `/mnt/config/boot.conf` (and `sh /mnt/controlscripts/https-server stop`).
-- **Test:** Boot `3.2.1-rc1`, verify `ps` shows `tc100-httpsd` under `tc100net` (`1002`), open `https://<ip>/` for 5 min while RTSP H.265 streams, check `scripts/cpu-profile.sh 60`, verify `/tmp/logs/tc100_rtsp.log` shows 0 drops / 0 NR3D overflow, and download `HTTPS Cert (.pem)` from Diagnostics.
+- **Test:** Boot `3.2.1-rc1`, switch HTTPS on (Services, or `HTTPS=1`; off by default since the CI fix of 2026-11-28), verify `ps` shows `tc100-httpsd` under `tc100net` (`1002`), open `https://<ip>/` for 5 min while RTSP H.265 streams, check `scripts/cpu-profile.sh 60`, verify `/tmp/logs/tc100_rtsp.log` shows 0 drops / 0 NR3D overflow, and download `HTTPS Cert (.pem)` from Diagnostics.
 - **Pass:** Web UI loads and polls smoothly over HTTPS on one reused TLS connection, CPU headroom stays healthy, RTSP uninterrupted, `https-key.pem` stays mode `0600`.
 
 ### UP32-KERNEL Kernel 6.6.0 -> 6.6.163, the 25 patches rebased (`[up-kernel]`) — `to test` (one camera, SD, 24 h)

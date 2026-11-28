@@ -2,7 +2,10 @@
 # https-server — Control script for tc100-httpsd (low-CPU TLS 1.2+ reverse proxy on :443 -> 127.0.0.1:80).
 
 SERVICE_NAME="HTTPS Reverse Proxy"
-PIDFILE="${HTTPSD_PIDFILE:-/var/run/https-server.pid}"
+# a plain PIDFILE= line: the Services page (www/cgi-bin/scripts.cgi, FAST_PIDFILE_SERVICES) reads it without running
+# this script; HTTPSD_PIDFILE overrides it for the tests
+PIDFILE="/var/run/https-server.pid"
+[ -n "${HTTPSD_PIDFILE:-}" ] && PIDFILE="$HTTPSD_PIDFILE"
 LOG="${HTTPSD_LOG:-/tmp/logs/https-server.log}"
 BIN="${HTTPSD_BIN:-/mnt/ext/bin/tc100-httpsd}"
 [ -x "$BIN" ] || BIN="/usr/bin/tc100-httpsd"
@@ -52,13 +55,8 @@ _pid_alive()
 
 status()
 {
+  # the pidfile only, as the Services fast path reads it (start writes it; stop finds a stray daemon by name)
   _pid="$(cat "$PIDFILE" 2>/dev/null)"
-  if _pid_alive "$_pid"; then
-    echo "running (PID $_pid)"
-    return 0
-  fi
-  _pid="$(pidof tc100-httpsd 2>/dev/null)"
-  _pid="${_pid%% *}"
   if _pid_alive "$_pid"; then
     echo "running (PID $_pid)"
     return 0
@@ -82,8 +80,10 @@ health()
 start()
 {
   _en="$(bc HTTPS)"
+  # off unless switched on (owner 2026-11-28: HTTPS off by default; an absent key, a 3.0 boot.conf, is off too)
   case "$_en" in
-    0|no|off|false) echo "$SERVICE_NAME: disabled in boot.conf (HTTPS=$_en)"; return 0 ;;
+    1|yes|on|true) ;;
+    *) echo "$SERVICE_NAME: disabled in boot.conf (HTTPS=${_en:-unset})"; return 0 ;;
   esac
 
   [ -x "$BIN" ] || { echo "$SERVICE_NAME: binary missing ($BIN)" >&2; return 1; }

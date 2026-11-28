@@ -13,7 +13,7 @@
 
 ## Configuration & Certificate Download
 - `/mnt/config/boot.conf`:
-  - `HTTPS=1` (default; set `HTTPS=0` to disable)
+  - `HTTPS=0` (default since 2026-11-28, owner; an absent key is off too); `HTTPS=1` turns it on (Services page: HTTPS)
   - `HTTPS_PORT=443`
   - Optional: `HTTPS_MAX_CONNS=4`, `HTTPS_NICE=5`
 - Download the camera's public certificate for your browser or Home Assistant from **Diagnostics → HTTPS Cert (.pem)** (`cgi-bin/httpscert.cgi`, serves `/mnt/config/https-cert.pem` only).

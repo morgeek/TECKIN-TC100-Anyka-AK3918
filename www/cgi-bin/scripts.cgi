@@ -254,7 +254,7 @@ SERVICES_SYSTEM="rtsp-h26x web-server mqtt-bridge memory-guard health-snapshot b
 SERVICES_CORE="rtsp-h26x web-server memory-guard health-snapshot button-actions"
 SERVICES_ACCESS="ssh-server telnet-server ftp-server mdns wifi-rescue"
 SERVICES_INTEGRATIONS="mqtt-bridge onvif syslog-forward whep"
-FAST_PIDFILE_SERVICES=" button-actions ftp-server health-snapshot mqtt-bridge onvif rtsp-h26x sound-detection ssh-server syslog-forward telegram-bot telnet-server memory-guard wifi-rescue mdns whep "
+FAST_PIDFILE_SERVICES=" button-actions ftp-server health-snapshot mqtt-bridge onvif rtsp-h26x sound-detection ssh-server syslog-forward telegram-bot telnet-server memory-guard wifi-rescue mdns whep https-server "
 
 # port_listening PORT (same as common_functions.sh) -> 0 if a TCP socket is in LISTEN state on PORT
 # (/proc/net/tcp, no fork). A pid that is alive is not enough: a recycled PID

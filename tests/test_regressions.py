@@ -321,9 +321,9 @@ class Regressions(unittest.TestCase):
         self.assertEqual(run(code).returncode, 0)
 
     def test_audio_write_targets_audio_not_video(self):
-        source = action_cgi_text()
-        a = source.index('    conf_audioin)'); b = source.index('    isp_pro)', a)
-        block = source[a:b].replace('/mnt/bin/rwconf', 'rwconf')
+        # the arm itself (its own file), not a span of the joined command files: that span outgrew a single argument
+        # of /bin/bash -c (E2BIG, 128 KiB) once system.sh grew (3.2.1)
+        block = action_arm('conf_audioin').replace('/mnt/bin/rwconf', 'rwconf')
         args = self.base / 'rwconf-args'
         code = function('www/cgi-bin/action.cgi', 'sanitize_int_range') + '\n'
         code += 'rwconf() { printf "%s\\n" "$@" > ' + shlex.quote(str(args)) + '; };\n'
@@ -560,8 +560,11 @@ class Regressions(unittest.TestCase):
         self.assertNotIn('WEB_MODE', boot)
         self.assertNotIn('ULTRALITE_HTTP_PORT', boot)
 
-    def test_camera_never_serves_or_builds_https_for_itself(self):
-        # 3.0 serves plain HTTP on port 80 only; HTTPS is a reverse proxy on the owner's network.
+    def test_camera_https_only_through_httpsd(self):
+        # The web server itself serves plain HTTP on port 80 only. Since 3.2.1 (owner, 2026-11-28) the camera may serve
+        # HTTPS, but only through tc100-httpsd (controlscripts/https-server, off by default: HTTPS=0) and the read-only
+        # security_status of the web UI: those two are the only places allowed to name port 443. No script builds an
+        # https:// URL to the camera itself, and the 2.x HTTPS keys stay gone.
         # Outgoing https:// to third parties (ntfy, GitHub, Telegram, webhooks) is client TLS and allowed.
         files = [ROOT / 'v3/autorun-linux66.sh']
         for d in ('scripts', 'controlscripts', 'www/cgi-bin', 'src/webui/index'):
@@ -571,7 +574,9 @@ class Regressions(unittest.TestCase):
         bad = []
         for p in files:
             for n, line in enumerate(p.read_text(errors='replace').splitlines(), 1):
-                if own.search(line) or port443.search(line) or (p.name != 'migrate-rc32-unused-keys.sh' and re.search(r'WEB_MODE|ULTRALITE_HTTP_PORT|lighttpd\.pem', line)):   # (the R20-U4 migration has to name the 2.x keys it comments out)
+                rel = p.relative_to(ROOT).as_posix()
+                p443 = port443.search(line) and rel not in ('controlscripts/https-server', 'scripts/action.d/system.sh')
+                if own.search(line) or p443 or (p.name != 'migrate-rc32-unused-keys.sh' and re.search(r'WEB_MODE|ULTRALITE_HTTP_PORT|lighttpd\.pem', line)):   # (the R20-U4 migration has to name the 2.x keys it comments out)
                     bad.append('%s:%d: %s' % (p.relative_to(ROOT), n, line.strip()[:120]))
         self.assertEqual(bad, [])
         # the one place that used to build the base URL
@@ -1833,7 +1838,7 @@ class SettingsByUse(unittest.TestCase):
 
     def test_local_recording_commands(self):
         text = action_cgi_text()
-        self.assertRegex(text, r'wifi_get_ssid\|wifi_rescue_info(\|wifi_country_info)?\|local_rec_status\|sd_card_info\|md_zones_info(\|motion_heatmap)?\|rtsp_server_info(\|events_info)?(\|hw_state)?(\|mem_budget)?(\|ha_discovery_info)?(\|presence_info)?\) ;;')     # read-only: no CSRF needed
+        self.assertRegex(text, r'wifi_get_ssid\|wifi_rescue_info(\|wifi_country_info)?\|local_rec_status\|sd_card_info\|md_zones_info(\|motion_heatmap)?\|rtsp_server_info(\|events_info)?(\|hw_state)?(\|mem_budget)?(\|security_status)?(\|ha_discovery_info)?(\|presence_info)?\) ;;')     # read-only: no CSRF needed
         block = text[text.index('    set_local_recording)'):text.index('    local_rec_status)')]
         for key in ('REC_LOCAL', 'REC_WHEN', 'REC_STREAM', 'REC_SEGMENT_SEC', 'REC_RESERVE_MB'):
             self.assertIn('rewrite_config /mnt/config/boot.conf %s ' % key, block)

@@ -13,7 +13,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Software-fast cryptography on ARM926EJ-S: `ChaCha20-Poly1305` preferred over `AES-128-GCM`, `X25519` preferred over `P-256`, RFC 5077 TLS session tickets (24 h) + 32-entry server cache (1 h).
   - HTTP/1.1 `Keep-Alive` + streaming `Transfer-Encoding: chunked` upgrade for CGI responses omitting `Content-Length` so browser dashboard polling reuses one TLS session.
   - Persistent self-signed ECDSA P-256 certificate (`/mnt/config/https-cert.pem` `0644`, `/mnt/config/https-key.pem` `0600`) with SAN (`tc100`, hostname, `.local`, LAN IPv4), downloadable from **Diagnostics → HTTPS Cert (.pem)** (`www/cgi-bin/httpscert.cgi`).
-  - Privilege drop (`privdrop_opt net` -> `tc100net` 1002:1002), `NET_LAN_ONLY` / `TC100_NET_ALLOW` ACL, optional `WEB_LOCKOUT`, and `HTTPS=1` / `HTTPS_PORT=443` toggles in `config/boot.conf.dist` + `controlscripts/https-server` + `scripts/service-switch.sh`.
+  - Privilege drop (`privdrop_opt net` -> `tc100net` 1002:1002), `NET_LAN_ONLY` / `TC100_NET_ALLOW` ACL, optional `WEB_LOCKOUT`, and `HTTPS` (off by default, `HTTPS=0`) / `HTTPS_PORT=443` toggles in `config/boot.conf.dist` + `controlscripts/https-server` + `scripts/service-switch.sh`.
 - **Tests, fuzzing, and CI:** `src/httpsd/httpsd_test.c` C unit tests, `tests/test_httpsd.py`, `tests/httpsd_interop.py` (live TLS/Keep-Alive/resumption in `whep-interop`), and `tests/fuzz/fuzz_httpsd.c` + corpus seeds in CI.
 - **Web UI 3.2 visibility, SD-trial badge & cleanup:**
   - Clickable **SD trial · Install** navbar pill when running in SD trial mode, jumping directly to *Update & backup → Install to flash* ([index.html](www/index.html)).

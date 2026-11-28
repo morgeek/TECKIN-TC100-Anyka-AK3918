@@ -28,7 +28,8 @@ REBOOT_SCHEDULE_HOUR=4
 REBOOT_SCHEDULE_WEEKDAY=*
 
 # Web server: busybox httpd behind httpfront, plain HTTP on port 80, one login (root and config/user.pwd).
-# HTTPS is not served by the camera: put a reverse proxy on your network in front of it.
+# HTTPS: off by default (HTTPS=0 below); HTTPS=1 starts tc100-httpsd, a TLS reverse proxy on HTTPS_PORT in front of
+# httpfront (self-signed certificate made on the camera). A reverse proxy on your own network works as before.
 
 # Security hardening mode: FTP and telnet stay off and cannot be started from the web UI.
 SECURITY_HARDENING_MODE=0
@@ -412,6 +413,7 @@ SD_FLASH_VENDOR=1
 # Card's wifi.txt / wpa_supplicant.conf always wins. 0 turns it off.
 SD_FLASH_WIFI=1
 
-# Native low-CPU HTTPS reverse proxy (tc100-httpsd on :443 -> httpfront :80; TLS 1.2+, session tickets)
-HTTPS=1
+# Native low-CPU HTTPS reverse proxy (tc100-httpsd on :443 -> httpfront :80; TLS 1.2+, session tickets).
+# 0 (default, owner 2026-11-28) = off; 1 = on (Services page: HTTPS). An absent key is off too.
+HTTPS=0
 HTTPS_PORT=443
