@@ -358,6 +358,27 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
   - **Card rewritten with the `[up32-sd-vendor]` build (run 46133608677, sd.zip md5 06eee168e53de4e81fc55943614d0edf),**
     301 files checked by md5 on the card, `ESSAI.txt`, the Wi-Fi settings and the tester's key kept. Note for testers:
     `unzip -o` cannot replace files on a connected Mac folder where deleting is not allowed; copy in place (`cp -R`).
+- **2026-11-28 11:41, second SD trial boot with the `[up32-sd-vendor]` build (IPCAM1, uptime 1-2 min):**
+  - **`[up32-sd-vendor]`: PASS for the tuning load.** `/vendor/isp.conf` mounted from the flash (69548 bytes),
+    `/lib/firmware/anyka/isp.conf` 69548 bytes 0644, **no** `Direct firmware load ... failed` / `ISP tuning not loaded`
+    line in `dmesg` any more; sensor id 0xf23, MIPI 2 lanes, 3D-NR reference reserved. **Capture runs: `STAT cap 75-76`
+    per 5 s (15 fps), `cap_stall` 0, `exit3` 0, `starts` 1.** (So the earlier hand copy had failed for another reason;
+    the fix works as written.) `enc 0 bytes 0` only because no client plays: the LAN NVR is refused (`401` / `closed
+    after 2 s, 0 frames, no-transport`) since the SD card's `config/user.pwd` is not the flash one: expected in SD trial,
+    the encoder itself not yet seen running; to check with a client that has the card's password.
+  - **Network drops: cause confirmed on the camera (`to fix`).** All the ingredients work by hand: `carrier` 1,
+    `route -n` and `/proc/net/route` show the default route via the gateway on `wlan0`, `ping -c 1 -W 3 <gw>` returns 0.
+    But `/tmp/wifi-rescue/state` reads `ap=0 link_bad_s=120 link_good_s=0` (counting up from boot). In
+    `scripts/wifi-rescue.sh`, `STA` and `AP` both default to `wlan0` (line 31/33: rtl8xxxu has one interface), and
+    `_wr_gw` is `route -n | awk '$1 == "0.0.0.0" && $NF != "'"$AP"'" { print $2; exit }'`: the filter meant to skip the
+    access point's own route **drops the station's default route too** (same interface name), so `_wr_gw` is empty,
+    `wr_link_ok` fails every step, and after 10 min the rescue access point takes `wlan0`. Checked on the camera:
+    `AP=wlan0; route -n | awk ...` prints nothing. `net-guard`'s `gateway unreachable` lines then follow from the AP
+    holding the radio (its first one is ~40 s after each AP start). **Fix suggestion:** skip the AP filter when
+    `AP = STA` and the access point is not up (`wr_ap_up` false), or read the gateway like `net-guard` does
+    (`/proc/net/route`). Open question for the implementer: the script is the same on `main`, so why 3.0.2-rc8 on the
+    flash does not show it (is `wifi-rescue` started on a flash boot, or does `route -n` print a different last column
+    there?) — worth a `route -n` and `/tmp/wifi-rescue/state` read on a rc8 camera before fixing.
 
 ### UP32-FLASH 3.2.0-rc3 written to the flash of ONE camera (owner's decision of 2026-11-27) — `to test` (after the SD gate)
 - **What:** the web update `tc100-3.2.0-rc3-update.tar` of the CI artifact `tc100-3-release` of the rc3 run on
