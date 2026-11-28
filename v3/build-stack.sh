@@ -180,9 +180,11 @@ sdt=; [ -z "${SOURCE_DATE_EPOCH:-}" ] || sdt="-mkfs-time $SOURCE_DATE_EPOCH -all
 env -u SOURCE_DATE_EPOCH mksquashfs "$T" "$OUT/stack.sqfs" -comp xz $bcj $sdt -b 128K -noappend -all-root -quiet \
 	-p "bin/busybox s 777 0 0 /bin/busybox" \
 	-e ext/bin/mksquashfs bin/busybox scripts/build-kernel-docker.sh scripts/flash_budget.py scripts/generate_sounds.py scripts/pcm2alaw.py \
+	scripts/sbom.py scripts/cve-report.py scripts/cve-report.sh scripts/sign_update.py \
 	v3/install/envtool.c v3/install/RELEASE-NOTES.md v3/install/README-SD.txt \
 	v3/install/LISEZ-MOI.txt v3/install/LISEZ-MOI-INVENTAIRE.txt v3/install/stock-hook.sh \
 	v3/install/wifi.txt.dist v3/install/anyka-wifi.awk v3/install/known-stock.txt \
+	v3/install/update-keys/README.txt \
 	sounds/test-1k-m6.pcm sounds/test-1k-m12.pcm sounds/test-1k-m20.pcm \
 	www/css/ui.css www/css/pico-2.0.6.min.css www/css/pico-shim.css
 n=$(wc -c < "$OUT/stack.sqfs")

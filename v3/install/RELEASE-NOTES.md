@@ -6,6 +6,7 @@ Assistant, local web interface, no cloud. Read **"Is it safe?"** in the
 Everything of 3.2.0-rc4, plus:
 - **Updated acceptance checks (`tests/camera/recette.sh`):** `c_ssh_maps` checks Dropbear 2026.93 listener processes (`-2` session children re-exec without `LD_PRELOAD`), and `c_pwd_file` verifies `0640` group `1001` (`PRIVDROP=1`) / `0600` (`PRIVDROP=0`) in flash mode while skipping `vfat` SD trials.
 - **Cleaner updater messages:** updated stale `"3.0"` references in `update.cgi` and `update66.sh`.
+- **Leaner packages (`stack.sqfs` & SD zip):** excluded host/CI tools (`sbom.py`, `cve-report.*`, `sign_update.py`) from the flash image, and stripped CSS sources, 1 kHz bench tones, `envtool.c`, and duplicate installer docs from `tc100-3.2.0-rc5-sd.zip`.
 
 ## What is new in 3.2.0-rc4 (test build, branch upgrade-3.2: SD gate then UP32-FLASH)
 Everything of 3.2.0-rc3, plus:

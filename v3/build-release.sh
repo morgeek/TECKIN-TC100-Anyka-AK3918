@@ -34,6 +34,15 @@ mktar() {
 # SD card: the user space as plain files (trial mode runs it from the card), the boot images, the stock-firmware hook
 C=$OUT/sd; rm -rf "$C"; mkdir -p "$C"
 cp -r "$S/tree/." "$C/"
+# Keep runtime files and SD install helpers (busybox, mksquashfs, anyka-wifi.awk), drop host/CI scripts, CSS sources, bench tones, and v3/install duplicates
+rm -f "$C/scripts/build-kernel-docker.sh" "$C/scripts/flash_budget.py" "$C/scripts/generate_sounds.py" \
+	"$C/scripts/pcm2alaw.py" "$C/scripts/sbom.py" "$C/scripts/cve-report.py" "$C/scripts/cve-report.sh" \
+	"$C/scripts/sign_update.py" \
+	"$C/v3/install/envtool.c" "$C/v3/install/RELEASE-NOTES.md" "$C/v3/install/README-SD.txt" \
+	"$C/v3/install/LISEZ-MOI.txt" "$C/v3/install/LISEZ-MOI-INVENTAIRE.txt" "$C/v3/install/stock-hook.sh" \
+	"$C/v3/install/wifi.txt.dist" "$C/v3/install/known-stock.txt" "$C/v3/install/update-keys/README.txt" \
+	"$C/sounds/test-1k-m6.pcm" "$C/sounds/test-1k-m12.pcm" "$C/sounds/test-1k-m20.pcm" \
+	"$C/www/css/ui.css" "$C/www/css/pico-2.0.6.min.css" "$C/www/css/pico-shim.css"
 cp "$K" "$C/tc100test/c66.img"; cp "$I" "$C/tc100test/c66rd.gz"
 ( cd "$C/tc100test" && md5sum c66.img > c66.img.md5 && md5sum c66rd.gz > c66rd.gz.md5 )
 mkdir -p "$C/wifitest" "$C/tc100-3"

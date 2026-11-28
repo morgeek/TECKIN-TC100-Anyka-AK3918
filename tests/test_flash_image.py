@@ -22,10 +22,13 @@ RUNTIME = ['scripts', 'controlscripts', 'www/cgi-bin', 'v3/linux66-sd', 'bin/set
 
 
 def runtime_files():
+    skip = set(excluded())
     for p in RUNTIME:
         q = ROOT / p
         files = [q] if q.is_file() else sorted(f for f in q.rglob('*') if f.is_file() and not f.name.endswith('.gz'))
         for f in files:
+            if f.relative_to(ROOT).as_posix() in skip:
+                continue
             try:
                 yield f, f.read_text(errors='replace')
             except OSError:
@@ -77,13 +80,34 @@ class FlashImage(unittest.TestCase):
 
     def test_left_out_files_are_not_used_on_the_camera(self):
         for name in excluded():
-            if name in ('bin/busybox', 'ext/bin/mksquashfs'):
+            if name in ('bin/busybox', 'ext/bin/mksquashfs', 'v3/install/update-keys/README.txt'):
                 continue
             base = Path(name).name
             for f, text in runtime_files():
                 if f.name == base:
                     continue
-                self.assertNotIn(base, text, (name, str(f.relative_to(ROOT))))
+                code = '\n'.join(l for l in text.splitlines() if not l.lstrip().startswith('#'))
+                self.assertNotIn(base, code, (name, str(f.relative_to(ROOT))))
+
+    def test_host_and_dev_files_excluded_from_stack_and_sd_zip(self):
+        exc = set(excluded())
+        for rel in (
+            'scripts/sbom.py', 'scripts/cve-report.py', 'scripts/cve-report.sh',
+            'scripts/sign_update.py', 'v3/install/update-keys/README.txt',
+        ):
+            self.assertIn(rel, exc)
+        rel_sh = (ROOT / 'v3/build-release.sh').read_text()
+        for rel in (
+            '$C/scripts/build-kernel-docker.sh', '$C/scripts/flash_budget.py', '$C/scripts/generate_sounds.py',
+            '$C/scripts/pcm2alaw.py', '$C/scripts/sbom.py', '$C/scripts/cve-report.py', '$C/scripts/cve-report.sh',
+            '$C/scripts/sign_update.py', '$C/v3/install/envtool.c', '$C/v3/install/RELEASE-NOTES.md',
+            '$C/v3/install/README-SD.txt', '$C/v3/install/LISEZ-MOI.txt', '$C/v3/install/LISEZ-MOI-INVENTAIRE.txt',
+            '$C/v3/install/stock-hook.sh', '$C/v3/install/wifi.txt.dist', '$C/v3/install/known-stock.txt',
+            '$C/v3/install/update-keys/README.txt', '$C/sounds/test-1k-m6.pcm', '$C/www/css/ui.css',
+        ):
+            self.assertIn(rel, rel_sh)
+        for keep in ('$C/bin/busybox', '$C/ext/bin/mksquashfs', '$C/v3/install/anyka-wifi.awk'):
+            self.assertNotIn(keep, rel_sh)
 
     def test_moved_programs_come_with_the_user_space(self):
         """What leaves the RAM initramfs for ext/ (initramfs-prune.txt, "3.0 (2026-10-30)") must be in the user space

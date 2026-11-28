@@ -12,6 +12,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `c_ssh_maps`: skip per-session Dropbear 2026.93 re-exec children (`-2 <fd>`, which drop `LD_PRELOAD`) and verify the listening `dropbear` process(es) map `libnetacl-musl.so`.
   - `c_pwd_file`: expect `-rw-r-----` group `1001` (`tc100svc`) when `PRIVDROP` is enabled (and `-rw-------` when `PRIVDROP=0`), and skip cleanly on SD trial boots (`vfat` has no Unix modes; flash enforces `0600`/`0640` on tmpfs).
 - **Update wording (`www/cgi-bin/update.cgi`, `v3/install/update66.sh`):** replaced stale `"3.0"` strings in updater error/status messages with generic `"firmware"` wording.
+- **Package cleanup (`v3/build-stack.sh`, `v3/build-release.sh`):** excluded host/CI Python & shell tools (`scripts/sbom.py`, `scripts/cve-report.py`, `scripts/cve-report.sh`, `scripts/sign_update.py`) and `v3/install/update-keys/README.txt` from `stack.sqfs`, and stripped host scripts, CSS sources, 1 kHz bench tones, `envtool.c`, and duplicate `v3/install/` files from the SD release zip.
 
 ## [3.2.0-rc4] - 2026-11-28 (branch `upgrade-3.2`; rc3 plus SD trial fixes, wifi-rescue-gw, UP32-ONBOARD and supportbundle fix)
 
