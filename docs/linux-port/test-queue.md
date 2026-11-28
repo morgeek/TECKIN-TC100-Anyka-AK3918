@@ -2106,3 +2106,11 @@ Historical dated reports (2026-10-30 onward) were archived to [test-queue-archiv
 - **Observation to read:** after the switch no new `sample` row was written in the 30-50 min that followed on either camera (IPCAM2 last row at the switch, IPCAM1 last
   sample 00:04 camera clock, switch rows only on IPCAM2): the CSV may stop sampling at some point of the night (RAM file, no card); morning reading will tell.
 - Verdict at the morning reading (return to 1600 by day).
+
+### 2026-11-28 08:30 NIGHT-KBPS-DEFAULT morning reading (rc8)
+- **IPCAM2 (key absent, the test):** night 00:30-now (still night at 07:30 camera clock). 36 night `sample` rows: mean 784 kbit/s, 681-871, `kbps_set` 900, `night_kbps` 900,
+  gain 13; all under ~950. No `md_enc` line, counters 0. The default 900 is applied without the key. **Return to day not read yet** (its room is still dark): `night setting (day)` to read.
+- **IPCAM1 (key present):** night 22:05-07:25 (camera clock). 55 night `sample` rows: mean 902.6, 813-911. Return to day at 07:25: line `night setting (day): main bit rate 900 -> 1600 kbit/s`
+  in the log, switch row `kbps_set` 1600, `night_kbps` 0. No `md_enc`, counters 0. (First time the `(day)` line is read in a log.)
+- The sample cadence of `nightceil.csv` is irregular (IPCAM2: 36 rows in 7 h, gaps up to ~1 h), not a stop: noted for the implementer.
+- NIGHT-KBPS-DEFAULT: night part passes on IPCAM2; verdict once its return to 1600 by day is read.
