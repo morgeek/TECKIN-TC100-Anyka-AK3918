@@ -646,12 +646,16 @@ c_arecord() {
 c_ssh_maps() {
   _pids=$(pidof dropbear 2>/dev/null)
   if [ -z "$_pids" ]; then res SKIP "dropbear not running (ssh off)"; return; fi
-  _ok=0; _tot=0
+  _ok=0; _tot=0; _sess=0
   for _p in $_pids; do
+    # Dropbear >=2026 re-execs per session with -2 <fd> without LD_PRELOAD; the listener checks LAN access at accept.
+    _cmd=$(tr '\0' ' ' < "/proc/$_p/cmdline" 2>/dev/null)
+    case " $_cmd " in *" -2 "*) _sess=$((_sess + 1)); continue ;; esac
     _tot=$((_tot + 1))
     grep -q 'libnetacl-musl.so' "/proc/$_p/maps" 2>/dev/null && _ok=$((_ok + 1))
   done
-  res $([ "$_ok" = "$_tot" ] && echo PASS || echo FAIL) "$_ok of $_tot dropbear process(es) map libnetacl-musl.so"
+  if [ "$_tot" = 0 ]; then res FAIL "no dropbear listener found ($_sess session child(ren) skipped)"; return; fi
+  res $([ "$_ok" = "$_tot" ] && echo PASS || echo FAIL) "$_ok of $_tot dropbear listener(s) map libnetacl-musl.so ($_sess session child(ren) skipped)"
 }
 
 c_nounfiltered() {
@@ -668,9 +672,16 @@ c_console_larger() {
 
 c_pwd_file() {
   if [ ! -f /mnt/config/user.pwd ]; then res SKIP "no user.pwd (no password set)"; return; fi
-  _m=$(ls -l /mnt/config/user.pwd | cut -c1-10)
+  if [ ! -f /tmp/flashmode ]; then res SKIP "SD trial (FAT has no Unix modes; flash enforces 600/640)"; return; fi
+  _pd=$(sed -n "s/^PRIVDROP=[\"']\{0,1\}\([^\"' 	#]*\).*\$/\1/p" /mnt/config/boot.conf 2>/dev/null | tail -n 1)
+  set -- $(ls -ln /mnt/config/user.pwd 2>/dev/null)
+  _m=$1; _g=$4
   _t=$(ls /mnt/config/ 2>/dev/null | grep 'user.pwd' | grep -c tmp)
-  res $([ "$_m" = "-rw-------" ] && [ "${_t:-0}" = 0 ] && echo PASS || echo FAIL) "user.pwd mode $_m, leftover temp files ${_t:-0}"
+  case "$_pd" in
+    0|no|off|false) _want="-rw-------"; _ok=$([ "$_m" = "$_want" ] && [ "${_t:-0}" = 0 ] && echo PASS || echo FAIL) ;;
+    *) _want="-rw-r----- (gid 1001)"; _ok=$([ "$_m" = "-rw-r-----" ] && [ "$_g" = "1001" ] && [ "${_t:-0}" = 0 ] && echo PASS || echo FAIL) ;;
+  esac
+  res "$_ok" "user.pwd mode $_m group $_g (expected $_want), leftover temp files ${_t:-0}"
 }
 
 c_status_hue() {

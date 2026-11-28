@@ -498,5 +498,68 @@ class BenchTransport(unittest.TestCase):
         self.assertIn('$1 == "RESULT"', text(HOST))
 
 
+class BenchRc5Checks(unittest.TestCase):
+    """3.2 checks in tests/camera/recette.sh: Dropbear 2026.93 listener netacl check and flash-mode PRIVDROP pwd check."""
+
+    def test_c_ssh_maps_skips_reexec_session_children(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proc = Path(tmp) / 'proc'
+            for pid, cmd, maps in (
+                ('101', b'dropbear\x00-R\x00-P\x00/var/run/dropbear.pid\x00', '76f00000 libnetacl-musl.so\n'),
+                ('202', b'dropbear\x00-2\x008\x00', '76f00000 libc.so\n'),
+            ):
+                pdir = proc / pid
+                pdir.mkdir(parents=True)
+                (pdir / 'cmdline').write_bytes(cmd)
+                (pdir / 'maps').write_text(maps, encoding='utf-8')
+            fn = function_text(text(BENCH), 'c_ssh_maps').replace('"/proc/$_p', f'"{proc}/$_p')
+            resfile = Path(tmp) / 'res'
+            script = (
+                '#!/bin/sh\n'
+                f'res() {{ echo "$1|$2" > "{resfile}"; }}\n'
+                'pidof() { echo "101 202"; }\n'
+                + fn + '\nc_ssh_maps\n'
+            )
+            subprocess.run(['sh', '-c', script], check=True)
+            self.assertEqual(resfile.read_text(encoding='utf-8').strip(),
+                             'PASS|1 of 1 dropbear listener(s) map libnetacl-musl.so (1 session child(ren) skipped)')
+            # Missing preload on the listener itself must still fail
+            (proc / '101' / 'maps').write_text('76f00000 libc.so\n', encoding='utf-8')
+            subprocess.run(['sh', '-c', script], check=True)
+            self.assertTrue(resfile.read_text(encoding='utf-8').startswith('FAIL|0 of 1 '))
+
+    def test_c_pwd_file_modes_and_sd_skip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = Path(tmp)
+            cfg = t / 'config'
+            cfg.mkdir()
+            (cfg / 'user.pwd').write_text('hash\n', encoding='utf-8')
+            flashflag = t / 'flashmode'
+            resfile = t / 'res'
+            fn = (function_text(text(BENCH), 'c_pwd_file')
+                  .replace('/mnt/config', str(cfg))
+                  .replace('/tmp/flashmode', str(flashflag)))
+
+            def run_case(boot_conf, mode_str, gid_str, flash=True):
+                (cfg / 'boot.conf').write_text(boot_conf, encoding='utf-8')
+                if flash:
+                    flashflag.write_text('1', encoding='utf-8')
+                elif flashflag.exists():
+                    flashflag.unlink()
+                script = (
+                    '#!/bin/sh\n'
+                    f'res() {{ echo "$1|$2" > "{resfile}"; }}\n'
+                    f'ls() {{ if [ "$1" = "-ln" ]; then echo "{mode_str} 1 0 {gid_str} 5 Nov 28 12:00 $2"; else echo "user.pwd"; fi; }}\n'
+                    + fn + '\nc_pwd_file\n'
+                )
+                subprocess.run(['sh', '-c', script], check=True)
+                return resfile.read_text(encoding='utf-8').strip()
+
+            self.assertTrue(run_case('', '-rwxr-xr-x', '0', flash=False).startswith('SKIP|SD trial'))
+            self.assertTrue(run_case('PRIVDROP=1\n', '-rw-r-----', '1001', flash=True).startswith('PASS|user.pwd mode -rw-r----- group 1001'))
+            self.assertTrue(run_case('PRIVDROP=1\n', '-rw-------', '0', flash=True).startswith('FAIL|'))
+            self.assertTrue(run_case('PRIVDROP=0\n', '-rw-------', '0', flash=True).startswith('PASS|user.pwd mode -rw-------'))
+
+
 if __name__ == '__main__':
     unittest.main()

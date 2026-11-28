@@ -32,6 +32,10 @@ Rules for every stream (on top of `AGENTS.md`):
 
 ## State on 2026-11-28 (hand-off)
 
+**3.2.0-rc5** (`[up32-rc5]`): ready to flash from `3.0.2` via `tc100-3.2.0-rc5-update.tar`. Updates `tests/camera/recette.sh`
+(`c_ssh_maps` ignores Dropbear 2026.93 `-2` re-exec session children, `c_pwd_file` checks `0640` group `1001` under
+`PRIVDROP=1` and skips `vfat` SD trials) and replaces stale `"3.0"` strings in `update.cgi` / `update66.sh`.
+
 **3.2.0-rc4** (`[up32-rc4]`): bundles the fixes for the rc3 SD trial findings (`[up32-sd-vendor]` read-only flash `vendor`
 tuning, `[wifi-rescue-gw]` `_wr_gw()` fix excluding `wlan0` default routes, `supportbundle.cgi` `tar | gzip` for
 BusyBox 1.37) plus `UP32-ONBOARD` (shipped `wifi.txt` template + `ESSAI.txt.example`, read-only flash Wi-Fi fallback

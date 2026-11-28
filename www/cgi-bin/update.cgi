@@ -59,7 +59,7 @@ stale_lock() {
 }
 busy_or_failed() {
 	stale_lock
-	[ -e /tmp/update66.failed ] && { echo '{"ok":false,"error":"failed","message":"The last install failed half way: start the camera from the 3.0 SD card (tc100test/c66.img), then Settings -> Install to flash."}'; exit 0; }
+	[ -e /tmp/update66.failed ] && { echo '{"ok":false,"error":"failed","message":"The last install failed half way: start the camera from the SD card (tc100test/c66.img), then Settings -> Install to flash."}'; exit 0; }
 	[ -e /tmp/update66.running ] && { echo '{"ok":false,"error":"busy","message":"Already installing."}'; exit 0; }
 }
 
@@ -74,10 +74,10 @@ GET:status|GET:)
 POST:upload)
 	# never during an install: it would delete the package being written (review 2026-11-12)
 	busy_or_failed
-	[ -f /tmp/flashmode ] || { echo '{"ok":false,"error":"sd_mode","message":"Running from the SD card (trial): copy the new 3.0 package to the card and restart."}'; exit 0; }
+	[ -f /tmp/flashmode ] || { echo '{"ok":false,"error":"sd_mode","message":"Running from the SD card (trial): copy the new firmware package to the card and restart."}'; exit 0; }
 	n=${CONTENT_LENGTH:-0}
 	case "$n" in ''|*[!0-9]*) n=0 ;; esac
-	[ "$n" -gt 0 ] && [ "$n" -le $MAX_BYTES ] || { echo '{"ok":false,"error":"size","message":"Not a 3.0 update package (size)."}'; exit 0; }
+	[ "$n" -gt 0 ] && [ "$n" -le $MAX_BYTES ] || { echo '{"ok":false,"error":"size","message":"Not a valid firmware update package (size)."}'; exit 0; }
 	rm -rf "$WORK"; mkdir -p "$WORK" || { echo '{"ok":false,"error":"space","message":"Cannot store the package."}'; exit 0; }
 	# Without a card the package is kept in RAM, which holds about 6 MB next to the running services: it is unpacked
 	# as it arrives (no copy of the tar), and when the free memory is still short the services that need the most
@@ -105,7 +105,7 @@ POST:upload)
 	fi
 	head -c "$n" | ( cd "$WORK" && tar xf - VERSION stack.sqfs c66.img c66rd.gz MD5SUMS SHA256SUMS SHA256SUMS.sig 2>/dev/null )
 	t=0; for f in VERSION stack.sqfs c66.img c66rd.gz MD5SUMS; do [ -f "$WORK/$f" ] && t=$((t + $(wc -c < "$WORK/$f"))); done
-	[ "$t" -gt 0 ] || { rm -rf "$WORK"; echo '{"ok":false,"error":"upload","message":"Upload incomplete or not a 3.0 update package."}'; exit 0; }
+	[ "$t" -gt 0 ] || { rm -rf "$WORK"; echo '{"ok":false,"error":"upload","message":"Upload incomplete or not a valid firmware update package."}'; exit 0; }
 	rm -f "$SIGST"
 	r=$(sh $U check "$WORK" 2>&1)
 	if [ "$r" != ok ]; then rm -rf "$WORK"; printf '{"ok":false,"error":"invalid","message":"%s"%s}\n' "$(js "$r")" "$(sig_json)"; exit 0; fi

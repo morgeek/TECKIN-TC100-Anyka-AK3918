@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [3.2.0-rc5] - 2026-11-28 (branch `upgrade-3.2`; ready to flash from 3.0.2)
+
+### Fixed
+- **Acceptance bench for 3.2 (`tests/camera/recette.sh`):**
+  - `c_ssh_maps`: skip per-session Dropbear 2026.93 re-exec children (`-2 <fd>`, which drop `LD_PRELOAD`) and verify the listening `dropbear` process(es) map `libnetacl-musl.so`.
+  - `c_pwd_file`: expect `-rw-r-----` group `1001` (`tc100svc`) when `PRIVDROP` is enabled (and `-rw-------` when `PRIVDROP=0`), and skip cleanly on SD trial boots (`vfat` has no Unix modes; flash enforces `0600`/`0640` on tmpfs).
+- **Update wording (`www/cgi-bin/update.cgi`, `v3/install/update66.sh`):** replaced stale `"3.0"` strings in updater error/status messages with generic `"firmware"` wording.
+
 ## [3.2.0-rc4] - 2026-11-28 (branch `upgrade-3.2`; rc3 plus SD trial fixes, wifi-rescue-gw, UP32-ONBOARD and supportbundle fix)
 
 ### Fixed

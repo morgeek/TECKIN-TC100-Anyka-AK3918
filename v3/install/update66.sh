@@ -80,7 +80,7 @@ verify_sig_core() {
 # for a test on a camera started from the SD card (no flash mode needed): prints ok or the reason
 pkg_auth() {
 	D=$1
-	for f in VERSION stack.sqfs c66.img c66rd.gz MD5SUMS SHA256SUMS SHA256SUMS.sig; do [ -L "$D/$f" ] && { echo "$f is a link: not a 3.0 update package"; return 1; }; done
+	for f in VERSION stack.sqfs c66.img c66rd.gz MD5SUMS SHA256SUMS SHA256SUMS.sig; do [ -L "$D/$f" ] && { echo "$f is a link: not a valid firmware update package"; return 1; }; done
 	# authenticity first, then the sums it covers, then the md5 of flashw; nothing is written to the flash by any of them
 	r=$(verify_sig "$D") || { echo "$r"; return 1; }
 	if [ -f "$D/SHA256SUMS" ]; then
@@ -89,7 +89,7 @@ pkg_auth() {
 			{ ok = 0; for (i = 1; i <= 5; i++) if ($0 == $1 "  " f[i] || $0 == $1 " *" f[i]) { ok = 1; n[f[i]]++ }
 			  if (!ok || length($1) != 64 || $1 !~ /^[0-9a-fA-F]+$/) bad = 1 }
 			END { for (i = 1; i <= 5; i++) if (n[f[i]] != 1) bad = 1; exit bad }' "$D/SHA256SUMS" ||
-			{ sig_set "refused SHA256SUMS does not list the files of the package"; echo "SHA256SUMS does not list exactly the files of a 3.0 update package"; return 1; }
+			{ sig_set "refused SHA256SUMS does not list the files of the package"; echo "SHA256SUMS does not list exactly the files of a valid firmware update package"; return 1; }
 		# (without the applet verify_sig has already decided: warning at policy 0, refused at policy 1)
 		if command -v "$SHA256SUM" >/dev/null 2>&1; then
 		( cd "$D" && "$SHA256SUM" -c SHA256SUMS >/dev/null 2>&1 ) || { sig_set "refused the package is damaged or changed (sha256)"; echo "the package is damaged or changed (sha256)"; return 1; }
@@ -112,7 +112,7 @@ check() {
 	awk 'BEGIN { split("VERSION stack.sqfs c66.img c66rd.gz", f, " ") } NF == 0 { next }
 		{ ok = 0; for (i = 1; i <= 4; i++) if ($0 == $1 "  " f[i] || $0 == $1 " *" f[i]) ok = 1 }
 		!ok || length($1) != 32 { bad = 1 } END { exit bad }' "$D/MD5SUMS" ||
-		{ echo "MD5SUMS names other files: not a 3.0 update package"; return 1; }
+		{ echo "MD5SUMS names other files: not a valid firmware update package"; return 1; }
 	( cd "$D" && md5sum -c MD5SUMS >/dev/null 2>&1 ) || { echo "the package is damaged (md5)"; return 1; }
 	for f in stack.sqfs c66.img c66rd.gz; do sum_of "$D" $f >/dev/null || { echo "MD5SUMS has no sum for $f"; return 1; }; done
 	for p in stack:stack.sqfs kernel:c66.img initrd:c66rd.gz; do

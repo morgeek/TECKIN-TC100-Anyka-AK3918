@@ -417,19 +417,21 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
   - `AUDIT-1116-NET ssh-netacl-maps`: `1 of 2 dropbear process(es)`. The listener (`dropbear -R -P ...`) maps
     `libnetacl-musl.so`; the second process is a session started by the listener: **Dropbear 2026.93 re-executes
     itself for each connection (`-2 8` on its command line)** and the preload is not carried into that re-exec. The LAN
-    filter acts at `accept` in the listener, so the camera still refuses outside addresses; **bench to adapt** (count
-    the listener only), and worth one check that a refused address is still refused on 3.2.
+    filter acts at `accept` in the listener, so the camera still refuses outside addresses; **bench fixed in `3.2.0-rc5`
+    (`c_ssh_maps` skips `-2` session children)**, and worth one check that a refused address is still refused on 3.2.
   - `B1-ONVIF pwd-file`: `user.pwd` mode `-rwxr-xr-x`. **SD only:** the card is FAT (`vfat ... fmask=0022`), it has no
     Unix modes, so `secret-modes.sh` cannot make the secrets 600/640: on the SD trial every local user, the dropped
-    daemons included (`tc100net`, `tc100svc`), can read `user.pwd`, `wpa_supplicant.conf`, `mqtt.conf`. Low risk, but
-    it undoes PRIVDROP's point on the SD: mount the card `fmask=0077,dmask=0077` (root only) or `gid=1001,fmask=0027`
-    in SD mode. On the flash (rc8 run) the same check passes (`-rw-------`).
+    daemons included (`tc100net`, `tc100svc`), can read `user.pwd`, `wpa_supplicant.conf`, `mqtt.conf`. Note: `/mnt/sd`
+    cannot mount `fmask=0077` in SD mode because `/mnt` IS `/mnt/sd` and holds the executables/libs run by
+    `tc100svc`/`tc100net`; flash mode stores settings on tmpfs (`/mnt/config`) where `0600`/`0640` apply properly.
+    **Fixed in `3.2.0-rc5` (`c_pwd_file` checks `0640` group `1001` under `PRIVDROP=1`, `0600` under `PRIVDROP=0`, and
+    skips `vfat` SD trials).**
   - SKIP: everything that needs the web password or an MQTT host; `onvif-no-auth` of the host part fails with no SOAP
     answer on 8081 because ONVIF is off in the card's settings (on in the flash's: `autostart/onvif` in the slot).
 - **2026-11-28 12:18, update package check, read only (`[up-sign]`):** the `[up32-sd-vendor]` update tar unpacked in RAM,
   `update66.sh sigcheck` -> `ok`, `/tmp/update66.sig` = `unsigned no signature (SHA256SUMS.sig) in the package`
   (accepted: `UPDATE_REQUIRE_SIG=0`, no key in `v3/install/update-keys`), `SHA256SUMS` and md5 checked. The web upload
-  answers `sd_mode` on the SD trial, as designed; its message still says "the new 3.0 package" (wording for 3.2).
+  answers `sd_mode` on the SD trial, as designed; stale `"3.0"` wording updated in `update.cgi` and `update66.sh` for `3.2.0-rc5`.
   Still to do with the owner: a package signed by his key, then a damaged one (refused), then `UPDATE_REQUIRE_SIG=1`.
 - **Other readings of the same boot (IPCAM1, SD trial, uptime 19-37 min):** load 1.0-1.3, ~17 MB available, `/tmp` 2 %;
   `tc100_rtsp` 23 % CPU; main stream encoded at 15 fps (~570 kbit/s, `enc 75` per 5 s once a recording started),
@@ -460,17 +462,17 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
   rescue access point while the Wi-Fi works, the same ssh host key after a reboot.
 - **Pass:** the check above without any other hand step.
 
-### UP32-FLASH 3.2.0-rc4 written to the flash of ONE camera (owner's decision of 2026-11-27) — `to test` (after the rc4 SD gate)
-- **What:** the web update `tc100-3.2.0-rc4-update.tar` of the CI artifact `tc100-3-release` of the rc4 run on
+### UP32-FLASH 3.2.0-rc5 written to the flash of ONE camera (owner's decision of 2026-11-27) — `to test` (ready from 3.0.2)
+- **What:** the web update `tc100-3.2.0-rc5-update.tar` of the CI artifact `tc100-3-release` of the rc5 run on
   `upgrade-3.2` (same build as the SD test files). It writes `stack`, the kernel and the initramfs through `flashw`
   (read back, md5); U-Boot, `boot`, `mac` and the U-Boot environment are not touched.
 - **Gate before flashing (a flashed kernel that does not boot never reaches the rescue initramfs, AGENTS.md):** the
-  same rc4 booted from the SD card in RAM on that camera first, at least: UP32-KERNEL boot checks (`/proc/cmdline`
-  complete, `uname -r` 6.6.163, video 1080p and 720p, audio, Wi-Fi signal close to the flash kernel's, clean `dmesg`)
-  and one hour of streaming, and UP32-BASE steps Wi-Fi join, ssh and web UI + `UP32-ONBOARD`. Owner near the camera; the SD card in it
+  same rc4/rc5 line booted from the SD card in RAM on that camera first (UP32-KERNEL boot checks `/proc/cmdline`
+  complete, `uname -r` 6.6.163, video 1080p and 720p, audio, Wi-Fi signal close to the flash kernel's, clean `dmesg`,
+  safe recette bench PASS, UP32-BASE + `UP32-ONBOARD`). Owner near the camera; the SD card in it
   (the update saves each partition to the card first, `flashw -b`; no card = only with "install without a backup").
-- **Install:** web UI, Settings -> Update & backup, upload the tar. The 3.0.2-rc8 updater of the camera installs it
-  (it ignores the new `SHA256SUMS`). Expected: version 3.2.0-rc4 after the reboot, settings kept.
+- **Install:** web UI, Settings -> Update & backup, upload `tc100-3.2.0-rc5-update.tar`. The 3.0.2-rc8 updater of the camera installs it
+  (it ignores the new `SHA256SUMS`). Expected: version 3.2.0-rc5 after the reboot, settings kept.
 - **Switch:** none: the way back is a write of the previous package (below). Each partition is written only after the
   owner confirms it at the time of the update (AGENTS.md: explicit agreement per partition write).
 - **Ways back:** (1) web update with `tc100-3.0.2-rc8-update.tar` (the 3.2 updater accepts an unsigned package at
