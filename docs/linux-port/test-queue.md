@@ -530,7 +530,8 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
     `autostart` entry for it), while the SD package's default is on: that is why 3.0.2-rc8 on the flash never showed the
     false rescue AP. The fix is therefore not exercised on this flash; to check it on the flash, switch the rescue on
     (Services) and read `/tmp/wifi-rescue/state` for an hour.
-  - Still to do: the owner's web login, Frigate picture, MQTT/Home Assistant, ONVIF, WebRTC live view, a day/night
+  - **Owner, 12:44: web login OK, Frigate OK, Home Assistant (MQTT) OK** on 3.2.0-rc4 from the flash.
+  - Still to do: ONVIF, WebRTC live view, a day/night
     switch, 48 h on the flash (pass of UP32-FLASH), then IPCAM2.
 
 ### UP32-SBOM SBOM and CVE report in every build (`[up-sbom]`) — `CI only` (nothing on the camera)
