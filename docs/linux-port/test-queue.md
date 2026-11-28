@@ -2096,3 +2096,13 @@ Historical dated reports (2026-10-30 onward) were archived to [test-queue-archiv
   `starts=1`, all 0, `user.pwd` mode 600, default route back. Settings kept: `rtsp.env` md5 prefixes unchanged (IPCAM1 181748783257 with its
   `RTSP_NIGHT_KBPS=900` line, IPCAM2 bf72029f2d2f with **no** `RTSP_NIGHT_KBPS` line: NIGHT-KBPS-DEFAULT test condition met).
 - Plan for NIGHT-KBPS-DEFAULT: IPCAM2 evening switch (copy the `night setting (night)` line within the hour), night sample rows, morning return to 1600.
+
+### 2026-11-28 02:00 NIGHT-KBPS-DEFAULT evening/night reading (rc8 on both cameras, IPCAM2 without the key, IPCAM1 with its `RTSP_NIGHT_KBPS=900` line)
+- **IPCAM2 (key absent, the test):** night at 01:30 Paris (00:30 camera clock). The line **`night setting (night): main bit rate 1600 -> 900 kbit/s`** is in the log
+  (found in `tc100_rtsp.log.1`, the 1 MB log had rotated 15 min later: copied here). Switch row of `nightceil.csv`: `kbps_set` 900, `night_kbps` 900,
+  `main_kbps` 875 at gain 13. STAT after the switch: 668, 778, 695 kbit/s (quiet room, under the ceiling). No `md_enc` line, counters 0.
+- **IPCAM1 (key present):** night since 23:05 Paris. 12 `sample` rows since the switch: mean 898.8, 848-911, gain ~13 (as on 26-27/11). STAT 800-950. No `md_enc`, counters 0.
+  No `night setting` line found in its logs this time either (as on 26/11 with the key): the line seems tied to the default, to look at.
+- **Observation to read:** after the switch no new `sample` row was written in the 30-50 min that followed on either camera (IPCAM2 last row at the switch, IPCAM1 last
+  sample 00:04 camera clock, switch rows only on IPCAM2): the CSV may stop sampling at some point of the night (RAM file, no card); morning reading will tell.
+- Verdict at the morning reading (return to 1600 by day).
