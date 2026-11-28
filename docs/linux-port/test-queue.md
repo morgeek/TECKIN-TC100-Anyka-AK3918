@@ -398,6 +398,14 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
   `/tmp/wifi-rescue/state` reads `ap=0 link_bad_s=0 link_good_s>=3600` with no rescue AP or `net-guard` outage, and
   cutting Wi-Fi still brings up the rescue AP after 10 min. *(Same bug exists in `scripts/wifi-rescue.sh` on `main`
   for any camera with `WIFI_RESCUE=1`.)*
+  - **2026-11-28 11:50, first reading on the SD trial (IPCAM1):** the fixed `scripts/wifi-rescue.sh` of `f49aaed`
+    (md5 62173ddf6963d9903efaf5f869745037) copied by hand onto the card over the rc3 one (kept as
+    `scripts/wifi-rescue.sh.rc3orig` on the card), the old watcher stopped at `link_bad_s=510`, 90 s before its
+    rescue access point, and restarted with `sh /mnt/scripts/wifi-rescue.sh run` (nothing restarted it by itself).
+    Right after: `ap=0 link_bad_s=0 link_good_s=30`; past the 10-min boot mark: `link_good_s=120`, no rescue AP line
+    and no `net-guard` line in `important.log`. **Early PASS on the SD**; still to do: the 60-min reading
+    (`link_good_s>=3600`), the real Wi-Fi cut (rescue AP after 10 min, by the owner), the CI build of `f49aaed` instead of
+    the hand copy, then the same on the flash (UP32-FLASH).
 
 ### UP32-FLASH 3.2.0-rc3 written to the flash of ONE camera (owner's decision of 2026-11-27) — `to test` (after the SD gate)
 - **What:** the web update `tc100-3.2.0-rc3-update.tar` of the CI artifact `tc100-3-release` of the rc3 run on
