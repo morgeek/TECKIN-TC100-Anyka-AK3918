@@ -407,6 +407,37 @@ not touched, the way back is a power cycle (the flash firmware boots). Flash wri
     (`link_good_s>=3600`), the real Wi-Fi cut (rescue AP after 10 min, by the owner), the CI build of `f49aaed` instead of
     the hand copy, then the same on the flash (UP32-FLASH).
 
+- **2026-11-28 12:15, recette bench (safe checks, the bench of this branch) on the SD trial of IPCAM1 (`[up32-sd-vendor]`
+  build, fixed `wifi-rescue.sh` copied by hand), no web password, no MQTT host:** `PASS 18 FAIL 3 SKIP 55`, 711 s.
+  `GLOBAL config-unchanged` PASS. The three FAIL read against `recette.log` and the rc8 runs:
+  - `AUDIT-1116-VENCIRQ irq-sample`: irq +1180 for 900 pictures in 60 s (ratio 1.31; rc8 on IPCAM1: +1448 for 1214, 1.19,
+    PASS). Same absolute surplus (~4-5 interrupts a second) on both: most likely the hardware JPEG pictures of the web
+    page (not in STAT, the bench says so), which weigh more when only the main stream is encoded (no client: `sub_enc +0`).
+    **Probable bench artefact**; to read again with a viewer on both streams before calling it a lost interrupt.
+  - `AUDIT-1116-NET ssh-netacl-maps`: `1 of 2 dropbear process(es)`. The listener (`dropbear -R -P ...`) maps
+    `libnetacl-musl.so`; the second process is a session started by the listener: **Dropbear 2026.93 re-executes
+    itself for each connection (`-2 8` on its command line)** and the preload is not carried into that re-exec. The LAN
+    filter acts at `accept` in the listener, so the camera still refuses outside addresses; **bench to adapt** (count
+    the listener only), and worth one check that a refused address is still refused on 3.2.
+  - `B1-ONVIF pwd-file`: `user.pwd` mode `-rwxr-xr-x`. **SD only:** the card is FAT (`vfat ... fmask=0022`), it has no
+    Unix modes, so `secret-modes.sh` cannot make the secrets 600/640: on the SD trial every local user, the dropped
+    daemons included (`tc100net`, `tc100svc`), can read `user.pwd`, `wpa_supplicant.conf`, `mqtt.conf`. Low risk, but
+    it undoes PRIVDROP's point on the SD: mount the card `fmask=0077,dmask=0077` (root only) or `gid=1001,fmask=0027`
+    in SD mode. On the flash (rc8 run) the same check passes (`-rw-------`).
+  - SKIP: everything that needs the web password or an MQTT host; `onvif-no-auth` of the host part fails with no SOAP
+    answer on 8081 because ONVIF is off in the card's settings (on in the flash's: `autostart/onvif` in the slot).
+- **2026-11-28 12:18, update package check, read only (`[up-sign]`):** the `[up32-sd-vendor]` update tar unpacked in RAM,
+  `update66.sh sigcheck` -> `ok`, `/tmp/update66.sig` = `unsigned no signature (SHA256SUMS.sig) in the package`
+  (accepted: `UPDATE_REQUIRE_SIG=0`, no key in `v3/install/update-keys`), `SHA256SUMS` and md5 checked. The web upload
+  answers `sd_mode` on the SD trial, as designed; its message still says "the new 3.0 package" (wording for 3.2).
+  Still to do with the owner: a package signed by his key, then a damaged one (refused), then `UPDATE_REQUIRE_SIG=1`.
+- **Other readings of the same boot (IPCAM1, SD trial, uptime 19-37 min):** load 1.0-1.3, ~17 MB available, `/tmp` 2 %;
+  `tc100_rtsp` 23 % CPU; main stream encoded at 15 fps (~570 kbit/s, `enc 75` per 5 s once a recording started),
+  recording to the card (`/mnt/DCIM`); picture right (colours, sharpness, 1080p, OSD with local time; a snapshot is on
+  the tester's side); Wi-Fi -59..-63 dBm, 0 % loss, 0 retries (`/tmp/wifi-roam`); `dmesg` clean (two harmless
+  warnings: `OF: reserved mem ... cma compatible matching fail`, wireless-extensions notice). Web server answers
+  (302 then Basic auth 401; `431` on a 5000-byte header); login itself left to the owner (`root` / `pass` on the SD).
+
 ### UP32-ONBOARD The SD package must be plug and play for a new user (owner's request of 2026-11-28) — `to test (rc4)`
 - **Why:** on the SD trial of 28/11 the owner, who knows the camera, still needed several hand steps a new user would not
   find. The SD path must work out of the card, then the same on the flash (UP32-SD-ESSAI rule: SD and flash).
